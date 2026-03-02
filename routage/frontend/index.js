@@ -153,7 +153,23 @@ function getCustomProperties(base) {
             table: eventsTable,
             shouldFieldBeAllowed: (field) => isMultipleSelect(field) || isLinkedRecord(field),
             defaultValue: eventsTable.fields.find(
+                (f) => (isMultipleSelect(f) || isLinkedRecord(f)) &&
+                       f.name.toLowerCase().includes('jour') &&
+                       !f.name.toLowerCase().includes('evenement'),
+            ) || eventsTable.fields.find(
                 (f) => (isMultipleSelect(f) || isLinkedRecord(f)) && f.name.toLowerCase().includes('jour'),
+            ),
+        },
+        {
+            key: 'joursEvenementField',
+            label: 'Champ Jours Evenement (sur Evenements)',
+            type: 'field',
+            table: eventsTable,
+            shouldFieldBeAllowed: (field) => isMultipleSelect(field) || isLinkedRecord(field),
+            defaultValue: eventsTable.fields.find(
+                (f) => (isMultipleSelect(f) || isLinkedRecord(f)) &&
+                       f.name.toLowerCase().includes('jour') &&
+                       f.name.toLowerCase().includes('evenement'),
             ),
         },
         {
@@ -201,11 +217,12 @@ function RoutageApp() {
     const siteLinkField = customPropertyValueByKey.siteLinkField;
     const canalLinkField = customPropertyValueByKey.canalLinkField;
     const joursField = customPropertyValueByKey.joursField;
+    const joursEvenementField = customPropertyValueByKey.joursEvenementField;
     const dateDebutField = customPropertyValueByKey.dateDebutField;
     const dateFinField = customPropertyValueByKey.dateFinField;
 
     const [selectedSiteId, setSelectedSiteId] = useState('__all__');
-    const [selectedWeekId, setSelectedWeekId] = useState('__all__');
+    const [selectedWeekId, setSelectedWeekId] = useState(null);
     const [selectedCanalId, setSelectedCanalId] = useState('__all__');
 
     const canExpand = eventsTable && eventsTable.hasPermissionToExpandRecords();
@@ -213,6 +230,24 @@ function RoutageApp() {
     const allConfigured =
         eventsTable && weeksTable && blocsTable && sitesTable && canalsTable &&
         weekLinkField && blocLinkField && siteLinkField && canalLinkField && joursField && dateDebutField;
+
+    // Auto-detect current week
+    const currentWeekId = useMemo(() => {
+        if (!dateDebutField || !weekRecords) return null;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        for (const wr of weekRecords) {
+            const start = parseAirtableDate(wr.getCellValue(dateDebutField));
+            const end = dateFinField ? parseAirtableDate(wr.getCellValue(dateFinField)) : null;
+            if (start) {
+                const endDate = end || new Date(start.getTime() + 6 * 86400000);
+                if (today >= start && today <= endDate) return wr.id;
+            }
+        }
+        return null;
+    }, [weekRecords, dateDebutField, dateFinField]);
+
+    const effectiveWeekId = selectedWeekId === null ? (currentWeekId || '__all__') : selectedWeekId;
 
     // Build a lookup of event records by ID for expandRecord
     const eventRecordsById = useMemo(() => {
@@ -280,6 +315,14 @@ function RoutageApp() {
                 }
             }
 
+            const joursEvenementValue = joursEvenementField ? event.getCellValue(joursEvenementField) : null;
+            const eventDays = new Set();
+            if (Array.isArray(joursEvenementValue)) {
+                for (const day of joursEvenementValue) {
+                    eventDays.add(day.name);
+                }
+            }
+
             const blocNames = new Set();
             for (const blocLink of linkedBlocs) {
                 const blocInfo = blocsMap.get(blocLink.id);
@@ -288,7 +331,7 @@ function RoutageApp() {
 
             for (const weekLink of linkedWeeks) {
                 // Week filter
-                if (selectedWeekId !== '__all__' && weekLink.id !== selectedWeekId) {
+                if (effectiveWeekId !== '__all__' && weekLink.id !== effectiveWeekId) {
                     continue;
                 }
 
@@ -308,6 +351,7 @@ function RoutageApp() {
                     eventName,
                     eventId: event.id,
                     activeDays,
+                    eventDays,
                     blocNames,
                 });
             }
@@ -321,9 +365,9 @@ function RoutageApp() {
         });
     }, [
         eventRecords, weekRecords, blocRecords,
-        weekLinkField, blocLinkField, siteLinkField, canalLinkField, joursField,
+        weekLinkField, blocLinkField, siteLinkField, canalLinkField, joursField, joursEvenementField,
         dateDebutField, dateFinField, allConfigured,
-        selectedSiteId, selectedWeekId, selectedCanalId,
+        selectedSiteId, effectiveWeekId, selectedCanalId,
     ]);
 
     // Sort week records by date for the dropdown
@@ -374,15 +418,15 @@ function RoutageApp() {
 
     // Render
     return (
-        <div className="w-full h-screen overflow-auto bg-white dark:bg-gray-gray800 p-2">
+        <div className="w-full h-screen overflow-auto bg-white dark:bg-gray-gray800 px-2">
             {/* Filters */}
-            <div className="mb-3 flex flex-wrap items-center gap-4">
+            <div className="mb-3 flex flex-wrap items-center gap-4 sticky top-0 z-10 bg-white dark:bg-gray-gray800 py-2">
                 <div className="flex items-center gap-2">
                     <label className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300">
                         Semaine :
                     </label>
                     <select
-                        value={selectedWeekId}
+                        value={effectiveWeekId}
                         onChange={(e) => setSelectedWeekId(e.target.value)}
                         className="text-sm border border-gray-gray200 dark:border-gray-gray600 rounded px-2 py-1 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
                     >
@@ -464,15 +508,15 @@ function RoutageApp() {
                                     <tr>
                                         <th
                                             rowSpan={3}
-                                            className="border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray75 dark:bg-gray-gray700 text-left px-2 py-1 font-semibold text-xs text-gray-gray600 dark:text-gray-gray300 min-w-[140px]"
+                                            className="border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray75 dark:bg-gray-gray700 text-left px-2 py-1 font-semibold text-xs text-gray-gray600 dark:text-gray-gray300 min-w-[100px]"
                                         >
                                             Nom
                                         </th>
-                                        {BLOC_ORDER.map((blocName) => (
+                                        {BLOC_ORDER.map((blocName, blocIdx) => (
                                             <th
                                                 key={blocName}
                                                 colSpan={7}
-                                                className="border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray75 dark:bg-gray-gray700 text-center px-1 py-1 font-semibold text-xs text-gray-gray600 dark:text-gray-gray300"
+                                                className={`border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray75 dark:bg-gray-gray700 text-center px-1 py-1 font-semibold text-xs text-gray-gray600 dark:text-gray-gray300${blocIdx > 0 ? ' border-l-2 border-l-gray-gray400 dark:border-l-gray-gray500' : ''}`}
                                             >
                                                 {BLOC_LABELS[blocName] || blocName}
                                             </th>
@@ -480,12 +524,12 @@ function RoutageApp() {
                                     </tr>
                                     {/* Day letter headers */}
                                     <tr>
-                                        {BLOC_ORDER.map((blocName) => (
+                                        {BLOC_ORDER.map((blocName, blocIdx) => (
                                             <React.Fragment key={blocName}>
                                                 {DAY_LABELS.map((label, idx) => (
                                                     <th
                                                         key={`${blocName}-label-${idx}`}
-                                                        className="border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray50 dark:bg-gray-gray700 text-center px-0.5 py-0.5 font-medium text-gray-gray600 dark:text-gray-gray300"
+                                                        className={`border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray50 dark:bg-gray-gray700 text-center px-0.5 py-0.5 font-medium text-gray-gray600 dark:text-gray-gray300${blocIdx > 0 && idx === 0 ? ' border-l-2 border-l-gray-gray400 dark:border-l-gray-gray500' : ''}`}
                                                         style={{width: 32, minWidth: 32}}
                                                     >
                                                         {label}
@@ -496,12 +540,12 @@ function RoutageApp() {
                                     </tr>
                                     {/* Day number headers */}
                                     <tr>
-                                        {BLOC_ORDER.map((blocName) => (
+                                        {BLOC_ORDER.map((blocName, blocIdx) => (
                                             <React.Fragment key={blocName}>
                                                 {dayNumbers.map((num, idx) => (
                                                     <th
                                                         key={`${blocName}-num-${idx}`}
-                                                        className="border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray50 dark:bg-gray-gray700 text-center px-0.5 py-0.5 font-normal text-gray-gray500 dark:text-gray-gray400"
+                                                        className={`border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray50 dark:bg-gray-gray700 text-center px-0.5 py-0.5 font-normal text-gray-gray500 dark:text-gray-gray400${blocIdx > 0 && idx === 0 ? ' border-l-2 border-l-gray-gray400 dark:border-l-gray-gray500' : ''}`}
                                                         style={{width: 32, minWidth: 32}}
                                                     >
                                                         {num}
@@ -515,32 +559,36 @@ function RoutageApp() {
                                     {/* Event rows */}
                                     {events.length === 0 && (
                                         <tr>
-                                            <td colSpan={TOTAL_COLS} className="border border-gray-gray200 dark:border-gray-gray600 px-2 text-gray-gray400 dark:text-gray-gray500" style={{height: 36}} />
+                                            <td colSpan={TOTAL_COLS} className="border border-gray-gray200 dark:border-gray-gray600 px-2 text-gray-gray400 dark:text-gray-gray500" style={{height: 18}} />
                                         </tr>
                                     )}
                                     {events.map((event, rowIdx) => (
                                         <tr
                                             key={`${weekData.weekId}-row-${rowIdx}`}
-                                            style={{height: 36, cursor: canExpand ? 'pointer' : 'default'}}
+                                            style={{height: 18, cursor: canExpand ? 'pointer' : 'default'}}
                                             className="hover:bg-blue-blueLight3 dark:hover:bg-blue-blueDark1"
                                             onClick={() => handleRowClick(event.eventId)}
                                         >
-                                            <td className="border border-gray-gray200 dark:border-gray-gray600 px-2 truncate max-w-[200px] min-w-[140px] text-gray-gray700 dark:text-gray-gray200">
+                                            <td className="border border-gray-gray200 dark:border-gray-gray600 px-2 truncate max-w-[140px] min-w-[100px] text-gray-gray700 dark:text-gray-gray200">
                                                 {event.eventName}
                                             </td>
-                                            {BLOC_ORDER.map((blocName) => {
+                                            {BLOC_ORDER.map((blocName, blocIdx) => {
                                                 const inBloc = event.blocNames.has(blocName);
                                                 return (
                                                     <React.Fragment key={blocName}>
                                                         {DAY_CODES.map((dayCode, dayIdx) => {
                                                             const isActive = inBloc && event.activeDays.has(dayCode);
+                                                            const isEventDay = isActive && event.eventDays && event.eventDays.has(dayCode);
+                                                            const blocSep = blocIdx > 0 && dayIdx === 0 ? ' border-l-2 border-l-gray-gray400 dark:border-l-gray-gray500' : '';
                                                             return (
                                                                 <td
                                                                     key={`${blocName}-${dayIdx}`}
-                                                                    className={`border border-gray-gray200 dark:border-gray-gray600 text-center ${
-                                                                        isActive
-                                                                            ? 'font-bold text-gray-gray700 dark:text-gray-gray200'
-                                                                            : ''
+                                                                    className={`border border-gray-gray200 dark:border-gray-gray600 text-center${blocSep} ${
+                                                                        isEventDay
+                                                                            ? 'font-bold text-blue-blueDark1 dark:text-cyan-cyanLight1 bg-cyan-cyanLight2 dark:bg-cyan-cyanDark1'
+                                                                            : isActive
+                                                                                ? 'font-bold text-gray-gray700 dark:text-gray-gray200'
+                                                                                : ''
                                                                     }`}
                                                                     style={{width: 32, minWidth: 32}}
                                                                 >
@@ -554,22 +602,26 @@ function RoutageApp() {
                                         </tr>
                                     ))}
                                     {/* Totals row */}
-                                    <tr style={{height: 36}}>
+                                    <tr style={{height: 18}}>
                                         <td className="border border-gray-gray200 dark:border-gray-gray600 px-2 font-semibold text-gray-gray600 dark:text-gray-gray300 bg-gray-gray50 dark:bg-gray-gray700">
                                             Total
                                         </td>
-                                        {BLOC_ORDER.map((blocName) => (
+                                        {BLOC_ORDER.map((blocName, blocIdx) => (
                                             <React.Fragment key={blocName}>
                                                 {totals[blocName].map((count, dayIdx) => {
-                                                    const overLimit = count > ALERT_THRESHOLD;
+                                                    let cellColor = 'bg-gray-gray50 dark:bg-gray-gray700 text-gray-gray600 dark:text-gray-gray300';
+                                                    if (count > 0 && count < ALERT_THRESHOLD) {
+                                                        cellColor = 'bg-green-greenLight2 dark:bg-green-greenDark1 text-green-green dark:text-green-greenLight1';
+                                                    } else if (count === ALERT_THRESHOLD) {
+                                                        cellColor = 'bg-gray-gray800 dark:bg-gray-gray900 text-white';
+                                                    } else if (count > ALERT_THRESHOLD) {
+                                                        cellColor = 'bg-red-redLight2 dark:bg-red-redDark1 text-red-red dark:text-red-redLight1';
+                                                    }
+                                                    const blocSep = blocIdx > 0 && dayIdx === 0 ? ' border-l-2 border-l-gray-gray400 dark:border-l-gray-gray500' : '';
                                                     return (
                                                         <td
                                                             key={`${blocName}-total-${dayIdx}`}
-                                                            className={`border border-gray-gray200 dark:border-gray-gray600 text-center font-semibold ${
-                                                                overLimit
-                                                                    ? 'bg-red-redLight2 dark:bg-red-redDark1 text-red-red dark:text-red-redLight1'
-                                                                    : 'bg-gray-gray50 dark:bg-gray-gray700 text-gray-gray600 dark:text-gray-gray300'
-                                                            }`}
+                                                            className={`border border-gray-gray200 dark:border-gray-gray600 text-center font-semibold${blocSep} ${cellColor}`}
                                                             style={{width: 32, minWidth: 32}}
                                                         >
                                                             {count || ''}

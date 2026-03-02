@@ -10,8 +10,8 @@ This repo contains **custom Airtable Interface Extensions**. Each subfolder is a
 - **CLI**: `@airtable/blocks-cli` (installed globally)
 - **Bundler**: managed by the SDK, entrypoint = `frontend/index.js`
 - **Styling**: Tailwind CSS (included via `style.css`), dark mode support with `dark:` prefixes
-- **Libraries**: recharts for charts, @phosphor-icons/react for icons
-- **React**: v19, explicit `import React from 'react'` required
+- **Libraries**: recharts for charts, @phosphor-icons/react for icons, supabase-js for external data
+- **React**: v19 with new JSX transform (no `import React` needed)
 
 ## Conventions
 

@@ -5,6 +5,7 @@ import {
     useRecords,
     useCustomProperties,
     expandRecord,
+    colorUtils,
 } from '@airtable/blocks/interface/ui';
 import {FieldType, Base, Field, Record} from '@airtable/blocks/interface/models';
 import MapBoxMap, {Marker, NavigationControl} from 'react-map-gl/mapbox';
@@ -18,6 +19,8 @@ interface MapViewState {
     latitude: number;
     zoom: number;
 }
+
+const DEFAULT_PIN_COLOR = '#ef4444';
 
 function MapExtensionApp() {
     const base = useBase();
@@ -61,6 +64,14 @@ function MapExtensionApp() {
                 possibleValues: textFields,
             },
             {
+                key: 'statusField',
+                type: 'field' as const,
+                label: 'Status field (pin color)',
+                table: table,
+                shouldFieldBeAllowed: (field: {id: string; config: {type: string}}) =>
+                    field.config.type === FieldType.SINGLE_SELECT,
+            },
+            {
                 key: 'autoCenterOnLoad',
                 type: 'boolean' as const,
                 label: 'Automatically center map',
@@ -97,6 +108,7 @@ function MapExtensionApp() {
     const mapboxApiKey = customPropertyValueByKey.mapboxApiKey as string;
     const labelField = customPropertyValueByKey.labelField as Field | undefined;
     const addressField = customPropertyValueByKey.addressField as Field | undefined;
+    const statusField = customPropertyValueByKey.statusField as Field | undefined;
     const zoomToPinOnClick = (customPropertyValueByKey.zoomToPinOnClick as boolean) ?? true;
     const autoCenterOnLoad = (customPropertyValueByKey.autoCenterOnLoad as boolean) ?? true;
 
@@ -112,11 +124,12 @@ function MapExtensionApp() {
                 record.id,
                 record.getCellValueAsString(labelField!),
                 record.getCellValueAsString(addressField!),
+                statusField ? record.getCellValueAsString(statusField) : '',
             ].join('::'),
         );
 
         return relevantData.join('||');
-    }, [records, labelField, addressField, isConfigured]);
+    }, [records, labelField, addressField, statusField, isConfigured]);
 
     // Use a ref to store previous hash and stable data
     const previousHashRef = useRef<string>('');
@@ -127,15 +140,33 @@ function MapExtensionApp() {
         previousHashRef.current = recordsHash;
 
         if (records && isConfigured) {
-            stableDataRef.current = records.map((record) => ({
-                id: record.id,
-                name: record.getCellValueAsString(labelField!),
-                address: record.getCellValueAsString(addressField!),
-                lat: null,
-                lng: null,
-                geoCache: null,
-                record: record,
-            }));
+            stableDataRef.current = records.map((record) => {
+                let pinColor = DEFAULT_PIN_COLOR;
+                let statusName: string | null = null;
+                if (statusField) {
+                    const cellValue = record.getCellValue(statusField) as
+                        | {id: string; name: string; color?: string}
+                        | null;
+                    if (cellValue) {
+                        statusName = cellValue.name;
+                        if (cellValue.color) {
+                            const hex = colorUtils.getHexForColor(cellValue.color);
+                            if (hex) pinColor = hex;
+                        }
+                    }
+                }
+                return {
+                    id: record.id,
+                    name: record.getCellValueAsString(labelField!),
+                    address: record.getCellValueAsString(addressField!),
+                    lat: null,
+                    lng: null,
+                    geoCache: null,
+                    record: record,
+                    pinColor,
+                    statusName,
+                };
+            });
         } else {
             stableDataRef.current = [];
         }
@@ -150,6 +181,8 @@ function MapExtensionApp() {
             name: r.name,
             address: r.address,
             record: r.record,
+            pinColor: r.pinColor,
+            statusName: r.statusName,
         }));
     }, [stableRecordsData]);
 
@@ -392,8 +425,14 @@ function MapExtensionApp() {
                                 setHoveredLocationId((prev) => (prev === location.id ? null : prev))
                             }
                         >
-                            <div className="bg-red-500 hover:bg-red-600 w-6 h-6 rounded-full border-2 border-white shadow-lg relative">
-                                <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-2 border-r-2 border-t-4 border-transparent border-t-red-500 hover:border-t-red-600"></div>
+                            <div
+                                className="w-6 h-6 rounded-full border-2 border-white shadow-lg relative"
+                                style={{backgroundColor: location.pinColor}}
+                            >
+                                <div
+                                    className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-2 border-r-2 border-t-4 border-transparent"
+                                    style={{borderTopColor: location.pinColor}}
+                                ></div>
                             </div>
                             {/* Tooltip */}
                             <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-black text-white text-sm px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-20">
@@ -417,6 +456,8 @@ export interface LocationData {
     lng: number | null;
     geoCache: string | null;
     record: Record;
+    pinColor: string;
+    statusName: string | null;
 }
 
 export enum GeocodingStatus {
@@ -430,6 +471,8 @@ type InputRecord = {
     name: string;
     address: string;
     record: Record;
+    pinColor: string;
+    statusName: string | null;
 };
 
 export function useGeocoding({
@@ -489,7 +532,7 @@ export function useGeocoding({
             const out: LocationData[] = [];
 
             for (const r of records) {
-                const {id, name, address, record} = r;
+                const {id, name, address, record, pinColor, statusName} = r;
                 if (!address) continue;
 
                 const normalizedAddress = address.toLowerCase().trim();
@@ -503,6 +546,8 @@ export function useGeocoding({
                         lng: coords.lng,
                         geoCache: normalizedAddress,
                         record,
+                        pinColor,
+                        statusName,
                     });
                 }
             }

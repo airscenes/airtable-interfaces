@@ -7,6 +7,8 @@ Custom extensions for Airtable Interfaces.
 | Extension | Description |
 |-----------|-------------|
 | `graphique_dual_axes/` | Dual-axis charts (bars + lines) for ad campaign performance analysis. 3 charts: Reach (Coverage/CPM), Traffic (Page Views/CPC), Engagement (Impressions/CTR). Includes a campaign filter dropdown. |
+| `routage/` | Event routing grid. Displays a weekly schedule matrix (AM/PM/SOIR/NUIT × 7 days) with event assignments, active day markers, event-day highlighting (cyan), color-coded totals, and filters by site/canal/week. |
+| `sales-chart/` | Sales dashboard with Supabase integration. Shows cumulative ticket sales and revenue charts per show, with multi-select representations, date presets (24h/3m/6m/1y/YTD), and city/venue filters. |
 
 ## Prerequisites
 
