@@ -11,6 +11,7 @@ This repo contains **custom Airtable Interface Extensions**. Each subfolder is a
 - **Bundler**: managed by the SDK, entrypoint = `frontend/index.js`
 - **Styling**: Tailwind CSS (included via `style.css`), dark mode support with `dark:` prefixes
 - **Libraries**: recharts for charts, @phosphor-icons/react for icons, supabase-js for external data
+- **UI Patterns**: custom multiselect dropdowns with checkboxes (no external component library), custom `<select>` dropdowns with SVG arrow
 - **React**: v19 with new JSX transform (no `import React` needed)
 
 ## Conventions
