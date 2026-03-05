@@ -12,6 +12,9 @@ This repo contains **custom Airtable Interface Extensions**. Each subfolder is a
 - **Styling**: Tailwind CSS (included via `style.css`), dark mode support with `dark:` prefixes
 - **Libraries**: recharts for charts, @phosphor-icons/react for icons, supabase-js for external data
 - **UI Patterns**: custom multiselect dropdowns with checkboxes (no external component library), custom `<select>` dropdowns with SVG arrow
+- **Select colors**: `getFieldChoices(field, base)` traverses `base.tables` to resolve single-select option colors for both direct SINGLE_SELECT fields and MULTIPLE_LOOKUP_VALUES fields; `SelectBadge` renders colored pills using `AIRTABLE_COLORS` map (30 Airtable color names → `{bg, text}`)
+- **Number formatting**: `fmtNumber(v)` and `fmtCurrency(v)` helpers using `fr-FR` locale + ` $` suffix
+- **Progress bars**: use inline `backgroundColor` style for dynamic colors (e.g. red/orange/green thresholds)
 - **React**: v19 with new JSX transform (no `import React` needed)
 
 ## Conventions

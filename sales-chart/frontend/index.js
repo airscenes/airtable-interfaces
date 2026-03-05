@@ -43,6 +43,48 @@ function formatDate(isoDate) {
   return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
 }
 
+// --- Number/currency formatters (fr-FR locale) ---
+
+const fmtNumber = (v) =>
+  v == null || (typeof v === "number" && isNaN(v)) ? "—" : Number(v).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
+
+const fmtCurrency = (v) =>
+  v == null || (typeof v === "number" && isNaN(v)) ? "—" : `${Number(v).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} $`;
+
+// --- Airtable single-select color palette ---
+
+const AIRTABLE_COLORS = {
+  blueBright:   { bg: "#2d7ff9", text: "#fff" },
+  blueLight1:   { bg: "#9cc7ff", text: "#333" },
+  blueLight2:   { bg: "#cfdfff", text: "#333" },
+  cyanBright:   { bg: "#18bfff", text: "#fff" },
+  cyanLight1:   { bg: "#77d1f3", text: "#333" },
+  cyanLight2:   { bg: "#d0f0fd", text: "#333" },
+  tealBright:   { bg: "#20d9d2", text: "#fff" },
+  tealLight1:   { bg: "#72ddc3", text: "#333" },
+  tealLight2:   { bg: "#c2f5e9", text: "#333" },
+  greenBright:  { bg: "#20c933", text: "#fff" },
+  greenLight1:  { bg: "#93e088", text: "#333" },
+  greenLight2:  { bg: "#d1f7c4", text: "#333" },
+  yellowBright: { bg: "#fcb400", text: "#333" },
+  yellowLight1: { bg: "#ffd66e", text: "#333" },
+  yellowLight2: { bg: "#ffeab6", text: "#333" },
+  orangeBright: { bg: "#ff6f2c", text: "#fff" },
+  orangeLight1: { bg: "#ffaa57", text: "#333" },
+  orangeLight2: { bg: "#fee2d5", text: "#333" },
+  redBright:    { bg: "#f82b60", text: "#fff" },
+  redLight1:    { bg: "#ff9eb7", text: "#333" },
+  redLight2:    { bg: "#ffdce5", text: "#333" },
+  pinkBright:   { bg: "#ff08c2", text: "#fff" },
+  pinkLight1:   { bg: "#f99de2", text: "#333" },
+  pinkLight2:   { bg: "#ffdaf6", text: "#333" },
+  purpleBright: { bg: "#8b46ff", text: "#fff" },
+  purpleLight1: { bg: "#cdb0ff", text: "#333" },
+  purpleLight2: { bg: "#ede2fe", text: "#333" },
+  grayBright:   { bg: "#666666", text: "#fff" },
+  gray:         { bg: "#aaaaaa", text: "#fff" },
+};
+
 // --- Custom Properties Definition ---
 
 function getCustomProperties(base) {
@@ -249,6 +291,111 @@ function getCustomProperties(base) {
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
       defaultValue: specNumericFields[5],
+    },
+    // --- Additional table columns (Representations) ---
+    {
+      key: "colTotalBilletsVendus",
+      label: "Colonne: Total de billets vendus",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("vendu") || findRepField("billet"),
+    },
+    {
+      key: "colTotalBilletsGratuits",
+      label: "Colonne: Total de billets gratuits",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("gratuit"),
+    },
+    {
+      key: "colAssistance",
+      label: "Colonne: Assistance a ce jour",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("assistance"),
+    },
+    {
+      key: "colTauxRemplissage",
+      label: "Colonne: Taux de remplissage",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("remplissage") || findRepField("taux"),
+    },
+    {
+      key: "colRevenus",
+      label: "Colonne: Revenus totaux de billetterie",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("revenu") || findRepField("billetterie"),
+    },
+    {
+      key: "colStatutRapport",
+      label: "Colonne: Statut rapport",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("rapport"),
+    },
+    {
+      key: "colObjectifRevenus",
+      label: "Colonne: Objectif revenus producteur",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("objectif"),
+    },
+    {
+      key: "colMiseAJour",
+      label: "Colonne: Mise a jour des ventes",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("mise") || findRepField("update"),
+    },
+    {
+      key: "colPriorisation",
+      label: "Colonne: Priorisation Salles (SALLES)",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("priorisation"),
+    },
+    {
+      key: "colBilleterieSalle",
+      label: "Colonne: Billetterie Salle",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("billetterie"),
+    },
+    {
+      key: "colNote",
+      label: "Colonne: Note",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("note"),
+    },
+    {
+      key: "colStatut",
+      label: "Colonne: Statut",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("statut") || findRepField("status"),
+    },
+    {
+      key: "colSiteWeb",
+      label: "Colonne: Site web",
+      type: "field",
+      table: repsTable,
+      shouldFieldBeAllowed: isAnyField,
+      defaultValue: findRepField("site") || findRepField("web"),
     },
     // --- Filter ---
     {
@@ -462,6 +609,73 @@ function SpectacleCard({ name, imageUrl, onClick }) {
         </p>
       </div>
     </div>
+  );
+}
+
+// --- Select field helper (returns { text, color }) ---
+
+function getFieldChoices(field, base) {
+  if (!field) return null;
+  try {
+    const { type, options } = field.config;
+    if (type === FieldType.SINGLE_SELECT || type === FieldType.MULTIPLE_SELECTS) {
+      return options?.choices || null;
+    }
+    if (type === FieldType.MULTIPLE_LOOKUP_VALUES) {
+      // Try embedded result choices first
+      const direct = options?.result?.options?.choices;
+      if (direct) return direct;
+      // Traverse to the linked table to find the source field's choices
+      if (base && options?.recordLinkFieldId && options?.fieldIdInLinkedTable) {
+        for (const table of base.tables) {
+          const linkField = table.fields?.find((f) => f.id === options.recordLinkFieldId);
+          const linkedTableId = linkField?.config?.options?.linkedTableId;
+          if (linkedTableId) {
+            const linkedTable = base.tables.find((t) => t.id === linkedTableId);
+            const sourceField = linkedTable?.fields?.find((f) => f.id === options.fieldIdInLinkedTable);
+            const choices = sourceField?.config?.options?.choices;
+            if (choices) return choices;
+          }
+        }
+      }
+    }
+  } catch { /* field config unavailable */ }
+  return null;
+}
+
+function getColSelect(record, field, base) {
+  if (!field) return { text: "", color: null };
+  const raw = record.getCellValue(field);
+  // Single-select: { id, name, color }
+  if (raw && typeof raw === "object" && !Array.isArray(raw) && raw.name) {
+    return { text: raw.name, color: raw.color || null };
+  }
+  // Multiselect or lookup returning [{ id, name, color }, ...]
+  if (Array.isArray(raw) && raw.length > 0 && raw[0]?.name) {
+    return { text: raw[0].name, color: raw[0].color || null };
+  }
+  // Lookup returning plain strings — resolve color via field choices
+  const text = record.getCellValueAsString(field);
+  if (text) {
+    const choices = getFieldChoices(field, base);
+    if (choices) {
+      const match = choices.find((c) => c.name === text);
+      if (match?.color) return { text, color: match.color };
+    }
+  }
+  return { text, color: null };
+}
+
+// --- SelectBadge: renders a colored pill for single-select values ---
+
+function SelectBadge({ value }) {
+  if (!value || !value.text) return <span className="text-gray-gray400">—</span>;
+  const palette = value.color ? AIRTABLE_COLORS[value.color] : null;
+  if (!palette) return <span>{value.text}</span>;
+  return (
+    <span style={{ backgroundColor: palette.bg, color: palette.text, padding: "1px 8px", borderRadius: 9999, fontSize: 11, fontWeight: 500, whiteSpace: "nowrap", display: "inline-block" }}>
+      {value.text}
+    </span>
   );
 }
 
@@ -882,16 +1096,22 @@ function DetailPage({
           </div>
           <div className="flex items-center gap-2">
             <input
-              type="date"
+              type="text"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
+              placeholder="yyyy-mm-dd"
+              pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}"
+              maxLength={10}
               style={inputStyle}
             />
             <span className="text-xs text-gray-gray400">—</span>
             <input
-              type="date"
+              type="text"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
+              placeholder="yyyy-mm-dd"
+              pattern="[0-9]{4}-[0-9]{2}-[0-9]{2}"
+              maxLength={10}
               style={inputStyle}
             />
           </div>
@@ -1099,7 +1319,7 @@ function DetailPage({
         )}
         <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm overflow-hidden border border-gray-gray100 dark:border-gray-gray600">
           <div style={{ overflowX: "auto" }}>
-            <table className="w-full text-sm text-gray-gray700 dark:text-gray-gray200" style={{ minWidth: 700 }}>
+            <table className="w-full text-sm text-gray-gray700 dark:text-gray-gray200" style={{ minWidth: 1600 }}>
               <thead>
                 <tr className="bg-gray-gray75 dark:bg-gray-gray800 text-gray-gray600 dark:text-gray-gray300 text-left text-xs">
                   <th className="px-3 py-2 w-8">
@@ -1129,6 +1349,19 @@ function DetailPage({
                   <th className="px-3 py-2 font-semibold text-right">
                     Billets dispo
                   </th>
+                  <th className="px-3 py-2 font-semibold text-right">Total vendus</th>
+                  <th className="px-3 py-2 font-semibold text-right">Total gratuits</th>
+                  <th className="px-3 py-2 font-semibold text-right">Assistance</th>
+                  <th className="px-3 py-2 font-semibold" style={{ minWidth: 120 }}>Taux remplissage</th>
+                  <th className="px-3 py-2 font-semibold text-right">Revenus billetterie</th>
+                  <th className="px-3 py-2 font-semibold">Statut rapport</th>
+                  <th className="px-3 py-2 font-semibold text-right">Objectif revenus</th>
+                  <th className="px-3 py-2 font-semibold">Mise a jour</th>
+                  <th className="px-3 py-2 font-semibold">Priorisation</th>
+                  <th className="px-3 py-2 font-semibold">Billetterie Salle</th>
+                  <th className="px-3 py-2 font-semibold">Note</th>
+                  <th className="px-3 py-2 font-semibold">Statut</th>
+                  <th className="px-3 py-2 font-semibold">Site web</th>
                   <th className="px-3 py-2 w-8"></th>
                 </tr>
               </thead>
@@ -1177,13 +1410,40 @@ function DetailPage({
                     <td className="px-3 py-2">{rep.colDateRep}</td>
                     <td className="px-3 py-2">{rep.colSalle}</td>
                     <td className="px-3 py-2">{rep.colVille}</td>
-                    <td className="px-3 py-2 text-right">{rep.colCapacite}</td>
-                    <td className="px-3 py-2 text-right">
-                      {rep.colPlacesBloques}
+                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colCapacite)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colPlacesBloques)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colBilletsDispo)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colTotalBilletsVendus)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colTotalBilletsGratuits)}</td>
+                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colAssistance)}</td>
+                    <td className="px-3 py-2" style={{ minWidth: 120 }}>
+                      {rep.colTauxRemplissage !== null ? (() => {
+                        const pct = Math.min(100, Math.round(rep.colTauxRemplissage * 100));
+                        const barColor = pct >= 80 ? "#20c933" : pct >= 50 ? "#fcb400" : "#f82b60";
+                        return (
+                          <div className="flex items-center gap-1">
+                            <div className="flex-1 bg-gray-gray200 dark:bg-gray-gray600 rounded-full h-2" style={{ minWidth: 60 }}>
+                              <div
+                                className="rounded-full h-2"
+                                style={{ width: `${pct}%`, backgroundColor: barColor }}
+                              />
+                            </div>
+                            <span className="text-xs text-gray-gray500 dark:text-gray-gray400 whitespace-nowrap">
+                              {pct}%
+                            </span>
+                          </div>
+                        );
+                      })() : "—"}
                     </td>
-                    <td className="px-3 py-2 text-right">
-                      {rep.colBilletsDispo}
-                    </td>
+                    <td className="px-3 py-2 text-right">{fmtCurrency(rep.colRevenus)}</td>
+                    <td className="px-3 py-2"><SelectBadge value={rep.colStatutRapport} /></td>
+                    <td className="px-3 py-2 text-right">{fmtCurrency(rep.colObjectifRevenus)}</td>
+                    <td className="px-3 py-2"><SelectBadge value={rep.colMiseAJour} /></td>
+                    <td className="px-3 py-2"><SelectBadge value={rep.colPriorisation} /></td>
+                    <td className="px-3 py-2"><SelectBadge value={rep.colBilleterieSalle} /></td>
+                    <td className="px-3 py-2"><SelectBadge value={rep.colNote} /></td>
+                    <td className="px-3 py-2"><SelectBadge value={rep.colStatut} /></td>
+                    <td className="px-3 py-2"><SelectBadge value={rep.colSiteWeb} /></td>
                     <td className="px-3 py-2 text-center">
                       <button
                         onClick={(e) => {
@@ -1255,6 +1515,19 @@ function SalesChartApp() {
   const kpiField5 = customPropertyValueByKey.kpiField5;
   const kpiField6 = customPropertyValueByKey.kpiField6;
   const filterStatusField = customPropertyValueByKey.filterStatusField;
+  const colTotalBilletsVendus = customPropertyValueByKey.colTotalBilletsVendus;
+  const colTotalBilletsGratuits = customPropertyValueByKey.colTotalBilletsGratuits;
+  const colAssistance = customPropertyValueByKey.colAssistance;
+  const colTauxRemplissage = customPropertyValueByKey.colTauxRemplissage;
+  const colRevenus = customPropertyValueByKey.colRevenus;
+  const colStatutRapport = customPropertyValueByKey.colStatutRapport;
+  const colObjectifRevenus = customPropertyValueByKey.colObjectifRevenus;
+  const colMiseAJour = customPropertyValueByKey.colMiseAJour;
+  const colPriorisation = customPropertyValueByKey.colPriorisation;
+  const colBilleterieSalle = customPropertyValueByKey.colBilleterieSalle;
+  const colNote = customPropertyValueByKey.colNote;
+  const colStatut = customPropertyValueByKey.colStatut;
+  const colSiteWeb = customPropertyValueByKey.colSiteWeb;
   const supabaseUrl = customPropertyValueByKey.supabaseUrl;
   const supabaseAnonKey = customPropertyValueByKey.supabaseAnonKey;
 
@@ -1350,6 +1623,12 @@ function SalesChartApp() {
           ? record.getCellValueAsString(filterStatusField)
           : "";
 
+        const getNum = (field) => {
+          if (!field) return null;
+          const v = record.getCellValue(field);
+          return typeof v === "number" ? v : null;
+        };
+
         return {
           id: record.id,
           name: repNameField
@@ -1363,9 +1642,22 @@ function SalesChartApp() {
           colDateRep: getCol(record, colDateRep),
           colSalle: getCol(record, colSalle),
           colVille: getCol(record, colVille),
-          colCapacite: getCol(record, capacityField),
-          colPlacesBloques: getCol(record, colPlacesBloques),
-          colBilletsDispo: getCol(record, colBilletsDispo),
+          colCapacite: getNum(capacityField),
+          colPlacesBloques: getNum(colPlacesBloques),
+          colBilletsDispo: getNum(colBilletsDispo),
+          colTotalBilletsVendus: getNum(colTotalBilletsVendus),
+          colTotalBilletsGratuits: getNum(colTotalBilletsGratuits),
+          colAssistance: getNum(colAssistance),
+          colTauxRemplissage: getNum(colTauxRemplissage),
+          colRevenus: getNum(colRevenus),
+          colStatutRapport: getColSelect(record, colStatutRapport, base),
+          colObjectifRevenus: getNum(colObjectifRevenus),
+          colMiseAJour: getColSelect(record, colMiseAJour, base),
+          colPriorisation: getColSelect(record, colPriorisation, base),
+          colBilleterieSalle: getColSelect(record, colBilleterieSalle, base),
+          colNote: getColSelect(record, colNote, base),
+          colStatut: getColSelect(record, colStatut, base),
+          colSiteWeb: getColSelect(record, colSiteWeb, base),
         };
       })
       .filter((r) => r.name)
@@ -1376,6 +1668,7 @@ function SalesChartApp() {
         return a.name.localeCompare(b.name, "fr");
       });
   }, [
+    base,
     repRecords,
     selectedSpectacleId,
     spectacleLinkField,
@@ -1388,6 +1681,19 @@ function SalesChartApp() {
     colVille,
     colPlacesBloques,
     colBilletsDispo,
+    colTotalBilletsVendus,
+    colTotalBilletsGratuits,
+    colAssistance,
+    colTauxRemplissage,
+    colRevenus,
+    colStatutRapport,
+    colObjectifRevenus,
+    colMiseAJour,
+    colPriorisation,
+    colBilleterieSalle,
+    colNote,
+    colStatut,
+    colSiteWeb,
     filterStatusField,
   ]);
 
