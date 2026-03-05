@@ -38,9 +38,11 @@ const MONTHS_SHORT = [
 
 function formatDate(isoDate) {
   if (!isoDate) return "";
-  const d = new Date(isoDate);
-  if (isNaN(d)) return isoDate;
-  return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`;
+  const parts = isoDate.split("-");
+  if (parts.length < 3) return isoDate;
+  const month = parseInt(parts[1], 10) - 1;
+  const day = parseInt(parts[2], 10);
+  return `${day} ${MONTHS_SHORT[month]}`;
 }
 
 // --- Number/currency formatters (fr-FR locale) ---
@@ -425,9 +427,10 @@ function getCustomProperties(base) {
 // --- Custom X-axis tick with rotation ---
 
 function CustomXAxisTick({ x, y, payload }) {
+  const label = formatDate(payload.value);
   return (
     <g transform={`translate(${x},${y})`}>
-      <title>{payload.value}</title>
+      <title>{label}</title>
       <text
         x={0}
         y={0}
@@ -437,7 +440,7 @@ function CustomXAxisTick({ x, y, payload }) {
         fontSize={10}
         transform="rotate(-45)"
       >
-        {payload.value}
+        {label}
       </text>
     </g>
   );
@@ -470,7 +473,7 @@ function SalesChart({ data, capacity, revenueCapacity, height = 500 }) {
               vertical={false}
             />
             <XAxis
-              dataKey="dateLabel"
+              dataKey="date"
               tick={<CustomXAxisTick />}
               interval="preserveStartEnd"
               height={50}
@@ -518,6 +521,7 @@ function SalesChart({ data, capacity, revenueCapacity, height = 500 }) {
                 border: "1px solid #e0e0e0",
                 boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
               }}
+              labelFormatter={formatDate}
               formatter={(value, name) => {
                 if (name === "Revenus ($)") {
                   return [
@@ -700,6 +704,7 @@ function DetailPage({
   const [dateTo, setDateTo] = useState("");
   const [filterVille, setFilterVille] = useState("");
   const [filterSalle, setFilterSalle] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
   const cacheRef = useRef(new Map());
 
   // Stable string of all rep IDs for cache key + useEffect dependency
@@ -714,15 +719,15 @@ function DetailPage({
     [selectedRepIds],
   );
 
-  // Default filters: future dates only + exclude cancelled
+  // Default filters: Statut = Confirmé, Site Web = En ligne, Date >= today
   const filteredRepsByStatus = useMemo(() => {
     if (showAll) return representations;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     return representations.filter((rep) => {
       if (rep.rawDate && rep.rawDate < today) return false;
-      if (rep.rawStatus && rep.rawStatus.toLowerCase().includes("annul"))
-        return false;
+      if (rep.rawStatus && rep.rawStatus.toLowerCase() !== "confirmé") return false;
+      if (rep.colSiteWeb?.text && rep.colSiteWeb.text.toLowerCase() !== "en ligne") return false;
       return true;
     });
   }, [representations, showAll]);
@@ -768,7 +773,8 @@ function DetailPage({
       return;
     }
 
-    const cacheKey = isAllMode ? `all_${allRepIds}` : `multi_${selectedRepIdsStr}`;
+    const today = new Date().toISOString().split("T")[0];
+    const cacheKey = isAllMode ? `all_${allRepIds}_${today}_${refreshKey}` : `multi_${selectedRepIdsStr}_${today}_${refreshKey}`;
     let didCancel = false;
 
     const fetchSales = async () => {
@@ -911,7 +917,7 @@ function DetailPage({
     return () => {
       didCancel = true;
     };
-  }, [selectedRepIdsStr, supabaseUrl, supabaseAnonKey, baseId, allRepIds]);
+  }, [selectedRepIdsStr, supabaseUrl, supabaseAnonKey, baseId, allRepIds, refreshKey]);
 
   // Filter salesData by date range (ensure at least 2 points for a visible line)
   const filteredSalesData = useMemo(() => {
@@ -1114,6 +1120,13 @@ function DetailPage({
               maxLength={10}
               style={inputStyle}
             />
+            <button
+              onClick={() => { cacheRef.current.clear(); setRefreshKey((k) => k + 1); }}
+              title="Rafraîchir les données"
+              className={`${btnBase} ${btnInactive}`}
+            >
+              ↺
+            </button>
           </div>
         </div>
 
@@ -1560,6 +1573,21 @@ function SalesChartApp() {
   // Build spectacle data with images
   const spectacles = useMemo(() => {
     if (!spectacleRecords) return [];
+
+    // Aggregate total sold per spectacle from rep records
+    const soldBySpectacle = {};
+    if (repRecords && spectacleLinkField && colTotalBilletsVendus) {
+      repRecords.forEach((rep) => {
+        const links = rep.getCellValue(spectacleLinkField);
+        if (!Array.isArray(links)) return;
+        const raw = rep.getCellValue(colTotalBilletsVendus);
+        const sold = typeof raw === "number" ? raw : parseFloat(raw) || 0;
+        links.forEach((link) => {
+          soldBySpectacle[link.id] = (soldBySpectacle[link.id] || 0) + sold;
+        });
+      });
+    }
+
     return spectacleRecords
       .map((record) => {
         let imageUrl = null;
@@ -1575,11 +1603,12 @@ function SalesChartApp() {
           id: record.id,
           name: record.name || "",
           imageUrl,
+          totalSold: soldBySpectacle[record.id] || 0,
         };
       })
       .filter((s) => s.name)
-      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
-  }, [spectacleRecords, imageField]);
+      .sort((a, b) => b.totalSold - a.totalSold);
+  }, [spectacleRecords, imageField, repRecords, spectacleLinkField, colTotalBilletsVendus]);
 
   // Filter spectacles by search
   const filteredSpectacles = useMemo(() => {

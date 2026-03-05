@@ -16,6 +16,9 @@ This repo contains **custom Airtable Interface Extensions**. Each subfolder is a
 - **Number formatting**: `fmtNumber(v)` and `fmtCurrency(v)` helpers using `fr-FR` locale + ` $` suffix
 - **Progress bars**: use inline `backgroundColor` style for dynamic colors (e.g. red/orange/green thresholds)
 - **React**: v19 with new JSX transform (no `import React` needed)
+- **Date formatting**: always parse ISO date strings directly (split `-`) instead of `new Date(isoString)` to avoid UTC→local timezone shift (off-by-one day bug in UTC-N timezones)
+- **Recharts cursor alignment**: use `dataKey="date"` (ISO string, unique) on XAxis, not `dataKey="dateLabel"` (formatted string, potentially non-unique across years); add `labelFormatter` to Tooltip
+- **Supabase cache**: keyed by `${mode}_${ids}_${today}_${refreshKey}` — auto-invalidates daily; ↺ button clears cache and increments refreshKey
 
 ## Conventions
 
