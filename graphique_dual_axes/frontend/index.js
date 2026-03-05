@@ -1,7 +1,6 @@
-import React, {useState, useMemo} from 'react';
+import {useState, useMemo} from 'react';
 import {
     initializeBlock,
-    useBase,
     useRecords,
     useCustomProperties,
 } from '@airtable/blocks/interface/ui';
@@ -13,7 +12,6 @@ import {
     YAxis,
     CartesianGrid,
     Tooltip,
-    Legend,
     ResponsiveContainer,
 } from 'recharts';
 import './style.css';
@@ -57,6 +55,14 @@ function getCustomProperties(base) {
             table,
             shouldFieldBeAllowed: isTextField,
             defaultValue: textFields[0],
+        },
+        {
+            key: 'xAxisField',
+            label: 'Identifiant pour graphique (axe X)',
+            type: 'field',
+            table,
+            shouldFieldBeAllowed: isTextField,
+            defaultValue: table.fields.find((f) => f.name.toLowerCase().includes('identifiant')) || textFields[0],
         },
         {
             key: 'filterField',
@@ -128,30 +134,29 @@ function getCustomProperties(base) {
     ];
 }
 
-// --- Truncate long labels ---
-
-function truncate(str, max) {
-    if (!str) return '';
-    return str.length > max ? str.substring(0, max) + '...' : str;
-}
-
-// --- Custom X-axis tick with truncation + tooltip on hover ---
+// --- Custom X-axis tick with horizontal word-wrap ---
 
 function CustomXAxisTick({x, y, payload}) {
-    const label = truncate(payload.value, 15);
+    const words = (payload.value || '').split(' ');
+    const lines = [];
+    let current = '';
+    for (const word of words) {
+        if (current.length + (current ? 1 : 0) + word.length > 12 && current) {
+            lines.push(current);
+            current = word;
+        } else {
+            current = current ? `${current} ${word}` : word;
+        }
+    }
+    if (current) lines.push(current);
+
     return (
         <g transform={`translate(${x},${y})`}>
             <title>{payload.value}</title>
-            <text
-                x={0}
-                y={0}
-                dy={8}
-                textAnchor="end"
-                fill="#666"
-                fontSize={10}
-                transform="rotate(-45)"
-            >
-                {label}
+            <text x={0} y={0} dy={12} textAnchor="middle" fill="#666" fontSize={10}>
+                {lines.map((line, i) => (
+                    <tspan key={i} x={0} dy={i === 0 ? 0 : '1.2em'}>{line}</tspan>
+                ))}
             </text>
         </g>
     );
@@ -163,127 +168,9 @@ function DualAxisChart({
     title, data, xKey,
     leftKey, leftLabel, leftColor,
     rightKey, rightLabel, rightColor,
-    filterField, filterOptions, selectedChartFilters, onToggleFilter,
 }) {
-    // Per-chart multiselect filtering on top of already globally-filtered data
-    const chartFilteredData = useMemo(() => {
-        if (!data) return [];
-        if (!selectedChartFilters || selectedChartFilters.length === 0 || !filterField) return data;
-        return data.filter((d) => {
-            const raw = d._raw;
-            if (!raw) return true;
-            const cellValue = raw.getCellValue(filterField);
-            if (Array.isArray(cellValue)) {
-                return cellValue.some((link) => selectedChartFilters.includes(link.name));
-            }
-            if (cellValue && typeof cellValue === 'object' && cellValue.name) {
-                return selectedChartFilters.includes(cellValue.name);
-            }
-            return selectedChartFilters.includes(raw.getCellValueAsString(filterField));
-        });
-    }, [data, selectedChartFilters, filterField]);
-
     // Strict exclusion: both metrics must be > 0
-    const filteredData = chartFilteredData.filter((d) => d[leftKey] > 0 && d[rightKey] > 0);
-
-    const [dropdownOpen, setDropdownOpen] = useState(false);
-
-    const filterDropdown = filterField && filterOptions && filterOptions.length > 0 ? (
-        <div style={{position: 'relative', display: 'inline-block'}}>
-            <button
-                onClick={() => setDropdownOpen((v) => !v)}
-                style={{
-                    fontSize: 12,
-                    padding: '4px 28px 4px 10px',
-                    borderRadius: 6,
-                    border: '1px solid #d0d5dd',
-                    backgroundColor: '#fff',
-                    color: '#333',
-                    cursor: 'pointer',
-                    appearance: 'none',
-                    backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 12 12\'%3E%3Cpath d=\'M3 5l3 3 3-3\' fill=\'none\' stroke=\'%23666\' stroke-width=\'1.5\'/%3E%3C/svg%3E")',
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 8px center',
-                    minWidth: 150,
-                    textAlign: 'left',
-                }}
-            >
-                {selectedChartFilters.length === 0
-                    ? 'Tous'
-                    : `${selectedChartFilters.length} selectionne${selectedChartFilters.length > 1 ? 's' : ''}`}
-            </button>
-            {dropdownOpen && (
-                <div
-                    style={{
-                        position: 'absolute',
-                        top: '100%',
-                        right: 0,
-                        marginTop: 4,
-                        backgroundColor: '#fff',
-                        border: '1px solid #d0d5dd',
-                        borderRadius: 6,
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                        zIndex: 50,
-                        minWidth: 200,
-                        maxHeight: 250,
-                        overflowY: 'auto',
-                    }}
-                >
-                    <label
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            padding: '6px 12px',
-                            fontSize: 12,
-                            cursor: 'pointer',
-                            borderBottom: '1px solid #eee',
-                            fontWeight: 600,
-                            color: '#333',
-                        }}
-                        onClick={() => onToggleFilter([])}
-                    >
-                        <input
-                            type="checkbox"
-                            checked={selectedChartFilters.length === 0}
-                            readOnly
-                            style={{accentColor: '#3B82F6'}}
-                        />
-                        Tous
-                    </label>
-                    {filterOptions.map((name) => (
-                        <label
-                            key={name}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 8,
-                                padding: '5px 12px',
-                                fontSize: 12,
-                                cursor: 'pointer',
-                                color: '#444',
-                            }}
-                            onClick={() => {
-                                if (selectedChartFilters.includes(name)) {
-                                    onToggleFilter(selectedChartFilters.filter((v) => v !== name));
-                                } else {
-                                    onToggleFilter([...selectedChartFilters, name]);
-                                }
-                            }}
-                        >
-                            <input
-                                type="checkbox"
-                                checked={selectedChartFilters.includes(name)}
-                                readOnly
-                                style={{accentColor: '#3B82F6'}}
-                            />
-                            {name}
-                        </label>
-                    ))}
-                </div>
-            )}
-        </div>
-    ) : null;
+    const filteredData = (data || []).filter((d) => d[leftKey] > 0 && d[rightKey] > 0);
 
     if (!filteredData || filteredData.length === 0) {
         return (
@@ -293,8 +180,7 @@ function DualAxisChart({
                         {title}
                     </h3>
                 </div>
-                {filterDropdown && <div className="mb-3">{filterDropdown}</div>}
-                <p className="text-sm text-gray-gray500">Aucune campagne avec des donnees pour ces metriques.</p>
+                <p className="text-sm text-gray-gray500">Aucune campagne avec des données pour ces métriques.</p>
             </div>
         );
     }
@@ -303,21 +189,30 @@ function DualAxisChart({
 
     return (
         <div className="mb-4 bg-white dark:bg-gray-gray700 rounded-lg p-4 shadow-sm">
-            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+            <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
                 <h3 className="text-sm font-semibold text-gray-gray700 dark:text-gray-gray200">
                     {title}
                 </h3>
             </div>
-            {filterDropdown && <div className="mb-3">{filterDropdown}</div>}
-            <div style={{width: '100%', height: 280}}>
+            <div style={{display: 'flex', justifyContent: 'center', gap: 16, fontSize: 11, marginBottom: 4, color: '#374151'}}>
+                <span style={{display: 'flex', alignItems: 'center', gap: 4}}>
+                    <span style={{display: 'inline-block', width: 12, height: 12, backgroundColor: leftColor, borderRadius: 2}} />
+                    {leftLabel}
+                </span>
+                <span style={{display: 'flex', alignItems: 'center', gap: 4}}>
+                    <span style={{display: 'inline-block', width: 12, height: 12, backgroundColor: rightColor, borderRadius: 2}} />
+                    {rightLabel}
+                </span>
+            </div>
+            <div style={{width: '100%', height: 340}}>
                 <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={filteredData} margin={{top: 5, right: 40, bottom: 60, left: 40}}>
+                    <ComposedChart data={filteredData} margin={{top: 5, right: 40, bottom: 10, left: 40}}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e8e8e8" vertical={false} />
                         <XAxis
                             dataKey={xKey}
                             tick={<CustomXAxisTick />}
                             interval={0}
-                            height={60}
+                            height={80}
                         />
                         <YAxis
                             yAxisId="left"
@@ -351,21 +246,20 @@ function DualAxisChart({
                             }}
                         />
                         <Tooltip
-                            contentStyle={{
-                                fontSize: 12,
-                                borderRadius: 8,
-                                border: '1px solid #e0e0e0',
-                                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                            content={({ active, payload, label }) => {
+                                if (!active || !payload || payload.length === 0) return null;
+                                const left = payload.find((p) => p.dataKey === leftKey);
+                                const right = payload.find((p) => p.dataKey === rightKey);
+                                const fmt = (v) => typeof v === 'number'
+                                    ? v.toLocaleString('fr-FR', {maximumFractionDigits: 2}) : v ?? '';
+                                return (
+                                    <div style={{background: '#fff', border: '1px solid #e0e0e0', borderRadius: 8, padding: '8px 12px', fontSize: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.1)'}}>
+                                        <p style={{fontWeight: 600, marginBottom: 6, color: '#374151'}}>{label}</p>
+                                        {left && <p style={{color: leftColor, margin: '2px 0'}}>{leftLabel} : {fmt(left.value)}</p>}
+                                        {right && <p style={{color: rightColor, margin: '2px 0'}}>{rightLabel} : {fmt(right.value)}</p>}
+                                    </div>
+                                );
                             }}
-                            formatter={(value, name) => {
-                                if (typeof value === 'number') {
-                                    return [value.toLocaleString('fr-FR', {maximumFractionDigits: 2}), name];
-                                }
-                                return [value, name];
-                            }}
-                        />
-                        <Legend
-                            wrapperStyle={{fontSize: 11, paddingTop: 4}}
                         />
                         <Bar
                             yAxisId="left"
@@ -401,6 +295,7 @@ function MultiAxisChartsApp() {
     const records = useRecords(table);
 
     const campaignField = customPropertyValueByKey.campaignField;
+    const xAxisField = customPropertyValueByKey.xAxisField;
     const filterField = customPropertyValueByKey.filterField;
     const blocField = customPropertyValueByKey.blocField;
     const coverageField = customPropertyValueByKey.coverageField;
@@ -410,19 +305,25 @@ function MultiAxisChartsApp() {
     const impressionsField = customPropertyValueByKey.impressionsField;
     const ctrField = customPropertyValueByKey.ctrField;
 
-    const [selectedFilter, setSelectedFilter] = useState('__all__');
+    const [selectedFilters, setSelectedFilters] = useState([]);
+    const [campaignDropdownOpen, setCampaignDropdownOpen] = useState(false);
     const [selectedBlocs, setSelectedBlocs] = useState([]);
     const [blocDropdownOpen, setBlocDropdownOpen] = useState(false);
-    const [selectedFilterReach, setSelectedFilterReach] = useState([]);
-    const [selectedFilterTraffic, setSelectedFilterTraffic] = useState([]);
-    const [selectedFilterEngagement, setSelectedFilterEngagement] = useState([]);
 
     // Extract unique values from the filter field (supports linked records, single select, and other types)
+    // Only includes campaigns that have at least one non-empty value for cpm, ctr, or cpc
     const filterOptions = useMemo(() => {
         if (!filterField || !records) return [];
+        const hasMetricData = (record) =>
+            [cpmField, ctrField, cpcField].some((f) => {
+                if (!f) return false;
+                const val = record.getCellValue(f);
+                return val !== null && val !== undefined && val !== 0 && val !== '';
+            });
         const seen = new Set();
         const options = [];
         for (const record of records) {
+            if (!hasMetricData(record)) continue;
             const cellValue = record.getCellValue(filterField);
             if (Array.isArray(cellValue)) {
                 // Linked records return an array of {id, name}
@@ -447,7 +348,7 @@ function MultiAxisChartsApp() {
             }
         }
         return options.sort();
-    }, [filterField, records]);
+    }, [filterField, records, cpmField, ctrField, cpcField]);
 
     // Extract unique values from the bloc field
     const blocOptions = useMemo(() => {
@@ -484,17 +385,17 @@ function MultiAxisChartsApp() {
         if (!records) return [];
         let result = records;
 
-        // Global campaign filter
-        if (selectedFilter !== '__all__' && filterField) {
+        // Global campaign multiselect filter
+        if (selectedFilters.length > 0 && filterField) {
             result = result.filter((record) => {
                 const cellValue = record.getCellValue(filterField);
                 if (Array.isArray(cellValue)) {
-                    return cellValue.some((link) => link.name === selectedFilter);
+                    return cellValue.some((link) => selectedFilters.includes(link.name));
                 }
                 if (cellValue && typeof cellValue === 'object' && cellValue.name) {
-                    return cellValue.name === selectedFilter;
+                    return selectedFilters.includes(cellValue.name);
                 }
-                return record.getCellValueAsString(filterField) === selectedFilter;
+                return selectedFilters.includes(record.getCellValueAsString(filterField));
             });
         }
 
@@ -513,7 +414,7 @@ function MultiAxisChartsApp() {
         }
 
         return result;
-    }, [records, selectedFilter, filterField, selectedBlocs, blocField]);
+    }, [records, selectedFilters, filterField, selectedBlocs, blocField]);
 
     if (errorState) {
         return (
@@ -523,7 +424,7 @@ function MultiAxisChartsApp() {
         );
     }
 
-    const allConfigured = campaignField && coverageField && cpmField &&
+    const allConfigured = campaignField && xAxisField && coverageField && cpmField &&
         pageViewsField && cpcField && impressionsField && ctrField;
 
     if (!allConfigured) {
@@ -560,6 +461,7 @@ function MultiAxisChartsApp() {
     const chartData = filteredRecords.map((record) => ({
         _raw: record,
         campaign: campaignField ? record.getCellValueAsString(campaignField) : '',
+        xLabel: xAxisField ? record.getCellValueAsString(xAxisField) : '',
         coverage: getValue(record, coverageField),
         cpm: getValue(record, cpmField),
         pageViews: getValue(record, pageViewsField),
@@ -581,29 +483,54 @@ function MultiAxisChartsApp() {
                             <span className="text-xs font-semibold text-gray-gray600 dark:text-gray-gray300">
                                 {filterField.name} :
                             </span>
-                            <select
-                                value={selectedFilter}
-                                onChange={(e) => setSelectedFilter(e.target.value)}
-                                style={{
-                                    fontSize: 13,
-                                    padding: '6px 32px 6px 12px',
-                                    borderRadius: 6,
-                                    border: '2px solid #d0d5dd',
-                                    backgroundColor: '#fff',
-                                    color: '#333',
-                                    cursor: 'pointer',
-                                    appearance: 'none',
-                                    backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 12 12\'%3E%3Cpath d=\'M3 5l3 3 3-3\' fill=\'none\' stroke=\'%23666\' stroke-width=\'1.5\'/%3E%3C/svg%3E")',
-                                    backgroundRepeat: 'no-repeat',
-                                    backgroundPosition: 'right 10px center',
-                                    minWidth: 180,
-                                }}
-                            >
-                                <option value="__all__">Tous ({filterOptions.length})</option>
-                                {filterOptions.map((name) => (
-                                    <option key={name} value={name}>{name}</option>
-                                ))}
-                            </select>
+                            <div style={{position: 'relative', display: 'inline-block'}}>
+                                <button
+                                    onClick={() => setCampaignDropdownOpen((v) => !v)}
+                                    style={{
+                                        fontSize: 13,
+                                        padding: '6px 32px 6px 12px',
+                                        borderRadius: 6,
+                                        border: '2px solid #d0d5dd',
+                                        backgroundColor: '#fff',
+                                        color: '#333',
+                                        cursor: 'pointer',
+                                        backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 12 12\'%3E%3Cpath d=\'M3 5l3 3 3-3\' fill=\'none\' stroke=\'%23666\' stroke-width=\'1.5\'/%3E%3C/svg%3E")',
+                                        backgroundRepeat: 'no-repeat',
+                                        backgroundPosition: 'right 10px center',
+                                        minWidth: 180,
+                                        textAlign: 'left',
+                                    }}
+                                >
+                                    {selectedFilters.length === 0
+                                        ? `Tous (${filterOptions.length})`
+                                        : `${selectedFilters.length} sélectionné${selectedFilters.length > 1 ? 's' : ''}`}
+                                </button>
+                                {campaignDropdownOpen && (
+                                    <div style={{position: 'absolute', top: '100%', right: 0, marginTop: 4, backgroundColor: '#fff', border: '1px solid #d0d5dd', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.15)', zIndex: 50, minWidth: 200, maxHeight: 250, overflowY: 'auto'}}>
+                                        <label
+                                            style={{display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', fontSize: 12, cursor: 'pointer', borderBottom: '1px solid #eee', fontWeight: 600, color: '#333'}}
+                                        >
+                                            <input type="checkbox" checked={selectedFilters.length === 0} onChange={() => setSelectedFilters([])} style={{accentColor: '#3B82F6'}} />
+                                            Tous
+                                        </label>
+                                        {filterOptions.map((name) => (
+                                            <label
+                                                key={name}
+                                                style={{display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', fontSize: 12, cursor: 'pointer', color: '#444'}}
+                                            >
+                                                <input type="checkbox" checked={selectedFilters.includes(name)} onChange={() => {
+                                                    if (selectedFilters.includes(name)) {
+                                                        setSelectedFilters(selectedFilters.filter((v) => v !== name));
+                                                    } else {
+                                                        setSelectedFilters([...selectedFilters, name]);
+                                                    }
+                                                }} style={{accentColor: '#3B82F6'}} />
+                                                {name}
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     )}
 
@@ -663,12 +590,11 @@ function MultiAxisChartsApp() {
                                                 fontWeight: 600,
                                                 color: '#333',
                                             }}
-                                            onClick={() => setSelectedBlocs([])}
                                         >
                                             <input
                                                 type="checkbox"
                                                 checked={selectedBlocs.length === 0}
-                                                readOnly
+                                                onChange={() => setSelectedBlocs([])}
                                                 style={{accentColor: '#3B82F6'}}
                                             />
                                             Tous
@@ -685,18 +611,17 @@ function MultiAxisChartsApp() {
                                                     cursor: 'pointer',
                                                     color: '#444',
                                                 }}
-                                                onClick={() => {
-                                                    if (selectedBlocs.includes(name)) {
-                                                        setSelectedBlocs(selectedBlocs.filter((v) => v !== name));
-                                                    } else {
-                                                        setSelectedBlocs([...selectedBlocs, name]);
-                                                    }
-                                                }}
                                             >
                                                 <input
                                                     type="checkbox"
                                                     checked={selectedBlocs.includes(name)}
-                                                    readOnly
+                                                    onChange={() => {
+                                                        if (selectedBlocs.includes(name)) {
+                                                            setSelectedBlocs(selectedBlocs.filter((v) => v !== name));
+                                                        } else {
+                                                            setSelectedBlocs([...selectedBlocs, name]);
+                                                        }
+                                                    }}
                                                     style={{accentColor: '#3B82F6'}}
                                                 />
                                                 {name}
@@ -711,51 +636,39 @@ function MultiAxisChartsApp() {
             </div>
 
             <DualAxisChart
-                title="Objectif de portee : Couverture / CPM"
+                title="Objectif de portée : Couverture / CPM"
                 data={chartData}
-                xKey="campaign"
+                xKey="xLabel"
                 leftKey="coverage"
                 leftLabel="Couverture"
-                leftColor="#3B82F6"
+                leftColor="#93C5FD"
                 rightKey="cpm"
-                rightLabel="CPM"
-                rightColor="#F59E0B"
-                filterField={filterField}
-                filterOptions={filterOptions}
-                selectedChartFilters={selectedFilterReach}
-                onToggleFilter={setSelectedFilterReach}
+                rightLabel="CPM ($)"
+                rightColor="#1E40AF"
             />
 
             <DualAxisChart
-                title="Objectif de traffic : Vues page destination / CPC"
+                title="Objectif de traffic : Vues de page de destination / CPC"
                 data={chartData}
-                xKey="campaign"
+                xKey="xLabel"
                 leftKey="pageViews"
-                leftLabel="Vues page destination"
-                leftColor="#10B981"
+                leftLabel="Vues de page de destination"
+                leftColor="#93C5FD"
                 rightKey="cpc"
-                rightLabel="CPC"
-                rightColor="#F97316"
-                filterField={filterField}
-                filterOptions={filterOptions}
-                selectedChartFilters={selectedFilterTraffic}
-                onToggleFilter={setSelectedFilterTraffic}
+                rightLabel="CPC ($)"
+                rightColor="#1E40AF"
             />
 
             <DualAxisChart
                 title="Objectif d'engagement : Impressions / CTR"
                 data={chartData}
-                xKey="campaign"
+                xKey="xLabel"
                 leftKey="impressions"
                 leftLabel="Impressions"
-                leftColor="#8B5CF6"
+                leftColor="#93C5FD"
                 rightKey="ctr"
-                rightLabel="CTR"
-                rightColor="#EC4899"
-                filterField={filterField}
-                filterOptions={filterOptions}
-                selectedChartFilters={selectedFilterEngagement}
-                onToggleFilter={setSelectedFilterEngagement}
+                rightLabel="CTR (%)"
+                rightColor="#1E40AF"
             />
         </div>
     );
