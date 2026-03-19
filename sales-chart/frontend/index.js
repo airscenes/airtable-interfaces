@@ -149,7 +149,7 @@ function getCustomProperties(base) {
       label: "Champ image (dans Spectacles)",
       type: "field",
       table: spectaclesTable,
-      shouldFieldBeAllowed: isAttachmentField,
+      shouldFieldBeAllowed: isAnyField,
       defaultValue: attachmentFields[0],
     },
     {
@@ -1592,11 +1592,16 @@ function SalesChartApp() {
       .map((record) => {
         let imageUrl = null;
         if (imageField) {
-          const attachments = record.getCellValue(imageField);
-          if (Array.isArray(attachments) && attachments.length > 0) {
-            const thumb = attachments[0].thumbnails;
-            imageUrl =
-              (thumb && thumb.large && thumb.large.url) || attachments[0].url;
+          const cellValue = record.getCellValue(imageField);
+          if (Array.isArray(cellValue) && cellValue.length > 0) {
+            const first = cellValue[0];
+            // Direct attachment: {url, thumbnails, ...}
+            // Lookup of attachment: {linkedRecordId, value: {url, thumbnails, ...}}
+            const att = first.url ? first : (first.value && first.value.url ? first.value : null);
+            if (att && att.url) {
+              const thumb = att.thumbnails;
+              imageUrl = (thumb && thumb.large && thumb.large.url) || att.url;
+            }
           }
         }
         return {
