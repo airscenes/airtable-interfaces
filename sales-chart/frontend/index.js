@@ -153,6 +153,20 @@ function getCustomProperties(base) {
       defaultValue: attachmentFields[0],
     },
     {
+      key: "cardSubtitleField",
+      label: "Champ sous-titre carte (dans Spectacles)",
+      type: "field",
+      table: spectaclesTable,
+      shouldFieldBeAllowed: isAnyField,
+    },
+    {
+      key: "cardColorField",
+      label: "Champ couleur carte (single select, dans Spectacles)",
+      type: "field",
+      table: spectaclesTable,
+      shouldFieldBeAllowed: isAnyField,
+    },
+    {
       key: "representationsTable",
       label: "Table des representations",
       type: "table",
@@ -573,7 +587,17 @@ function SalesChart({ data, capacity, revenueCapacity, height = 500 }) {
 
 // --- Gallery Card ---
 
-function SpectacleCard({ name, imageUrl, onClick }) {
+function getInitials(name) {
+  if (!name) return "?";
+  const words = name.trim().split(/\s+/);
+  if (words.length === 1) return words[0].charAt(0).toUpperCase();
+  return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
+}
+
+function SpectacleCard({ name, subtitle, imageUrl, placeholderColor, onClick }) {
+  const initials = getInitials(name);
+  const bgColor = placeholderColor || "#666666";
+
   return (
     <div
       onClick={onClick}
@@ -581,7 +605,7 @@ function SpectacleCard({ name, imageUrl, onClick }) {
                        hover:shadow-md transition-shadow duration-200 border border-gray-gray100 dark:border-gray-gray600"
     >
       <div
-        className="w-full bg-gray-gray75 dark:bg-gray-gray800"
+        className="w-full"
         style={{ height: 160, overflow: "hidden" }}
       >
         {imageUrl ? (
@@ -591,19 +615,13 @@ function SpectacleCard({ name, imageUrl, onClick }) {
             style={{ width: "100%", height: "100%", objectFit: "cover" }}
           />
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-gray300 dark:text-gray-gray500">
-            <svg
-              width="48"
-              height="48"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="M21 15l-5-5L5 21" />
-            </svg>
+          <div
+            className="flex items-center justify-center h-full"
+            style={{ backgroundColor: bgColor }}
+          >
+            <span style={{ fontSize: 40, fontWeight: 700, color: "rgba(255,255,255,0.85)", letterSpacing: 2 }}>
+              {initials}
+            </span>
           </div>
         )}
       </div>
@@ -611,6 +629,11 @@ function SpectacleCard({ name, imageUrl, onClick }) {
         <p className="text-sm font-semibold text-gray-gray700 dark:text-gray-gray200 truncate">
           {name}
         </p>
+        {subtitle && (
+          <p className="text-xs text-gray-gray400 dark:text-gray-gray500 truncate mt-0.5">
+            {subtitle}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -726,7 +749,7 @@ function DetailPage({
     today.setHours(0, 0, 0, 0);
     return representations.filter((rep) => {
       if (rep.rawDate && rep.rawDate < today) return false;
-      if (rep.rawStatus && rep.rawStatus.toLowerCase() !== "confirmé") return false;
+      if (rep.rawStatus && rep.rawStatus.toLowerCase() !== "confirmé" && rep.rawStatus.toLowerCase() !== "en vente") return false;
       if (rep.colSiteWeb?.text && rep.colSiteWeb.text.toLowerCase() !== "en ligne") return false;
       return true;
     });
@@ -1063,6 +1086,10 @@ function DetailPage({
       selectedRepIds.size === 1
         ? filteredReps.find((r) => selectedRepIds.has(r.id))
         : null;
+    // Compute aggregated capacity & revenuePotential for multi/all mode
+    const activeReps = isAllMode ? filteredReps : filteredReps.filter((r) => selectedRepIds.has(r.id));
+    const totalCapacity = activeReps.reduce((sum, r) => sum + (r.capacity || 0), 0) || null;
+    const totalRevenuePotential = activeReps.reduce((sum, r) => sum + (r.revenuePotential || 0), 0) || null;
     const presets = [
       { key: "24h", label: "24h" },
       { key: 3, label: "3m" },
@@ -1156,8 +1183,8 @@ function DetailPage({
         )}
         <SalesChart
           data={filteredSalesData}
-          capacity={selectedRep ? selectedRep.capacity : null}
-          revenueCapacity={selectedRep ? selectedRep.revenuePotential : null}
+          capacity={selectedRep ? selectedRep.capacity : totalCapacity}
+          revenueCapacity={selectedRep ? selectedRep.revenuePotential : totalRevenuePotential}
           height={isAllMode ? 320 : 330}
         />
       </div>
@@ -1510,6 +1537,8 @@ function SalesChartApp() {
 
   const spectaclesTable = customPropertyValueByKey.spectaclesTable;
   const imageField = customPropertyValueByKey.imageField;
+  const cardSubtitleField = customPropertyValueByKey.cardSubtitleField;
+  const cardColorField = customPropertyValueByKey.cardColorField;
   const repsTable = customPropertyValueByKey.representationsTable;
   const spectacleLinkField = customPropertyValueByKey.spectacleLinkField;
   const repNameField = customPropertyValueByKey.repNameField;
@@ -1604,16 +1633,21 @@ function SalesChartApp() {
             }
           }
         }
+        const subtitle = cardSubtitleField ? record.getCellValueAsString(cardSubtitleField) : "";
+        const colorSelect = cardColorField ? getColSelect(record, cardColorField, base) : null;
+        const airtableColor = colorSelect?.color ? AIRTABLE_COLORS[colorSelect.color] : null;
         return {
           id: record.id,
           name: record.name || "",
           imageUrl,
+          subtitle,
+          placeholderColor: airtableColor ? airtableColor.bg : null,
           totalSold: soldBySpectacle[record.id] || 0,
         };
       })
       .filter((s) => s.name)
       .sort((a, b) => b.totalSold - a.totalSold);
-  }, [spectacleRecords, imageField, repRecords, spectacleLinkField, colTotalBilletsVendus]);
+  }, [spectacleRecords, imageField, cardSubtitleField, cardColorField, base, repRecords, spectacleLinkField, colTotalBilletsVendus]);
 
   // Filter spectacles by search
   const filteredSpectacles = useMemo(() => {
@@ -1827,7 +1861,9 @@ function SalesChartApp() {
           <SpectacleCard
             key={spectacle.id}
             name={spectacle.name}
+            subtitle={spectacle.subtitle}
             imageUrl={spectacle.imageUrl}
+            placeholderColor={spectacle.placeholderColor}
             onClick={() => setSelectedSpectacleId(spectacle.id)}
           />
         ))}
