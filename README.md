@@ -11,6 +11,7 @@ Custom extensions for Airtable Interfaces.
 | `sales-chart/` | Sales dashboard with Supabase integration. Shows cumulative ticket sales and revenue charts per show. Spectacles sorted by total tickets sold (highest first). Initial rep filter: Statut=Confirmé, Site Web=En ligne, Date≥today. Date presets (24h/3m/6m/1y/YTD), city/venue filters. Supabase cache auto-invalidates daily; manual ↺ refresh button available. |
 | `artist_report/` | Artist report extension for viewing artist-related data. |
 | `venues_map/` | Venues map extension for displaying venue locations. |
+| `approve_invoices/` | Invoice approval page. Two-level accordion list (Factures > Dépenses) with KPIs, configurable action button (approve checkbox or push date), exclude toggle, and native record detail via `expandRecord`. |
 
 ## Prerequisites
 
@@ -47,6 +48,10 @@ block release
 ```
 
 The extension is immediately available in production on Airtable.
+
+## Conventions
+
+- **Date format**: Always use `YYYY-MM-DD` (ISO 8601) for dates — in UI inputs, API payloads, display, and storage. Never use locale-dependent formats like `MM/DD/YYYY` or `DD/MM/YYYY`.
 
 ## Creating a New Extension
 
