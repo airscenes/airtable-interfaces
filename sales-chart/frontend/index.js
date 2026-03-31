@@ -413,15 +413,6 @@ function getCustomProperties(base) {
       shouldFieldBeAllowed: isAnyField,
       defaultValue: findRepField("site") || findRepField("web"),
     },
-    // --- Filter ---
-    {
-      key: "filterStatusField",
-      label: "Filtre: Champ Statut (dans Representations)",
-      type: "field",
-      table: repsTable,
-      shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("statut") || findRepField("status"),
-    },
     // --- Supabase ---
     {
       key: "supabaseUrl",
@@ -730,12 +721,6 @@ function DetailPage({
   const [refreshKey, setRefreshKey] = useState(0);
   const cacheRef = useRef(new Map());
 
-  // Stable string of all rep IDs for cache key + useEffect dependency
-  const allRepIds = useMemo(
-    () => representations.map((r) => r.id).join(","),
-    [representations],
-  );
-
   // Stable string of selected rep IDs for useEffect dependency
   const selectedRepIdsStr = useMemo(
     () => [...selectedRepIds].sort().join(","),
@@ -751,6 +736,7 @@ function DetailPage({
       if (rep.rawDate && rep.rawDate < today) return false;
       if (rep.rawStatus && rep.rawStatus.toLowerCase() !== "confirmé" && rep.rawStatus.toLowerCase() !== "en vente") return false;
       if (rep.colSiteWeb?.text && rep.colSiteWeb.text.toLowerCase() !== "en ligne") return false;
+      if (rep.rawOnSale !== null && !rep.rawOnSale) return false;
       return true;
     });
   }, [representations, showAll]);
@@ -773,6 +759,12 @@ function DetailPage({
     if (filterSalle) reps = reps.filter((r) => r.colSalle === filterSalle);
     return reps;
   }, [filteredRepsByStatus, filterVille, filterSalle]);
+
+  // Stable string of filtered rep IDs for cache key + useEffect dependency
+  const allRepIds = useMemo(
+    () => filteredReps.map((r) => r.id).join(","),
+    [filteredReps],
+  );
 
   // Reset stale filters when options change
   useEffect(() => {
@@ -874,16 +866,19 @@ function DetailPage({
           if (sortedDates.length > 0) {
             // Fill every calendar day; carry-forward per record
             // Cumulative data: values never decrease (use Math.max)
-            const start = new Date(sortedDates[0]);
-            const end = new Date(sortedDates[sortedDates.length - 1]);
+            // Use string-based date iteration to avoid UTC timezone shift
+            const nextDay = (dateStr) => {
+              const [y, m, d] = dateStr.split("-").map(Number);
+              const dt = new Date(y, m - 1, d + 1);
+              return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+            };
             const lastKnown = {};
             formatted = [];
             for (
-              let d = new Date(start);
-              d <= end;
-              d.setDate(d.getDate() + 1)
+              let day = sortedDates[0];
+              day <= sortedDates[sortedDates.length - 1];
+              day = nextDay(day)
             ) {
-              const day = d.toISOString().split("T")[0];
               let sumSold = 0,
                 sumFree = 0,
                 sumTotal = 0;
@@ -942,23 +937,38 @@ function DetailPage({
     };
   }, [selectedRepIdsStr, supabaseUrl, supabaseAnonKey, baseId, allRepIds, refreshKey]);
 
-  // Filter salesData by date range (ensure at least 2 points for a visible line)
+  const localDateStr = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  const activePreset = useMemo(() => {
+    if (!dateFrom && !dateTo) return "all";
+    const now = new Date();
+    const ytdStart = `${now.getFullYear()}-01-01`;
+    if (dateFrom === ytdStart && !dateTo) return "ytd";
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (dateFrom === localDateStr(yesterday) && dateTo === localDateStr(now))
+      return "24h";
+    for (const m of [3, 6, 12]) {
+      const from = new Date(now);
+      from.setMonth(from.getMonth() - m);
+      if (dateFrom === localDateStr(from) && !dateTo) return m;
+    }
+    return null;
+  }, [dateFrom, dateTo]);
+
+  // Filter salesData by date range
   const filteredSalesData = useMemo(() => {
     if (!salesData.length) return salesData;
     let data = salesData;
-    if (dateFrom) {
-      const idx = data.findIndex((d) => d.date >= dateFrom);
-      if (idx > 0) {
-        data = data.slice(idx - 1);
-      } else if (idx === 0) {
-        data = data.slice(0);
-      } else {
-        data = [];
-      }
-    }
+    if (dateFrom) data = data.filter((d) => d.date >= dateFrom);
     if (dateTo) data = data.filter((d) => d.date <= dateTo);
+    // Ensure at least 2 points so Recharts draws a line (duplicate single point with dateTo label)
+    if (data.length === 1 && dateTo && data[0].date !== dateTo) {
+      data = [...data, { ...data[0], date: dateTo, dateLabel: dateTo }];
+    }
     return data;
-  }, [salesData, dateFrom, dateTo]);
+  }, [salesData, dateFrom, dateTo, activePreset]);
 
   // Period stats: delta between first and last point in filtered range
   const periodStats = useMemo(() => {
@@ -1017,35 +1027,18 @@ function DetailPage({
     } else if (preset === "24h") {
       const from = new Date(now);
       from.setDate(from.getDate() - 1);
-      setDateFrom(from.toISOString().split("T")[0]);
-      setDateTo("");
+      setDateFrom(localDateStr(from));
+      setDateTo(localDateStr(now));
     } else if (preset === "ytd") {
       setDateFrom(`${now.getFullYear()}-01-01`);
       setDateTo("");
     } else {
       const from = new Date(now);
       from.setMonth(from.getMonth() - preset);
-      setDateFrom(from.toISOString().split("T")[0]);
+      setDateFrom(localDateStr(from));
       setDateTo("");
     }
   };
-
-  const activePreset = useMemo(() => {
-    if (!dateFrom && !dateTo) return "all";
-    const now = new Date();
-    const ytdStart = `${now.getFullYear()}-01-01`;
-    if (dateFrom === ytdStart && !dateTo) return "ytd";
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (dateFrom === yesterday.toISOString().split("T")[0] && !dateTo)
-      return "24h";
-    for (const m of [3, 6, 12]) {
-      const from = new Date(now);
-      from.setMonth(from.getMonth() - m);
-      if (dateFrom === from.toISOString().split("T")[0] && !dateTo) return m;
-    }
-    return null;
-  }, [dateFrom, dateTo]);
 
   // Build chart content based on current state
   const chartContent = (() => {
@@ -1556,7 +1549,8 @@ function SalesChartApp() {
   const kpiField4 = customPropertyValueByKey.kpiField4;
   const kpiField5 = customPropertyValueByKey.kpiField5;
   const kpiField6 = customPropertyValueByKey.kpiField6;
-  const filterStatusField = customPropertyValueByKey.filterStatusField;
+  // Auto-detect filter fields directly from table (ignore if not found)
+  const filterStatusField = repsTable?.fields.find((f) => f.name.toLowerCase().includes("statut") || f.name.toLowerCase().includes("status")) || null;
   const colTotalBilletsVendus = customPropertyValueByKey.colTotalBilletsVendus;
   const colTotalBilletsGratuits = customPropertyValueByKey.colTotalBilletsGratuits;
   const colAssistance = customPropertyValueByKey.colAssistance;
@@ -1570,6 +1564,7 @@ function SalesChartApp() {
   const colNote = customPropertyValueByKey.colNote;
   const colStatut = customPropertyValueByKey.colStatut;
   const colSiteWeb = customPropertyValueByKey.colSiteWeb;
+  const colOnSale = repsTable?.fields.find((f) => f.name.toLowerCase().includes("on_sale") || f.name.toLowerCase().includes("on sale") || f.name.toLowerCase().includes("en vente")) || null;
   const supabaseUrl = customPropertyValueByKey.supabaseUrl;
   const supabaseAnonKey = customPropertyValueByKey.supabaseAnonKey;
 
@@ -1690,6 +1685,7 @@ function SalesChartApp() {
         const rawStatus = filterStatusField
           ? record.getCellValueAsString(filterStatusField)
           : "";
+        const rawOnSale = colOnSale ? record.getCellValue(colOnSale) : null;
 
         const getNum = (field) => {
           if (!field) return null;
@@ -1706,6 +1702,7 @@ function SalesChartApp() {
           revenuePotential: revPotential,
           rawDate,
           rawStatus,
+          rawOnSale,
           colJoursRestants: getCol(record, colJoursRestants),
           colDateRep: getCol(record, colDateRep),
           colSalle: getCol(record, colSalle),
@@ -1763,6 +1760,7 @@ function SalesChartApp() {
     colStatut,
     colSiteWeb,
     filterStatusField,
+    colOnSale,
   ]);
 
   // Get selected spectacle data
