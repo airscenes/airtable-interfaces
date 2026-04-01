@@ -528,6 +528,24 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
     });
   }, [factureRecords, colTotalNet, colTotalBrut, exclureField, colApprouvee]);
 
+  // Group by Fournisseur
+  const groupedByFournisseur = useMemo(() => {
+    if (!colFournisseur || factures.length === 0) return [{ supplier: "", factures, totalNet: factures.reduce((s, f) => s + f.totalNet, 0), totalBrut: factures.reduce((s, f) => s + f.totalBrut, 0), count: factures.length }];
+    const map = new Map();
+    for (const f of factures) {
+      const name = f.record.getCellValueAsString(colFournisseur) || "(sans fournisseur)";
+      if (!map.has(name)) map.set(name, []);
+      map.get(name).push(f);
+    }
+    return Array.from(map.entries()).map(([supplier, items]) => ({
+      supplier,
+      factures: items,
+      totalNet: items.reduce((s, f) => s + f.totalNet, 0),
+      totalBrut: items.reduce((s, f) => s + f.totalBrut, 0),
+      count: items.length,
+    }));
+  }, [factures, colFournisseur]);
+
   // KPIs
   const kpis = useMemo(() => ({
     count: factures.length,
@@ -710,57 +728,73 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
             {exclureField && actionMode !== "date" && <div className="px-3 py-2 w-[80px] text-center">Exclure</div>}
           </div>
 
-          {/* Facture rows */}
+          {/* Facture rows grouped by Fournisseur */}
           {factures.length === 0 ? (
             <div className="text-center py-12 text-gray-400 dark:text-gray-500">Aucune facture a afficher</div>
           ) : (
-            factures.map((facture) => {
-              const isExpanded = expandedIds.has(facture.id);
-              const depenses = isExpanded ? getDepensesForFacture(facture.id) : [];
-              return (
-                <div key={facture.id} className={facture.isExcluded ? "opacity-50" : ""}>
-                  {/* Facture row */}
-                  <div
-                    className={`flex items-center px-2 border-b border-gray-100 dark:border-gray-600 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600/50 transition-colors ${
-                      isExpanded ? "bg-gray-50 dark:bg-gray-600/30" : ""
-                    }`}
-                    onClick={() => toggleExpand(facture.id)}
-                  >
-                    <div className="px-1 py-2.5 w-[30px] flex items-center justify-center" onClick={(e) => { e.stopPropagation(); try { expandRecord(facture.record); } catch (err) { console.error("expandRecord error:", err); } }}>
-                      <ArrowSquareOutIcon size={16} className="text-gray-400 hover:text-blue-500 cursor-pointer" />
-                    </div>
-                    <div className="w-8 flex items-center justify-center">
-                      <CaretRightIcon
-                        size={14}
-                        className={`text-gray-400 transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
-                      />
-                    </div>
-                    {factureColumns.map((col) => (
-                      <div key={col.key} className="px-3 py-2.5 flex-1 min-w-[100px] text-base text-gray-700 dark:text-gray-200">
-                        <CellValue record={facture.record} field={col.field} base={base} />
-                      </div>
-                    ))}
-                    {exclureField && actionMode !== "date" && (
-                      <div className="px-3 py-2.5 w-[80px] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={facture.isExcluded}
-                          onChange={() => handleToggleExclure(facture.id, facture.isExcluded)}
-                          className="w-4 h-4 accent-red-500 cursor-pointer"
-                        />
-                      </div>
-                    )}
+            groupedByFournisseur.map((group) => (
+              <div key={group.supplier}>
+                {/* Group header — subtle separator */}
+                {colFournisseur && (
+                  <div className="flex items-center border-b border-gray-200 dark:border-gray-600 px-2 bg-gray-50 dark:bg-gray-600/20">
+                    <div className="w-[30px]" />
+                    <div className="w-8" />
+                    {factureColumns.map((col) => {
+                      if (col.key === "fournisseur") return <div key={col.key} className="px-3 py-1.5 flex-1 min-w-[100px] text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">{group.supplier} &middot; {group.count}</div>;
+                      if (col.key === "totalNet") return <div key={col.key} className="px-3 py-1.5 flex-1 min-w-[100px] text-xs text-gray-500 dark:text-gray-400">Somme {fmtCurrency(group.totalNet)}</div>;
+                      if (col.key === "totalBrut") return <div key={col.key} className="px-3 py-1.5 flex-1 min-w-[100px] text-xs text-gray-500 dark:text-gray-400">Somme {fmtCurrency(group.totalBrut)}</div>;
+                      return <div key={col.key} className="px-3 py-1.5 flex-1 min-w-[100px]" />;
+                    })}
+                    {exclureField && actionMode !== "date" && <div className="px-3 py-1.5 w-[80px]" />}
                   </div>
-
-                  {/* Depenses (expanded) */}
-                  {isExpanded && (
-                    <div className="bg-gray-25 dark:bg-gray-750 border-b border-gray-200 dark:border-gray-600">
-                      <DepensesTable depenses={depenses} columns={depColumns} base={base} />
+                )}
+                {/* Facture rows in this group */}
+                {group.factures.map((facture) => {
+                  const isExpanded = expandedIds.has(facture.id);
+                  const depenses = isExpanded ? getDepensesForFacture(facture.id) : [];
+                  return (
+                    <div key={facture.id} className={facture.isExcluded ? "opacity-50" : ""}>
+                      <div
+                        className={`flex items-center px-2 border-b border-gray-100 dark:border-gray-600 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600/50 transition-colors ${
+                          isExpanded ? "bg-gray-50 dark:bg-gray-600/30" : ""
+                        }`}
+                        onClick={() => toggleExpand(facture.id)}
+                      >
+                        <div className="px-1 py-2.5 w-[30px] flex items-center justify-center" onClick={(e) => { e.stopPropagation(); try { expandRecord(facture.record); } catch (err) { console.error("expandRecord error:", err); } }}>
+                          <ArrowSquareOutIcon size={16} className="text-gray-400 hover:text-blue-500 cursor-pointer" />
+                        </div>
+                        <div className="w-8 flex items-center justify-center">
+                          <CaretRightIcon
+                            size={14}
+                            className={`text-gray-400 transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
+                          />
+                        </div>
+                        {factureColumns.map((col) => (
+                          <div key={col.key} className="px-3 py-2.5 flex-1 min-w-[100px] text-base text-gray-700 dark:text-gray-200 truncate">
+                            <CellValue record={facture.record} field={col.field} base={base} />
+                          </div>
+                        ))}
+                        {exclureField && actionMode !== "date" && (
+                          <div className="px-3 py-2.5 w-[80px] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={facture.isExcluded}
+                              onChange={() => handleToggleExclure(facture.id, facture.isExcluded)}
+                              className="w-4 h-4 accent-red-500 cursor-pointer"
+                            />
+                          </div>
+                        )}
+                      </div>
+                      {isExpanded && (
+                        <div className="bg-gray-25 dark:bg-gray-750 border-b border-gray-200 dark:border-gray-600">
+                          <DepensesTable depenses={depenses} columns={depColumns} base={base} />
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              );
-            })
+                  );
+                })}
+              </div>
+            ))
           )}
         </div>
       </div>
