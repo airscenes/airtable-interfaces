@@ -95,14 +95,13 @@ function getCustomProperties(base) {
     tables.find((t) => t.name.toLowerCase().includes("spectacle")) || tables[0];
   const repsTable =
     tables.find((t) => t.name.toLowerCase().includes("repr")) ||
+    tables.find((t) => t.name.toLowerCase().includes("événement") || t.name.toLowerCase().includes("evenement") || t.name.toLowerCase().includes("event")) ||
+    tables.find((t) => t !== spectaclesTable) ||
     tables[1] ||
     tables[0];
 
   const isLinkField = (field) =>
     field.config.type === FieldType.MULTIPLE_RECORD_LINKS;
-
-  const isAttachmentField = (field) =>
-    field.config.type === FieldType.MULTIPLE_ATTACHMENTS;
 
   const isNumericField = (field) =>
     field.config.type === FieldType.NUMBER ||
@@ -125,24 +124,11 @@ function getCustomProperties(base) {
 
   const isAnyField = () => true;
 
-  const linkFields = repsTable.fields.filter(isLinkField);
-  const attachmentFields = spectaclesTable.fields.filter(isAttachmentField);
-  const numericFields = repsTable.fields.filter(isNumericField);
-  const textFields = repsTable.fields.filter(isTextField);
-
-  // Numeric fields from Spectacles table for KPIs
-  const specNumericFields = spectaclesTable.fields.filter(isNumericField);
-
-  // Smart defaults for table columns
-  const findRepField = (keyword) =>
-    repsTable.fields.find((f) => f.name.toLowerCase().includes(keyword));
-
   return [
     {
       key: "spectaclesTable",
       label: "Table des spectacles",
       type: "table",
-      defaultValue: spectaclesTable,
     },
     {
       key: "imageField",
@@ -150,7 +136,6 @@ function getCustomProperties(base) {
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: attachmentFields[0],
     },
     {
       key: "cardSubtitleField",
@@ -170,7 +155,6 @@ function getCustomProperties(base) {
       key: "representationsTable",
       label: "Table des representations",
       type: "table",
-      defaultValue: repsTable,
     },
     {
       key: "spectacleLinkField",
@@ -178,9 +162,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isLinkField,
-      defaultValue:
-        linkFields.find((f) => f.name.toLowerCase().includes("spectacle")) ||
-        linkFields[0],
     },
     {
       key: "repNameField",
@@ -188,7 +169,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isTextField,
-      defaultValue: textFields[0],
     },
     {
       key: "capacityField",
@@ -196,9 +176,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isNumericField,
-      defaultValue:
-        numericFields.find((f) => f.name.toLowerCase().includes("capacit")) ||
-        numericFields[0],
     },
     {
       key: "revenuePotentialField",
@@ -206,9 +183,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isNumericField,
-      defaultValue:
-        numericFields.find((f) => f.name.toLowerCase().includes("potentiel")) ||
-        numericFields.find((f) => f.name.toLowerCase().includes("revenu")),
     },
     // --- Table columns (Representations) ---
     {
@@ -217,7 +191,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("jour") || findRepField("restant"),
     },
     {
       key: "colDateRep",
@@ -225,7 +198,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("date"),
     },
     {
       key: "colSalle",
@@ -233,7 +205,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("salle"),
     },
     {
       key: "colVille",
@@ -241,7 +212,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("ville"),
     },
     {
       key: "colPlacesBloques",
@@ -249,7 +219,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("bloqu"),
     },
     {
       key: "colBilletsDispo",
@@ -257,56 +226,49 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("disponib") || findRepField("billet"),
     },
     // --- KPIs (Spectacles) ---
     {
       key: "kpiField1",
-      label: "KPI 1 (dans Spectacles)",
+      label: "KPI: Billets vendus (dans Spectacles)",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
-      defaultValue: specNumericFields[0],
     },
     {
       key: "kpiField2",
-      label: "KPI 2 (dans Spectacles)",
+      label: "KPI: Revenus (dans Spectacles)",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
-      defaultValue: specNumericFields[1],
     },
     {
       key: "kpiField3",
-      label: "KPI 3 (dans Spectacles)",
+      label: "KPI: Nb. représentations (dans Spectacles)",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
-      defaultValue: specNumericFields[2],
     },
     {
       key: "kpiField4",
-      label: "KPI 4 (dans Spectacles)",
+      label: "KPI: Représentations à venir (dans Spectacles)",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
-      defaultValue: specNumericFields[3],
     },
     {
       key: "kpiField5",
-      label: "KPI 5 (dans Spectacles)",
+      label: "KPI: Billets vendus à ce jour (dans Spectacles)",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
-      defaultValue: specNumericFields[4],
     },
     {
       key: "kpiField6",
-      label: "KPI 6 (dans Spectacles)",
+      label: "KPI: Billets disponibles (dans Spectacles)",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
-      defaultValue: specNumericFields[5],
     },
     // --- Additional table columns (Representations) ---
     {
@@ -315,7 +277,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("vendu") || findRepField("billet"),
     },
     {
       key: "colTotalBilletsGratuits",
@@ -323,7 +284,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("gratuit"),
     },
     {
       key: "colAssistance",
@@ -331,7 +291,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("assistance"),
     },
     {
       key: "colTauxRemplissage",
@@ -339,7 +298,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("remplissage") || findRepField("taux"),
     },
     {
       key: "colRevenus",
@@ -347,7 +305,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("revenu") || findRepField("billetterie"),
     },
     {
       key: "colStatutRapport",
@@ -355,7 +312,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("rapport"),
     },
     {
       key: "colObjectifRevenus",
@@ -363,7 +319,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("objectif"),
     },
     {
       key: "colMiseAJour",
@@ -371,7 +326,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("mise") || findRepField("update"),
     },
     {
       key: "colPriorisation",
@@ -379,7 +333,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("priorisation"),
     },
     {
       key: "colBilleterieSalle",
@@ -387,7 +340,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("billetterie"),
     },
     {
       key: "colNote",
@@ -395,7 +347,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("note"),
     },
     {
       key: "colStatut",
@@ -403,7 +354,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("statut") || findRepField("status"),
     },
     {
       key: "colSiteWeb",
@@ -411,7 +361,6 @@ function getCustomProperties(base) {
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
-      defaultValue: findRepField("site") || findRepField("web"),
     },
     // --- Supabase ---
     {
@@ -661,9 +610,18 @@ function getFieldChoices(field, base) {
   return null;
 }
 
+function safeCellValue(record, field) {
+  if (!field) return null;
+  try { return record.getCellValue(field); } catch { return null; }
+}
+function safeCellString(record, field) {
+  if (!field) return "";
+  try { return record.getCellValueAsString(field); } catch { return ""; }
+}
+
 function getColSelect(record, field, base) {
   if (!field) return { text: "", color: null };
-  const raw = record.getCellValue(field);
+  const raw = safeCellValue(record, field);
   // Single-select: { id, name, color }
   if (raw && typeof raw === "object" && !Array.isArray(raw) && raw.name) {
     return { text: raw.name, color: raw.color || null };
@@ -673,7 +631,7 @@ function getColSelect(record, field, base) {
     return { text: raw[0].name, color: raw[0].color || null };
   }
   // Lookup returning plain strings — resolve color via field choices
-  const text = record.getCellValueAsString(field);
+  const text = safeCellString(record, field);
   if (text) {
     const choices = getFieldChoices(field, base);
     if (choices) {
@@ -1568,6 +1526,14 @@ function SalesChartApp() {
   const supabaseUrl = customPropertyValueByKey.supabaseUrl;
   const supabaseAnonKey = customPropertyValueByKey.supabaseAnonKey;
 
+  if (!spectaclesTable || !repsTable) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-gray-500">Veuillez configurer les tables dans les propriétés de l'extension.</p>
+      </div>
+    );
+  }
+
   const spectacleRecords = useRecords(spectaclesTable);
   const repRecords = useRecords(repsTable);
 
@@ -1590,7 +1556,7 @@ function SalesChartApp() {
     if (!record) return [];
     return kpiFields.map((field) => ({
       label: field.name,
-      value: record.getCellValueAsString(field),
+      value: safeCellString(record, field),
     }));
   }, [selectedSpectacleId, spectacleRecords, kpiFields]);
 
@@ -1602,9 +1568,9 @@ function SalesChartApp() {
     const soldBySpectacle = {};
     if (repRecords && spectacleLinkField && colTotalBilletsVendus) {
       repRecords.forEach((rep) => {
-        const links = rep.getCellValue(spectacleLinkField);
+        const links = safeCellValue(rep, spectacleLinkField);
         if (!Array.isArray(links)) return;
-        const raw = rep.getCellValue(colTotalBilletsVendus);
+        const raw = safeCellValue(rep, colTotalBilletsVendus);
         const sold = typeof raw === "number" ? raw : parseFloat(raw) || 0;
         links.forEach((link) => {
           soldBySpectacle[link.id] = (soldBySpectacle[link.id] || 0) + sold;
@@ -1616,7 +1582,7 @@ function SalesChartApp() {
       .map((record) => {
         let imageUrl = null;
         if (imageField) {
-          const cellValue = record.getCellValue(imageField);
+          const cellValue = safeCellValue(record, imageField);
           if (Array.isArray(cellValue) && cellValue.length > 0) {
             const first = cellValue[0];
             // Direct attachment: {url, thumbnails, ...}
@@ -1628,7 +1594,7 @@ function SalesChartApp() {
             }
           }
         }
-        const subtitle = cardSubtitleField ? record.getCellValueAsString(cardSubtitleField) : "";
+        const subtitle = safeCellString(record, cardSubtitleField);
         const colorSelect = cardColorField ? getColSelect(record, cardColorField, base) : null;
         const airtableColor = colorSelect?.color ? AIRTABLE_COLORS[colorSelect.color] : null;
         return {
@@ -1655,48 +1621,47 @@ function SalesChartApp() {
   const representations = useMemo(() => {
     if (!repRecords || !selectedSpectacleId || !spectacleLinkField) return [];
 
-    const getCol = (record, field) =>
-      field ? record.getCellValueAsString(field) : "";
+    const getCol = (record, field) => safeCellString(record, field);
 
     return repRecords
       .filter((record) => {
-        const linkValue = record.getCellValue(spectacleLinkField);
+        const linkValue = safeCellValue(record, spectacleLinkField);
         if (!Array.isArray(linkValue)) return false;
         return linkValue.some((link) => link.id === selectedSpectacleId);
       })
       .map((record) => {
         let cap = null;
         if (capacityField) {
-          const val = record.getCellValue(capacityField);
+          const val = safeCellValue(record, capacityField);
           cap = typeof val === "number" ? val : parseFloat(String(val)) || null;
         }
         let revPotential = null;
         if (revenuePotentialField) {
-          const val = record.getCellValue(revenuePotentialField);
+          const val = safeCellValue(record, revenuePotentialField);
           revPotential =
             typeof val === "number" ? val : parseFloat(String(val)) || null;
         }
         // Raw values for filtering/sorting
         let rawDate = null;
         if (colDateRep) {
-          const dv = record.getCellValue(colDateRep);
+          const dv = safeCellValue(record, colDateRep);
           if (dv) rawDate = new Date(dv);
         }
         const rawStatus = filterStatusField
-          ? record.getCellValueAsString(filterStatusField)
+          ? safeCellString(record, filterStatusField)
           : "";
-        const rawOnSale = colOnSale ? record.getCellValue(colOnSale) : null;
+        const rawOnSale = colOnSale ? safeCellValue(record, colOnSale) : null;
 
         const getNum = (field) => {
           if (!field) return null;
-          const v = record.getCellValue(field);
+          const v = safeCellValue(record, field);
           return typeof v === "number" ? v : null;
         };
 
         return {
           id: record.id,
           name: repNameField
-            ? record.getCellValueAsString(repNameField)
+            ? safeCellString(record, repNameField)
             : record.name,
           capacity: cap,
           revenuePotential: revPotential,
