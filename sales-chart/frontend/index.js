@@ -92,7 +92,9 @@ const AIRTABLE_COLORS = {
 function getCustomProperties(base) {
   const tables = base.tables;
   const spectaclesTable =
-    tables.find((t) => t.name.toLowerCase().includes("spectacle")) || tables[0];
+    tables.find((t) => t.name.toLowerCase().includes("projet")) ||
+    tables.find((t) => t.name.toLowerCase().includes("spectacle")) ||
+    tables[0];
   const repsTable =
     tables.find((t) => t.name.toLowerCase().includes("repr")) ||
     tables.find((t) => t.name.toLowerCase().includes("événement") || t.name.toLowerCase().includes("evenement") || t.name.toLowerCase().includes("event")) ||
@@ -127,59 +129,59 @@ function getCustomProperties(base) {
   return [
     {
       key: "spectaclesTable",
-      label: "Table des spectacles",
+      label: "Table des projets",
       type: "table",
     },
     {
       key: "imageField",
-      label: "Champ image (dans Spectacles)",
+      label: "Champ image (dans Projets)",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isAnyField,
     },
     {
       key: "cardSubtitleField",
-      label: "Champ sous-titre carte (dans Spectacles)",
+      label: "Champ sous-titre carte (dans Projets)",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isAnyField,
     },
     {
       key: "cardColorField",
-      label: "Champ couleur carte (single select, dans Spectacles)",
+      label: "Champ couleur carte (single select, dans Projets)",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isAnyField,
     },
     {
       key: "representationsTable",
-      label: "Table des representations",
+      label: "Table des evenements",
       type: "table",
     },
     {
       key: "spectacleLinkField",
-      label: "Champ lien Spectacle (dans Representations)",
+      label: "Champ lien Projet (dans Evenements)",
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isLinkField,
     },
     {
       key: "repNameField",
-      label: "Champ nom/date de la representation",
+      label: "Champ nom/date de l'evenement",
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isTextField,
     },
     {
       key: "capacityField",
-      label: "Champ Capacite totale (dans Representations)",
+      label: "Champ Capacite totale (dans Evenements)",
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isNumericField,
     },
     {
       key: "revenuePotentialField",
-      label: "Champ Potentiel en salle (dans Representations)",
+      label: "Champ Potentiel en salle (dans Evenements)",
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isNumericField,
@@ -194,7 +196,7 @@ function getCustomProperties(base) {
     },
     {
       key: "colDateRep",
-      label: "Colonne: Date representation",
+      label: "Colonne: Date evenement",
       type: "field",
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
@@ -230,42 +232,42 @@ function getCustomProperties(base) {
     // --- KPIs (Spectacles) ---
     {
       key: "kpiField1",
-      label: "KPI: Billets vendus (dans Spectacles)",
+      label: "KPI: Nombre evenements",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
     },
     {
       key: "kpiField2",
-      label: "KPI: Revenus (dans Spectacles)",
+      label: "KPI: Nombre evenements a venir",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
     },
     {
       key: "kpiField3",
-      label: "KPI: Nb. représentations (dans Spectacles)",
+      label: "KPI: Billets vendus",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
     },
     {
       key: "kpiField4",
-      label: "KPI: Représentations à venir (dans Spectacles)",
+      label: "KPI: Billets disponibles",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
     },
     {
       key: "kpiField5",
-      label: "KPI: Billets vendus à ce jour (dans Spectacles)",
+      label: "KPI: Objectif",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
     },
     {
       key: "kpiField6",
-      label: "KPI: Billets disponibles (dans Spectacles)",
+      label: "KPI: Revenus totaux",
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isNumericField,
@@ -1564,6 +1566,16 @@ function SalesChartApp() {
   const spectacles = useMemo(() => {
     if (!spectacleRecords) return [];
 
+    // Track which spectacles have at least one representation
+    const spectaclesWithReps = new Set();
+    if (repRecords && spectacleLinkField) {
+      repRecords.forEach((rep) => {
+        const links = safeCellValue(rep, spectacleLinkField);
+        if (!Array.isArray(links)) return;
+        links.forEach((link) => spectaclesWithReps.add(link.id));
+      });
+    }
+
     // Aggregate total sold per spectacle from rep records
     const soldBySpectacle = {};
     if (repRecords && spectacleLinkField && colTotalBilletsVendus) {
@@ -1606,7 +1618,7 @@ function SalesChartApp() {
           totalSold: soldBySpectacle[record.id] || 0,
         };
       })
-      .filter((s) => s.name)
+      .filter((s) => s.name && spectaclesWithReps.has(s.id))
       .sort((a, b) => b.totalSold - a.totalSold);
   }, [spectacleRecords, imageField, cardSubtitleField, cardColorField, base, repRecords, spectacleLinkField, colTotalBilletsVendus]);
 
