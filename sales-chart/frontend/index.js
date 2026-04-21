@@ -1,9 +1,10 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   initializeBlock,
   useBase,
   useRecords,
   useCustomProperties,
+  useGlobalConfig,
   expandRecord,
 } from "@airtable/blocks/interface/ui";
 import { FieldType } from "@airtable/blocks/interface/models";
@@ -89,21 +90,33 @@ const AIRTABLE_COLORS = {
 
 // --- Custom Properties Definition ---
 
-function getCustomProperties(base) {
+function getCustomProperties(base, selectedSpectaclesTableId, selectedRepsTableId) {
   const tables = base.tables;
-  const spectaclesTable =
+  const heuristicSpectacles =
     tables.find((t) => t.name.toLowerCase().includes("projet")) ||
     tables.find((t) => t.name.toLowerCase().includes("spectacle")) ||
     tables[0];
-  const repsTable =
+  const heuristicReps =
     tables.find((t) => t.name.toLowerCase().includes("repr")) ||
     tables.find((t) => t.name.toLowerCase().includes("événement") || t.name.toLowerCase().includes("evenement") || t.name.toLowerCase().includes("event")) ||
-    tables.find((t) => t !== spectaclesTable) ||
+    tables.find((t) => t !== heuristicSpectacles) ||
     tables[1] ||
     tables[0];
+  const spectaclesTable =
+    (selectedSpectaclesTableId && base.getTableByIdIfExists(selectedSpectaclesTableId)) ||
+    heuristicSpectacles;
+  const repsTable =
+    (selectedRepsTableId && base.getTableByIdIfExists(selectedRepsTableId)) ||
+    heuristicReps;
 
-  const isLinkField = (field) =>
-    field.config.type === FieldType.MULTIPLE_RECORD_LINKS;
+  const isLinkOrLookupField = (field) => {
+    const t = field.config.type;
+    return (
+      t === FieldType.MULTIPLE_RECORD_LINKS ||
+      t === FieldType.MULTIPLE_LOOKUP_VALUES ||
+      t === "lookup"
+    );
+  };
 
   const isNumericField = (field) =>
     field.config.type === FieldType.NUMBER ||
@@ -160,10 +173,10 @@ function getCustomProperties(base) {
     },
     {
       key: "spectacleLinkField",
-      label: "Champ lien Projet (dans Evenements)",
+      label: "Champ lien ou lookup vers Projet/Spectacle (dans Evenements)",
       type: "field",
       table: repsTable,
-      shouldFieldBeAllowed: isLinkField,
+      shouldFieldBeAllowed: isLinkOrLookupField,
     },
     {
       key: "repNameField",
@@ -615,6 +628,30 @@ function getFieldChoices(field, base) {
 function safeCellValue(record, field) {
   if (!field) return null;
   try { return record.getCellValue(field); } catch { return null; }
+}
+
+// Normalizes a MULTIPLE_RECORD_LINKS or MULTIPLE_LOOKUP_VALUES (of a link)
+// cell value into a flat [{id, name}, ...] array.
+function extractLinkedRecords(cellValue) {
+  if (!Array.isArray(cellValue)) return [];
+  const out = [];
+  for (const item of cellValue) {
+    if (!item) continue;
+    if (item.id) {
+      out.push({ id: item.id, name: item.name });
+      continue;
+    }
+    if (item.value) {
+      if (Array.isArray(item.value)) {
+        for (const v of item.value) {
+          if (v && v.id) out.push({ id: v.id, name: v.name });
+        }
+      } else if (item.value.id) {
+        out.push({ id: item.value.id, name: item.value.name });
+      }
+    }
+  }
+  return out;
 }
 function safeCellString(record, field) {
   if (!field) return "";
@@ -1485,8 +1522,14 @@ function DetailPage({
 
 function SalesChartApp() {
   const base = useBase();
-  const { customPropertyValueByKey, errorState } =
-    useCustomProperties(getCustomProperties);
+  const globalConfig = useGlobalConfig();
+  const selectedSpectaclesTableId = globalConfig.get("spectaclesTable") || null;
+  const selectedRepsTableId = globalConfig.get("representationsTable") || null;
+  const getProps = useCallback(
+    (b) => getCustomProperties(b, selectedSpectaclesTableId, selectedRepsTableId),
+    [selectedSpectaclesTableId, selectedRepsTableId],
+  );
+  const { customPropertyValueByKey, errorState } = useCustomProperties(getProps);
 
   const spectaclesTable = customPropertyValueByKey.spectaclesTable;
   const imageField = customPropertyValueByKey.imageField;
@@ -1570,8 +1613,7 @@ function SalesChartApp() {
     const spectaclesWithReps = new Set();
     if (repRecords && spectacleLinkField) {
       repRecords.forEach((rep) => {
-        const links = safeCellValue(rep, spectacleLinkField);
-        if (!Array.isArray(links)) return;
+        const links = extractLinkedRecords(safeCellValue(rep, spectacleLinkField));
         links.forEach((link) => spectaclesWithReps.add(link.id));
       });
     }
@@ -1580,11 +1622,14 @@ function SalesChartApp() {
     const soldBySpectacle = {};
     if (repRecords && spectacleLinkField && colTotalBilletsVendus) {
       repRecords.forEach((rep) => {
-        const links = safeCellValue(rep, spectacleLinkField);
-        if (!Array.isArray(links)) return;
+        const links = extractLinkedRecords(safeCellValue(rep, spectacleLinkField));
+        if (links.length === 0) return;
         const raw = safeCellValue(rep, colTotalBilletsVendus);
         const sold = typeof raw === "number" ? raw : parseFloat(raw) || 0;
+        const seen = new Set();
         links.forEach((link) => {
+          if (seen.has(link.id)) return;
+          seen.add(link.id);
           soldBySpectacle[link.id] = (soldBySpectacle[link.id] || 0) + sold;
         });
       });
@@ -1637,9 +1682,8 @@ function SalesChartApp() {
 
     return repRecords
       .filter((record) => {
-        const linkValue = safeCellValue(record, spectacleLinkField);
-        if (!Array.isArray(linkValue)) return false;
-        return linkValue.some((link) => link.id === selectedSpectacleId);
+        const links = extractLinkedRecords(safeCellValue(record, spectacleLinkField));
+        return links.some((link) => link.id === selectedSpectacleId);
       })
       .map((record) => {
         let cap = null;
@@ -1847,4 +1891,15 @@ function SalesChartApp() {
   );
 }
 
-initializeBlock({ interface: () => <SalesChartApp /> });
+// Force a full remount of SalesChartApp whenever the user picks a different
+// table in the config panel. useCustomProperties only re-evaluates getCustomProperties
+// on schema changes, so without remounting, the field-pickers stay scoped to the
+// previously selected table and show the wrong fields.
+function SalesChartRoot() {
+  const globalConfig = useGlobalConfig();
+  const spectId = globalConfig.get("spectaclesTable") || "_";
+  const repId = globalConfig.get("representationsTable") || "_";
+  return <SalesChartApp key={`${spectId}::${repId}`} />;
+}
+
+initializeBlock({ interface: () => <SalesChartRoot /> });
