@@ -40931,7 +40931,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
   var init_style = __esm({
     "frontend/style.css"() {
       style = document.createElement("style");
-      style.textContent = '*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.19 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Courier,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.absolute{position:absolute}.relative{position:relative}.left-0{left:0}.top-full{top:100%}.z-20{z-index:20}.mt-1{margin-top:.25rem}.block{display:block}.inline-block{display:inline-block}.flex{display:flex}.inline-flex{display:inline-flex}.table{display:table}.h-8{height:2rem}.min-h-\\[36px\\]{min-height:36px}.min-h-screen{min-height:100vh}.w-full{width:100%}.min-w-\\[160px\\]{min-width:160px}.cursor-pointer{cursor:pointer}.items-center{align-items:center}.gap-1\\.5{gap:.375rem}.space-y-4>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem*var(--tw-space-y-reverse))}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rounded-md{border-radius:.375rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-none{border-style:none}.border-gray-gray100{--tw-border-opacity:1;border-color:rgb(229 233 240/var(--tw-border-opacity,1))}.border-gray-gray200{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.bg-blue-blueLight3{--tw-bg-opacity:1;background-color:rgb(241 245 255/var(--tw-bg-opacity,1))}.bg-transparent{background-color:transparent}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.p-4{padding:1rem}.px-2\\.5{padding-left:.625rem;padding-right:.625rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\\.5{padding-top:.375rem;padding-bottom:.375rem}.py-10{padding-top:2.5rem;padding-bottom:2.5rem}.text-left{text-align:left}.text-center{text-align:center}.text-sm{font-size:.6875rem;line-height:1rem}.text-xs{font-size:.5625rem;line-height:.875rem}.font-medium{font-weight:500}.tabular-nums{--tw-numeric-spacing:tabular-nums;font-variant-numeric:var(--tw-ordinal) var(--tw-slashed-zero) var(--tw-numeric-figure) var(--tw-numeric-spacing) var(--tw-numeric-fraction)}.text-blue-blue{--tw-text-opacity:1;color:rgb(22 110 225/var(--tw-text-opacity,1))}.text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.text-gray-gray700{--tw-text-opacity:1;color:rgb(49 53 62/var(--tw-text-opacity,1))}.text-gray-gray800{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.shadow-lg{--tw-shadow:0px 0px 1px 0px rgba(0,0,0,.48),0px 0px 2px 0px rgba(0,0,0,.08),0px 2px 4px 0px rgba(0,0,0,.12),0px 2px 8px 0px rgba(0,0,0,.08);--tw-shadow-colored:0px 0px 1px 0px var(--tw-shadow-color),0px 0px 2px 0px var(--tw-shadow-color),0px 2px 4px 0px var(--tw-shadow-color),0px 2px 8px 0px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.bn-year-dropdown::hover{cursor:pointer}.bn-year-dropdown-button{padding:5px 7px;font-size:14px}.bn-list-cell{color:#000}.hover\\:bg-gray-gray25:hover{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.hover\\:bg-gray-gray50:hover{--tw-bg-opacity:1;background-color:rgb(246 248 252/var(--tw-bg-opacity,1))}.hover\\:text-blue-blueDark1:hover{--tw-text-opacity:1;color:rgb(13 82 172/var(--tw-text-opacity,1))}.hover\\:underline:hover{text-decoration-line:underline}@media (prefers-color-scheme:dark){.dark\\:border-gray-gray600{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:bg-gray-gray700{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray800{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:text-gray-gray100{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:text-gray-gray200{--tw-text-opacity:1;color:rgb(218 222 230/var(--tw-text-opacity,1))}.dark\\:text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.dark\\:hover\\:bg-gray-gray800:hover{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}}';
+      style.textContent = '*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.19 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Courier,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.absolute{position:absolute}.relative{position:relative}.left-0{left:0}.top-full{top:100%}.z-20{z-index:20}.mt-1{margin-top:.25rem}.block{display:block}.inline-block{display:inline-block}.inline-flex{display:inline-flex}.\\!table{display:table!important}.table{display:table}.grid{display:grid}.h-8{height:2rem}.min-h-\\[36px\\]{min-height:36px}.min-h-screen{min-height:100vh}.w-full{width:100%}.min-w-0{min-width:0}.min-w-\\[160px\\]{min-width:160px}.cursor-pointer{cursor:pointer}.items-center{align-items:center}.gap-1\\.5{gap:.375rem}.space-y-4>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem*var(--tw-space-y-reverse))}.overflow-x-auto{overflow-x:auto}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rounded{border-radius:.25rem}.rounded-md{border-radius:.375rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-none{border-style:none}.border-gray-gray100{--tw-border-opacity:1;border-color:rgb(229 233 240/var(--tw-border-opacity,1))}.border-gray-gray200{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.border-transparent{border-color:transparent}.bg-blue-blueLight3{--tw-bg-opacity:1;background-color:rgb(241 245 255/var(--tw-bg-opacity,1))}.bg-transparent{background-color:transparent}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.p-4{padding:1rem}.px-2{padding-left:.5rem;padding-right:.5rem}.px-2\\.5{padding-left:.625rem;padding-right:.625rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-0\\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\\.5{padding-top:.375rem;padding-bottom:.375rem}.py-10{padding-top:2.5rem;padding-bottom:2.5rem}.text-left{text-align:left}.text-center{text-align:center}.text-right{text-align:right}.text-sm{font-size:.6875rem;line-height:1rem}.text-xs{font-size:.5625rem;line-height:.875rem}.font-medium{font-weight:500}.tabular-nums{--tw-numeric-spacing:tabular-nums;font-variant-numeric:var(--tw-ordinal) var(--tw-slashed-zero) var(--tw-numeric-figure) var(--tw-numeric-spacing) var(--tw-numeric-fraction)}.text-blue-blue{--tw-text-opacity:1;color:rgb(22 110 225/var(--tw-text-opacity,1))}.text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.text-gray-gray700{--tw-text-opacity:1;color:rgb(49 53 62/var(--tw-text-opacity,1))}.text-gray-gray800{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.shadow-lg{--tw-shadow:0px 0px 1px 0px rgba(0,0,0,.48),0px 0px 2px 0px rgba(0,0,0,.08),0px 2px 4px 0px rgba(0,0,0,.12),0px 2px 8px 0px rgba(0,0,0,.08);--tw-shadow-colored:0px 0px 1px 0px var(--tw-shadow-color),0px 0px 2px 0px var(--tw-shadow-color),0px 2px 4px 0px var(--tw-shadow-color),0px 2px 8px 0px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.outline-none{outline:2px solid transparent;outline-offset:2px}.blur{--tw-blur:blur(8px)}.blur,.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.bn-year-dropdown::hover{cursor:pointer}.bn-year-dropdown-button{padding:5px 7px;font-size:14px}.bn-list-cell{color:#1f1f1f;font-size:14px}.bn-list-cell-name{font-size:16px}.bn-list-cell-probable input,input{font-size:14px}.grid{gap:25px}.hover\\:border-gray-gray200:hover{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.hover\\:bg-gray-gray25:hover{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.hover\\:bg-gray-gray50:hover{--tw-bg-opacity:1;background-color:rgb(246 248 252/var(--tw-bg-opacity,1))}.hover\\:text-blue-blueDark1:hover{--tw-text-opacity:1;color:rgb(13 82 172/var(--tw-text-opacity,1))}.hover\\:underline:hover{text-decoration-line:underline}.focus\\:border-blue-blue:focus{--tw-border-opacity:1;border-color:rgb(22 110 225/var(--tw-border-opacity,1))}.focus\\:bg-white:focus{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}@media (prefers-color-scheme:dark){.dark\\:border-gray-gray600{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:bg-gray-gray700{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray800{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:text-gray-gray100{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:text-gray-gray200{--tw-text-opacity:1;color:rgb(218 222 230/var(--tw-text-opacity,1))}.dark\\:text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.dark\\:hover\\:border-gray-gray600:hover{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:hover\\:bg-gray-gray800:hover{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:focus\\:bg-gray-gray700:focus{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}}';
       document.head.appendChild(style);
     }
   });
@@ -41196,7 +41196,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
 
   // frontend/index.js
   var frontend_exports = {};
-  function YearDropdown({ options = [], value = null, onChange, label = "Toute les ann\xE9es" }) {
+  function YearDropdown({ options = [], value = null, onChange, label = "Toutes les ann\xE9es" }) {
     const [open, setOpen] = (0, import_react6.useState)(false);
     const wrapperRef = (0, import_react6.useRef)(null);
     (0, import_react6.useEffect)(() => {
@@ -41297,53 +41297,130 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       columnNumber: 5
     }, this);
   }
-  function CampagnesList({ records, nameField, spendBudgetField, budgetField, soldeField, probableField }) {
+  function ProbableCell({ record, table, field }) {
+    const current = field ? record.getCellValue(field) : null;
+    const rawString = current == null ? "" : String(current).replace(".", ",");
+    const [draft, setDraft] = (0, import_react6.useState)(rawString);
+    const [focused, setFocused] = (0, import_react6.useState)(false);
+    (0, import_react6.useEffect)(() => {
+      if (!focused) setDraft(rawString);
+    }, [rawString, focused]);
+    if (!field || !table) {
+      return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("span", { className: "text-gray-gray400", children: "\u2014" }, void 0, false, {
+        fileName: "frontend/index.js",
+        lineNumber: 170,
+        columnNumber: 12
+      }, this);
+    }
+    const revert = () => setDraft(rawString);
+    const save = async () => {
+      const trimmed = draft.trim().replace(",", ".");
+      const parsed = trimmed === "" ? null : Number(trimmed);
+      if (trimmed !== "" && isNaN(parsed)) {
+        revert();
+        return;
+      }
+      if (parsed === current) return;
+      try {
+        await table.updateRecordAsync(record, { [field.id]: parsed });
+      } catch (e) {
+        console.error("Failed to update Probable:", e);
+        revert();
+      }
+    };
+    const displayValue = focused ? draft : current == null || current === "" ? "" : fmtCurrency(current);
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
+      "input",
+      {
+        type: "text",
+        inputMode: "decimal",
+        value: displayValue,
+        onChange: (e) => setDraft(e.target.value),
+        onFocus: () => setFocused(true),
+        onBlur: () => {
+          setFocused(false);
+          save();
+        },
+        onKeyDown: (e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            revert();
+            e.currentTarget.blur();
+          }
+        },
+        placeholder: "$0,00",
+        className: "w-full text-right px-2 py-0.5 rounded border border-transparent hover:border-gray-gray200 dark:hover:border-gray-gray600 focus:border-blue-blue focus:bg-white dark:focus:bg-gray-gray700 bg-transparent text-sm tabular-nums outline-none"
+      },
+      void 0,
+      false,
+      {
+        fileName: "frontend/index.js",
+        lineNumber: 198,
+        columnNumber: 5
+      },
+      this
+    );
+  }
+  function CampagnesList({ records, campagnesTable, nameField, spendBudgetField, budgetField, soldeField, probableField, spendMediaField, spendProdField, yearByCampagneId }) {
     if (!records || records.length === 0) {
       return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list-empty py-10 text-center text-sm text-gray-gray400", children: "Aucune campagne." }, void 0, false, {
         fileName: "frontend/index.js",
-        lineNumber: 156,
+        lineNumber: 224,
         columnNumber: 7
       }, this);
     }
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list", children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list-head flex items-center h-8 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray600", children: LIST_COLS.map((col) => /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list overflow-x-auto", children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
         "div",
         {
-          className: `bn-list-head-cell bn-list-head-cell-${col.key} px-3`,
-          style: { width: col.width, textAlign: col.align },
-          children: col.label
+          className: "bn-list-head grid items-center h-8 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray600",
+          style: { gridTemplateColumns: GRID_TEMPLATE },
+          children: LIST_COLS.map((col) => /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
+            "div",
+            {
+              className: `bn-list-head-cell bn-list-head-cell-${col.key} px-3 min-w-0 truncate`,
+              style: { textAlign: col.align },
+              children: col.label
+            },
+            col.key,
+            false,
+            {
+              fileName: "frontend/index.js",
+              lineNumber: 237,
+              columnNumber: 11
+            },
+            this
+          ))
         },
-        col.key,
+        void 0,
         false,
         {
           fileName: "frontend/index.js",
-          lineNumber: 166,
-          columnNumber: 11
+          lineNumber: 232,
+          columnNumber: 7
         },
         this
-      )) }, void 0, false, {
-        fileName: "frontend/index.js",
-        lineNumber: 164,
-        columnNumber: 7
-      }, this),
+      ),
       /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list-body", children: records.map((r) => {
         const name = nameField ? r.getCellValueAsString(nameField) : "";
         const spendBudget = spendBudgetField ? r.getCellValue(spendBudgetField) : null;
         const budget = budgetField ? r.getCellValue(budgetField) : null;
         const solde = soldeField ? r.getCellValue(soldeField) : null;
-        const probable = probableField ? r.getCellValue(probableField) : null;
+        const spendMedia = spendMediaField ? r.getCellValue(spendMediaField) : null;
+        const spendProd = spendProdField ? r.getCellValue(spendProdField) : null;
+        const annee = yearByCampagneId?.get(r.id) || "";
         return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
           "div",
           {
-            className: "bn-list-row flex items-center min-h-[36px] text-sm text-gray-gray800 dark:text-gray-gray100 border-b border-gray-gray100 dark:border-gray-gray600 hover:bg-gray-gray25 dark:hover:bg-gray-gray800 transition-colors",
+            className: "bn-list-row grid items-center min-h-[36px] text-sm text-gray-gray800 dark:text-gray-gray100 border-b border-gray-gray100 dark:border-gray-gray600 hover:bg-gray-gray25 dark:hover:bg-gray-gray800 transition-colors",
+            style: { gridTemplateColumns: GRID_TEMPLATE },
             children: [
               /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
                 "button",
                 {
                   type: "button",
                   onClick: () => expandRecord(r),
-                  className: "bn-list-cell bn-list-cell-name px-3 text-left truncate font-medium text-blue-blue hover:text-blue-blueDark1 hover:underline bg-transparent border-none cursor-pointer",
-                  style: { width: LIST_COLS[0].width },
+                  className: "bn-list-cell bn-list-cell-name px-3 min-w-0 text-left truncate font-medium text-blue-blue hover:text-blue-blueDark1 hover:underline bg-transparent border-none cursor-pointer",
                   title: "Ouvrir la campagne",
                   children: name || "\u2014"
                 },
@@ -41351,94 +41428,69 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                 false,
                 {
                   fileName: "frontend/index.js",
-                  lineNumber: 188,
+                  lineNumber: 262,
                   columnNumber: 15
                 },
                 this
               ),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
-                "div",
-                {
-                  className: "bn-list-cell bn-list-cell-spend-budget px-3 tabular-nums",
-                  style: { width: LIST_COLS[1].width, textAlign: "right" },
-                  children: fmtCurrency(spendBudget)
-                },
-                void 0,
-                false,
-                {
-                  fileName: "frontend/index.js",
-                  lineNumber: 197,
-                  columnNumber: 15
-                },
-                this
-              ),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
-                "div",
-                {
-                  className: "bn-list-cell bn-list-cell-budget px-3 tabular-nums",
-                  style: { width: LIST_COLS[2].width, textAlign: "right" },
-                  children: fmtCurrency(budget)
-                },
-                void 0,
-                false,
-                {
-                  fileName: "frontend/index.js",
-                  lineNumber: 203,
-                  columnNumber: 15
-                },
-                this
-              ),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
-                "div",
-                {
-                  className: "bn-list-cell bn-list-cell-solde px-3 tabular-nums",
-                  style: { width: LIST_COLS[3].width, textAlign: "right" },
-                  children: fmtCurrency(solde)
-                },
-                void 0,
-                false,
-                {
-                  fileName: "frontend/index.js",
-                  lineNumber: 209,
-                  columnNumber: 15
-                },
-                this
-              ),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
-                "div",
-                {
-                  className: "bn-list-cell bn-list-cell-probable px-3 tabular-nums",
-                  style: { width: LIST_COLS[4].width, textAlign: "right" },
-                  children: fmtCurrency(probable)
-                },
-                void 0,
-                false,
-                {
-                  fileName: "frontend/index.js",
-                  lineNumber: 215,
-                  columnNumber: 15
-                },
-                this
-              )
+              /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-budget px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendBudget) }, void 0, false, {
+                fileName: "frontend/index.js",
+                lineNumber: 270,
+                columnNumber: 15
+              }, this),
+              /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-budget px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(budget) }, void 0, false, {
+                fileName: "frontend/index.js",
+                lineNumber: 273,
+                columnNumber: 15
+              }, this),
+              /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-solde px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(solde) }, void 0, false, {
+                fileName: "frontend/index.js",
+                lineNumber: 276,
+                columnNumber: 15
+              }, this),
+              /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-probable px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(ProbableCell, { record: r, table: campagnesTable, field: probableField }, void 0, false, {
+                fileName: "frontend/index.js",
+                lineNumber: 280,
+                columnNumber: 17
+              }, this) }, void 0, false, {
+                fileName: "frontend/index.js",
+                lineNumber: 279,
+                columnNumber: 15
+              }, this),
+              /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-annee px-3 min-w-0 truncate", children: annee || "\u2014" }, void 0, false, {
+                fileName: "frontend/index.js",
+                lineNumber: 282,
+                columnNumber: 15
+              }, this),
+              /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-media px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendMedia) }, void 0, false, {
+                fileName: "frontend/index.js",
+                lineNumber: 285,
+                columnNumber: 15
+              }, this),
+              /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-prod px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendProd) }, void 0, false, {
+                fileName: "frontend/index.js",
+                lineNumber: 288,
+                columnNumber: 15
+              }, this)
             ]
           },
           r.id,
           true,
           {
             fileName: "frontend/index.js",
-            lineNumber: 184,
+            lineNumber: 257,
             columnNumber: 13
           },
           this
         );
       }) }, void 0, false, {
         fileName: "frontend/index.js",
-        lineNumber: 176,
+        lineNumber: 247,
         columnNumber: 7
       }, this)
     ] }, void 0, true, {
       fileName: "frontend/index.js",
-      lineNumber: 163,
+      lineNumber: 231,
       columnNumber: 5
     }, this);
   }
@@ -41454,17 +41506,17 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800", children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(YearDropdown, { options: [], value: null, onChange: () => {
       } }, void 0, false, {
         fileName: "frontend/index.js",
-        lineNumber: 245,
+        lineNumber: 315,
         columnNumber: 9
       }, this) }, void 0, false, {
         fileName: "frontend/index.js",
-        lineNumber: 244,
+        lineNumber: 314,
         columnNumber: 7
       }, this);
     }
     return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(AppInner, { yearsTable, campagnesTable }, void 0, false, {
       fileName: "frontend/index.js",
-      lineNumber: 250,
+      lineNumber: 320,
       columnNumber: 10
     }, this);
   }
@@ -41477,13 +41529,13 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     const campagnesLinkField = findField(yearsTable, "campagnes_meta") || yearsTable.fields?.find(
       (f) => f?.name?.toLowerCase().includes("campagne")
     ) || null;
-    console.log("campagne table", campagnesTable);
     const nameField = findField(campagnesTable, "name");
-    console.log("spend_budget exists?", campagnesTable?.fields?.some((f) => f.name === "spend_budget"));
     const spendBudgetField = findField(campagnesTable, "spend_budget");
     const budgetField = findField(campagnesTable, "budget");
     const soldeField = findField(campagnesTable, "solde");
     const probableField = findField(campagnesTable, "Probable");
+    const spendMediaField = findField(campagnesTable, "spend_media");
+    const spendProdField = findField(campagnesTable, "spend_prod");
     const options = (0, import_react6.useMemo)(() => {
       if (!yearRecords || !yearField) return [];
       const seen = /* @__PURE__ */ new Set();
@@ -41497,6 +41549,20 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       }
       return out.sort((a, b) => b.localeCompare(a));
     }, [yearRecords, yearField]);
+    const yearByCampagneId = (0, import_react6.useMemo)(() => {
+      const map = /* @__PURE__ */ new Map();
+      if (!yearRecords || !yearField || !campagnesLinkField) return map;
+      for (const y of yearRecords) {
+        const yearName = y.getCellValueAsString(yearField);
+        if (!yearName) continue;
+        const links = y.getCellValue(campagnesLinkField);
+        if (!Array.isArray(links)) continue;
+        for (const l of links) {
+          if (l?.id && !map.has(l.id)) map.set(l.id, yearName);
+        }
+      }
+      return map;
+    }, [yearRecords, yearField, campagnesLinkField]);
     const allowedIds = (0, import_react6.useMemo)(() => {
       if (!year || !yearRecords || !yearField || !campagnesLinkField) return null;
       const rec = yearRecords.find(
@@ -41515,35 +41581,39 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800 space-y-4", children: [
       /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(YearDropdown, { options, value: year, onChange: setYear }, void 0, false, {
         fileName: "frontend/index.js",
-        lineNumber: 318,
+        lineNumber: 405,
         columnNumber: 7
       }, this),
       /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
         CampagnesList,
         {
           records: visibleCampagnes,
+          campagnesTable,
           nameField,
           spendBudgetField,
           budgetField,
           soldeField,
-          probableField
+          probableField,
+          spendMediaField,
+          spendProdField,
+          yearByCampagneId
         },
         void 0,
         false,
         {
           fileName: "frontend/index.js",
-          lineNumber: 319,
+          lineNumber: 406,
           columnNumber: 7
         },
         this
       )
     ] }, void 0, true, {
       fileName: "frontend/index.js",
-      lineNumber: 317,
+      lineNumber: 404,
       columnNumber: 5
     }, this);
   }
-  var import_react6, import_jsx_dev_runtime, fmtCurrency, findField, ChevronDown, LIST_COLS;
+  var import_react6, import_jsx_dev_runtime, fmtCurrency, findField, ChevronDown, LIST_COLS, GRID_TEMPLATE;
   var init_frontend = __esm({
     "frontend/index.js"() {
       import_react6 = __toESM(require_react());
@@ -41598,15 +41668,19 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         }
       );
       LIST_COLS = [
-        { key: "name", label: "Nom", width: "46%", align: "left" },
-        { key: "spend_budget", label: "Budget d\xE9pens\xE9", width: "18%", align: "right" },
-        { key: "budget", label: "Budget Annuel", width: "18%", align: "right" },
-        { key: "solde", label: "Solde", width: "18%", align: "right" },
-        { key: "Probable", label: "Probable", width: "18%", align: "right" }
+        { key: "name", label: "Nom", size: "minmax(250px, 3fr)", align: "left" },
+        { key: "spend_budget", label: "Budget d\xE9pens\xE9", size: "minmax(120px, 1fr)", align: "right" },
+        { key: "budget", label: "Budget Annuel", size: "minmax(120px, 1fr)", align: "right" },
+        { key: "solde", label: "Solde", size: "minmax(120px, 1fr)", align: "right" },
+        { key: "Probable", label: "Probable", size: "minmax(120px, 1fr)", align: "right" },
+        { key: "annee", label: "Ann\xE9e", size: "minmax(120px, 1fr)", align: "right" },
+        { key: "spend_media", label: "M\xE9dia d\xE9pens\xE9", size: "minmax(120px, 1fr)", align: "right" },
+        { key: "spend_prod", label: "Prod d\xE9pens\xE9e", size: "minmax(120px, 1fr)", align: "right" }
       ];
+      GRID_TEMPLATE = LIST_COLS.map((c) => c.size).join(" ");
       initializeBlock({ interface: () => /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(App, {}, void 0, false, {
         fileName: "frontend/index.js",
-        lineNumber: 333,
+        lineNumber: 424,
         columnNumber: 36
       }) });
     }

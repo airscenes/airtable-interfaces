@@ -48,7 +48,7 @@ const ChevronDown = ({ className = "" }) => (
 
 // ─── Year Dropdown Widget ────────────────────────────────────────────────────
 
-function YearDropdown({ options = [], value = null, onChange, label = "Toute les années" }) {
+function YearDropdown({ options = [], value = null, onChange, label = "Toutes les années" }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef(null);
 
@@ -143,14 +143,82 @@ function YearDropdown({ options = [], value = null, onChange, label = "Toute les
 //   .bn-list-empty             — empty state
 
 const LIST_COLS = [
-  { key: "name",         label: "Nom",              width: "46%", align: "left"  },
-  { key: "spend_budget", label: "Budget dépensé",   width: "18%", align: "right" },
-  { key: "budget",       label: "Budget Annuel",    width: "18%", align: "right" },
-  { key: "solde",        label: "Solde",            width: "18%", align: "right" },
-  { key: "Probable",     label: "Probable",         width: "18%", align: "right" },
+  { key: "name",         label: "Nom",              size: "minmax(250px, 3fr)", align: "left"  },
+  { key: "spend_budget", label: "Budget dépensé",   size: "minmax(120px, 1fr)", align: "right" },
+  { key: "budget",       label: "Budget Annuel",    size: "minmax(120px, 1fr)", align: "right" },
+  { key: "solde",        label: "Solde",            size: "minmax(120px, 1fr)", align: "right" },
+  { key: "Probable",     label: "Probable",         size: "minmax(120px, 1fr)", align: "right" },
+  { key: "annee",        label: "Année",            size: "minmax(120px, 1fr)", align: "right"  },
+  { key: "spend_media",  label: "Média dépensé",    size: "minmax(120px, 1fr)", align: "right" },
+  { key: "spend_prod",   label: "Prod dépensée",    size: "minmax(120px, 1fr)", align: "right" },
 ];
 
-function CampagnesList({ records, nameField, spendBudgetField, budgetField, soldeField, probableField }) {
+const GRID_TEMPLATE = LIST_COLS.map((c) => c.size).join(" ");
+
+function ProbableCell({ record, table, field }) {
+  const current = field ? record.getCellValue(field) : null;
+  const rawString = current == null ? "" : String(current).replace(".", ",");
+  const [draft, setDraft] = useState(rawString);
+  const [focused, setFocused] = useState(false);
+
+  // Keep the input in sync when the record updates from outside (and we're not editing).
+  useEffect(() => {
+    if (!focused) setDraft(rawString);
+  }, [rawString, focused]);
+
+  if (!field || !table) {
+    return <span className="text-gray-gray400">—</span>;
+  }
+
+  const revert = () => setDraft(rawString);
+
+  const save = async () => {
+    const trimmed = draft.trim().replace(",", ".");
+    const parsed = trimmed === "" ? null : Number(trimmed);
+    if (trimmed !== "" && isNaN(parsed)) {
+      revert();
+      return;
+    }
+    if (parsed === current) return;
+    try {
+      await table.updateRecordAsync(record, { [field.id]: parsed });
+    } catch (e) {
+      console.error("Failed to update Probable:", e);
+      revert();
+    }
+  };
+
+  const displayValue = focused
+    ? draft
+    : current == null || current === ""
+      ? ""
+      : fmtCurrency(current);
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={displayValue}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        save();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          revert();
+          e.currentTarget.blur();
+        }
+      }}
+      placeholder="$0,00"
+      className="w-full text-right px-2 py-0.5 rounded border border-transparent hover:border-gray-gray200 dark:hover:border-gray-gray600 focus:border-blue-blue focus:bg-white dark:focus:bg-gray-gray700 bg-transparent text-sm tabular-nums outline-none"
+    />
+  );
+}
+
+function CampagnesList({ records, campagnesTable, nameField, spendBudgetField, budgetField, soldeField, probableField, spendMediaField, spendProdField, yearByCampagneId }) {
   if (!records || records.length === 0) {
     return (
       <div className="bn-list-empty py-10 text-center text-sm text-gray-gray400">
@@ -160,13 +228,16 @@ function CampagnesList({ records, nameField, spendBudgetField, budgetField, sold
   }
 
   return (
-    <div className="bn-list">
-      <div className="bn-list-head flex items-center h-8 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray600">
+    <div className="bn-list overflow-x-auto">
+      <div
+        className="bn-list-head grid items-center h-8 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray600"
+        style={{ gridTemplateColumns: GRID_TEMPLATE }}
+      >
         {LIST_COLS.map((col) => (
           <div
             key={col.key}
-            className={`bn-list-head-cell bn-list-head-cell-${col.key} px-3`}
-            style={{ width: col.width, textAlign: col.align }}
+            className={`bn-list-head-cell bn-list-head-cell-${col.key} px-3 min-w-0 truncate`}
+            style={{ textAlign: col.align }}
           >
             {col.label}
           </div>
@@ -179,44 +250,43 @@ function CampagnesList({ records, nameField, spendBudgetField, budgetField, sold
           const spendBudget = spendBudgetField ? r.getCellValue(spendBudgetField) : null;
           const budget = budgetField ? r.getCellValue(budgetField) : null;
           const solde = soldeField ? r.getCellValue(soldeField) : null;
-          const probable = probableField ? r.getCellValue(probableField) : null;
+          const spendMedia = spendMediaField ? r.getCellValue(spendMediaField) : null;
+          const spendProd = spendProdField ? r.getCellValue(spendProdField) : null;
+          const annee = yearByCampagneId?.get(r.id) || "";
           return (
             <div
               key={r.id}
-              className="bn-list-row flex items-center min-h-[36px] text-sm text-gray-gray800 dark:text-gray-gray100 border-b border-gray-gray100 dark:border-gray-gray600 hover:bg-gray-gray25 dark:hover:bg-gray-gray800 transition-colors"
+              className="bn-list-row grid items-center min-h-[36px] text-sm text-gray-gray800 dark:text-gray-gray100 border-b border-gray-gray100 dark:border-gray-gray600 hover:bg-gray-gray25 dark:hover:bg-gray-gray800 transition-colors"
+              style={{ gridTemplateColumns: GRID_TEMPLATE }}
             >
               <button
                 type="button"
                 onClick={() => expandRecord(r)}
-                className="bn-list-cell bn-list-cell-name px-3 text-left truncate font-medium text-blue-blue hover:text-blue-blueDark1 hover:underline bg-transparent border-none cursor-pointer"
-                style={{ width: LIST_COLS[0].width }}
+                className="bn-list-cell bn-list-cell-name px-3 min-w-0 text-left truncate font-medium text-blue-blue hover:text-blue-blueDark1 hover:underline bg-transparent border-none cursor-pointer"
                 title="Ouvrir la campagne"
               >
                 {name || "—"}
               </button>
-              <div
-                className="bn-list-cell bn-list-cell-spend-budget px-3 tabular-nums"
-                style={{ width: LIST_COLS[1].width, textAlign: "right" }}
-              >
+              <div className="bn-list-cell bn-list-cell-spend-budget px-3 min-w-0 tabular-nums text-right">
                 {fmtCurrency(spendBudget)}
               </div>
-              <div
-                className="bn-list-cell bn-list-cell-budget px-3 tabular-nums"
-                style={{ width: LIST_COLS[2].width, textAlign: "right" }}
-              >
+              <div className="bn-list-cell bn-list-cell-budget px-3 min-w-0 tabular-nums text-right">
                 {fmtCurrency(budget)}
               </div>
-              <div
-                className="bn-list-cell bn-list-cell-solde px-3 tabular-nums"
-                style={{ width: LIST_COLS[3].width, textAlign: "right" }}
-              >
+              <div className="bn-list-cell bn-list-cell-solde px-3 min-w-0 tabular-nums text-right">
                 {fmtCurrency(solde)}
               </div>
-              <div
-                className="bn-list-cell bn-list-cell-probable px-3 tabular-nums"
-                style={{ width: LIST_COLS[4].width, textAlign: "right" }}
-              >
-                {fmtCurrency(probable)}
+              <div className="bn-list-cell bn-list-cell-probable px-3 min-w-0 tabular-nums text-right">
+                <ProbableCell record={r} table={campagnesTable} field={probableField} />
+              </div>
+              <div className="bn-list-cell bn-list-cell-annee px-3 min-w-0 truncate">
+                {annee || "—"}
+              </div>
+              <div className="bn-list-cell bn-list-cell-spend-media px-3 min-w-0 tabular-nums text-right">
+                {fmtCurrency(spendMedia)}
+              </div>
+              <div className="bn-list-cell bn-list-cell-spend-prod px-3 min-w-0 tabular-nums text-right">
+                {fmtCurrency(spendProd)}
               </div>
             </div>
           );
@@ -269,14 +339,14 @@ function AppInner({ yearsTable, campagnesTable }) {
     ) ||
     null;
 
-    console.log("campagne table", campagnesTable);
   // Fields on Campagnes_META
   const nameField = findField(campagnesTable, "name");
-    console.log("spend_budget exists?", campagnesTable?.fields?.some(f => f.name === "spend_budget"));
   const spendBudgetField = findField(campagnesTable, "spend_budget");
   const budgetField = findField(campagnesTable, "budget");
   const soldeField = findField(campagnesTable, "solde");
   const probableField = findField(campagnesTable, "Probable");
+  const spendMediaField = findField(campagnesTable, "spend_media");
+  const spendProdField = findField(campagnesTable, "spend_prod");
 
   
 
@@ -294,6 +364,23 @@ function AppInner({ yearsTable, campagnesTable }) {
     }
     return out.sort((a, b) => b.localeCompare(a));
   }, [yearRecords, yearField]);
+
+  // Reverse lookup: campagneId → year string. Same source as the filter.
+  // If a campagne is linked from multiple years, the first match wins.
+  const yearByCampagneId = useMemo(() => {
+    const map = new Map();
+    if (!yearRecords || !yearField || !campagnesLinkField) return map;
+    for (const y of yearRecords) {
+      const yearName = y.getCellValueAsString(yearField);
+      if (!yearName) continue;
+      const links = y.getCellValue(campagnesLinkField);
+      if (!Array.isArray(links)) continue;
+      for (const l of links) {
+        if (l?.id && !map.has(l.id)) map.set(l.id, yearName);
+      }
+    }
+    return map;
+  }, [yearRecords, yearField, campagnesLinkField]);
 
   // Campagne ids allowed by the selected year (null = no filter → show all).
   const allowedIds = useMemo(() => {
@@ -318,11 +405,15 @@ function AppInner({ yearsTable, campagnesTable }) {
       <YearDropdown options={options} value={year} onChange={setYear} />
       <CampagnesList
         records={visibleCampagnes}
+        campagnesTable={campagnesTable}
         nameField={nameField}
         spendBudgetField={spendBudgetField}
         budgetField={budgetField}
         soldeField={soldeField}
         probableField={probableField}
+        spendMediaField={spendMediaField}
+        spendProdField={spendProdField}
+        yearByCampagneId={yearByCampagneId}
       />
     </div>
   );

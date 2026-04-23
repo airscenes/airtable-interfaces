@@ -13,5 +13,24 @@
 }
 
 .bn-list-cell{
-    color:black;
+    color:rgb(31, 31, 31);
+    font-size: 14px;
 }
+
+.bn-list-cell-name{
+    font-size: 16px;
+}
+
+input {
+    font-size: 14px;
+}
+
+.bn-list-cell-probable input {
+    font-size: 14px;
+}
+
+.grid{
+    gap: 25px;
+}
+
+

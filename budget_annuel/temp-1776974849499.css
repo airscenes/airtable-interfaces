@@ -1,0 +1,22 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.bn-year-dropdown::hover{
+    cursor:pointer;
+}
+
+.bn-year-dropdown-button{
+    padding: 5px 7px;
+    font-size: 14px;
+}
+
+.bn-list-cell{
+    color:black;
+}
+
+input:hover{
+    color: grey;
+    width: 15px;
+}*/
