@@ -148,7 +148,7 @@ const LIST_COLS = [
   { key: "budget",       label: "Budget Annuel",    size: "minmax(120px, 1fr)", align: "right" },
   { key: "solde",        label: "Solde",            size: "minmax(120px, 1fr)", align: "right" },
   { key: "Probable",     label: "Probable",         size: "minmax(120px, 1fr)", align: "right" },
-  { key: "annee",        label: "Année",            size: "minmax(120px, 1fr)", align: "right"  },
+  { key: "annee",        label: "Année",            size: "minmax(120px, 1fr)", align: "left"  },
   { key: "spend_media",  label: "Média dépensé",    size: "minmax(120px, 1fr)", align: "right" },
   { key: "spend_prod",   label: "Prod dépensée",    size: "minmax(120px, 1fr)", align: "right" },
 ];
@@ -212,7 +212,7 @@ function ProbableCell({ record, table, field }) {
           e.currentTarget.blur();
         }
       }}
-      placeholder="$0,00"
+      placeholder="-"
       className="w-full text-right px-2 py-0.5 rounded border border-transparent hover:border-gray-gray200 dark:hover:border-gray-gray600 focus:border-blue-blue focus:bg-white dark:focus:bg-gray-gray700 bg-transparent text-sm tabular-nums outline-none"
     />
   );
