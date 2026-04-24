@@ -46,6 +46,25 @@ const ChevronDown = ({ className = "" }) => (
   </svg>
 );
 
+const ChevronRight = ({ className = "" }) => (
+  <svg
+    className={className}
+    width="14"
+    height="14"
+    viewBox="0 0 16 16"
+    fill="none"
+    aria-hidden="true"
+  >
+    <path
+      d="M6 4l4 4-4 4"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 // ─── Year Dropdown Widget ────────────────────────────────────────────────────
 
 function YearDropdown({ options = [], value = null, onChange, label = "Toutes les années" }) {
@@ -143,6 +162,7 @@ function YearDropdown({ options = [], value = null, onChange, label = "Toutes le
 //   .bn-list-empty             — empty state
 
 const LIST_COLS = [
+  { key: "chevron",      label: "",                 size: "24px",               align: "center"},
   { key: "name",         label: "Nom",              size: "minmax(250px, 3fr)", align: "left"  },
   { key: "spend_budget", label: "Budget dépensé",   size: "minmax(120px, 1fr)", align: "right" },
   { key: "budget",       label: "Budget Annuel",    size: "minmax(120px, 1fr)", align: "right" },
@@ -259,6 +279,14 @@ function CampagnesList({ records, campagnesTable, nameField, spendBudgetField, b
               className="bn-list-row grid items-center min-h-[36px] text-sm text-gray-gray800 dark:text-gray-gray100 border-b border-gray-gray100 dark:border-gray-gray600 hover:bg-gray-gray25 dark:hover:bg-gray-gray800 transition-colors"
               style={{ gridTemplateColumns: GRID_TEMPLATE }}
             >
+              <button
+                type="button"
+                onClick={() => { developCampaine() }}
+                className="bn-list-cell bn-list-cell-chevron flex items-center justify-center p-0 bg-transparent border-none cursor-pointer text-gray-gray500 hover:text-gray-gray800 dark:text-gray-gray400 dark:hover:text-gray-gray100"
+                aria-label="Développer la campagne"
+              >
+                <ChevronRight />
+              </button>
               <button
                 type="button"
                 onClick={() => expandRecord(r)}
