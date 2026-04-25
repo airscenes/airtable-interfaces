@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { expandRecord } from "@airtable/blocks/interface/ui";
 import { fmtCurrency } from "../utils/format";
 import { CampagnesSubList } from "./CampagnesSubList";
+import { LIST_COLS, GRID_TEMPLATE } from "./listColumns";
 
 {/*Design des chevrons*/}
 const ChevronRight = ({ className = "" }) => (
@@ -36,20 +37,6 @@ const ChevronRight = ({ className = "" }) => (
 //   .bn-list-cell-budget
 //   .bn-list-cell-solde
 //   .bn-list-empty             — empty state
-
-const LIST_COLS = [
-  { key: "chevron",      label: "",                 size: "32px",               align: "center"},
-  { key: "name",         label: "Nom",              size: "minmax(250px, 3fr)", align: "left"  },
-  { key: "spend_budget", label: "Budget dépensé",   size: "minmax(120px, 1fr)", align: "right" },
-  { key: "budget",       label: "Budget Annuel",    size: "minmax(120px, 1fr)", align: "right" },
-  { key: "solde",        label: "Solde",            size: "minmax(120px, 1fr)", align: "right" },
-  { key: "Probable",     label: "Probable",         size: "minmax(120px, 1fr)", align: "right" },
-  { key: "annee",        label: "Année",            size: "minmax(120px, 1fr)", align: "left"  },
-  { key: "spend_media",  label: "Média dépensé",    size: "minmax(120px, 1fr)", align: "right" },
-  { key: "spend_prod",   label: "Prod dépensée",    size: "minmax(120px, 1fr)", align: "right" },
-];
-
-const GRID_TEMPLATE = LIST_COLS.map((c) => c.size).join(" ");
 
 function ProbableCell({ record, table, field }) {
   const current = field ? record.getCellValue(field) : null;
