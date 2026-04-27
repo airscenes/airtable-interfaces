@@ -73,6 +73,7 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
   const spendBudgetField = findField(campagnesMetaTable, "spend_budget");
   const budgetField = findField(campagnesMetaTable, "budget");
   const percentField = findField(campagnesMetaTable, "Ratio Budget");
+  const budgetReviseField = findField(campagnesMetaTable, "Budget Révisé");
   const soldeField = findField(campagnesMetaTable, "solde");
   const probableField = findField(campagnesMetaTable, "Probable");
   const spendMediaField = findField(campagnesMetaTable, "spend_media");
@@ -204,6 +205,7 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
         spendBudgetField={spendBudgetField}
         budgetField={budgetField}
         percentField={percentField}
+        budgetReviseField={budgetReviseField}
         soldeField={soldeField}
         probableField={probableField}
         spendMediaField={spendMediaField}

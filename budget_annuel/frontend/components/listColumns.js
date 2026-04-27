@@ -11,6 +11,7 @@ export const LIST_COLS = [
   { key: "spend_budget", label: "Budget Dépensé",   size: "140px", align: "right"  },
   { key: "budget",       label: "Budget Annuel",    size: "140px", align: "right"  },
   { key: "percent",      label: "% Annuel",         size: "100px", align: "right"  },
+  { key: "budget_revise",label: "Budget Révisé",    size: "140px", align: "right"  },
   { key: "solde",        label: "Solde",            size: "140px", align: "right"  },
   { key: "probable",     label: "Probable",         size: "140px", align: "right"  },
   { key: "annee",        label: "Année",            size: "120px", align: "left"   },

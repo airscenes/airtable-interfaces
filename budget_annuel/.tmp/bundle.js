@@ -41329,42 +41329,50 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
   // frontend/components/AnnualBudget.js
   function AnnualBudget({ year, annualBudget, sumOfBudgets }) {
     const ratio = annualBudget && sumOfBudgets != null ? sumOfBudgets / annualBudget : 0;
-    const fillPercent = Math.max(0, Math.min(1, ratio)) * 100;
+    const fillPercent = Math.max(0, ratio) * 100;
+    const overBudget = annualBudget != null && sumOfBudgets != null && sumOfBudgets > annualBudget;
     const remaining = annualBudget != null && sumOfBudgets != null ? annualBudget - sumOfBudgets : null;
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget px-1 py-1", children: [
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: `bn-annual-budget ${overBudget ? "bn-annual-budget--over" : ""} sticky top-0 z-10 bg-white dark:bg-gray-gray800 px-1 py-2 border-b border-gray-gray100 dark:border-gray-gray700`, children: [
       /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-amounts flex items-center flex-wrap gap-3 text-2xl font-semibold text-gray-gray900 dark:text-gray-gray100 tabular-nums", children: [
         /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { children: [
           /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "bn-annual-budget-numerator", children: sumOfBudgets != null ? fmtCurrency(sumOfBudgets) : "\u2014" }, void 0, false, {
             fileName: "frontend/components/AnnualBudget.js",
-            lineNumber: 21,
+            lineNumber: 25,
             columnNumber: 11
           }, this),
           /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "bn-annual-budget-sep text-gray-gray500 dark:text-gray-gray400 mx-2", children: "/" }, void 0, false, {
             fileName: "frontend/components/AnnualBudget.js",
-            lineNumber: 24,
+            lineNumber: 28,
             columnNumber: 11
           }, this),
           /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "bn-annual-budget-denominator text-gray-gray500 dark:text-gray-gray400", children: annualBudget != null ? fmtCurrency(annualBudget) : "\u2014" }, void 0, false, {
             fileName: "frontend/components/AnnualBudget.js",
-            lineNumber: 25,
+            lineNumber: 29,
             columnNumber: 11
           }, this)
         ] }, void 0, true, {
           fileName: "frontend/components/AnnualBudget.js",
-          lineNumber: 20,
+          lineNumber: 24,
           columnNumber: 9
         }, this),
-        remaining != null && /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "bn-annual-budget-remaining inline-flex items-center px-3 py-0.5 rounded-full text-sm font-sm", children: [
-          fmtCurrency(remaining),
-          " restants"
-        ] }, void 0, true, {
-          fileName: "frontend/components/AnnualBudget.js",
-          lineNumber: 30,
-          columnNumber: 11
-        }, this)
+        remaining != null && /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
+          "span",
+          {
+            className: `bn-annual-budget-remaining ${overBudget ? "bn-annual-budget-remaining--over" : ""} inline-flex items-center px-3 py-0.5 rounded-full text-sm font-sm`,
+            children: overBudget ? `${fmtCurrency(-remaining)} d\xE9pass\xE9s` : `${fmtCurrency(remaining)} restants`
+          },
+          void 0,
+          false,
+          {
+            fileName: "frontend/components/AnnualBudget.js",
+            lineNumber: 34,
+            columnNumber: 11
+          },
+          this
+        )
       ] }, void 0, true, {
         fileName: "frontend/components/AnnualBudget.js",
-        lineNumber: 19,
+        lineNumber: 23,
         columnNumber: 7
       }, this),
       /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-caption mt-1 text-xs text-gray-gray500 dark:text-gray-gray400 tabular-nums", children: [
@@ -41376,37 +41384,38 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
           " %"
         ] }, void 0, true, {
           fileName: "frontend/components/AnnualBudget.js",
-          lineNumber: 36,
+          lineNumber: 44,
           columnNumber: 9
         }, this),
-        " du budget annuel allou\xE9"
+        " ",
+        overBudget ? "\u2014 budget d\xE9pass\xE9" : "du budget annuel allou\xE9"
       ] }, void 0, true, {
         fileName: "frontend/components/AnnualBudget.js",
-        lineNumber: 35,
+        lineNumber: 43,
         columnNumber: 7
       }, this),
       /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-progress mt-2 h-2 w-full rounded-full bg-gray-gray100 dark:bg-gray-gray700 overflow-hidden", children: /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
         "div",
         {
-          className: "bn-annual-budget-progress-fill h-full rounded-full bg-blue-blue transition-all",
+          className: `bn-annual-budget-progress-fill h-full rounded-full ${overBudget ? "bg-red-red" : "bg-blue-blue"} transition-all`,
           style: { width: `${fillPercent}%` }
         },
         void 0,
         false,
         {
           fileName: "frontend/components/AnnualBudget.js",
-          lineNumber: 42,
+          lineNumber: 50,
           columnNumber: 9
         },
         this
       ) }, void 0, false, {
         fileName: "frontend/components/AnnualBudget.js",
-        lineNumber: 41,
+        lineNumber: 49,
         columnNumber: 7
       }, this)
     ] }, void 0, true, {
       fileName: "frontend/components/AnnualBudget.js",
-      lineNumber: 18,
+      lineNumber: 22,
       columnNumber: 5
     }, this);
   }
@@ -41428,6 +41437,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         { key: "spend_budget", label: "Budget D\xE9pens\xE9", size: "140px", align: "right" },
         { key: "budget", label: "Budget Annuel", size: "140px", align: "right" },
         { key: "percent", label: "% Annuel", size: "100px", align: "right" },
+        { key: "budget_revise", label: "Budget R\xE9vis\xE9", size: "140px", align: "right" },
         { key: "solde", label: "Solde", size: "140px", align: "right" },
         { key: "probable", label: "Probable", size: "140px", align: "right" },
         { key: "annee", label: "Ann\xE9e", size: "120px", align: "left" },
@@ -41516,29 +41526,34 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                 lineNumber: 69,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-solde" }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-budget-revise" }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 70,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-probable" }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-solde" }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 71,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-annee" }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-probable" }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 72,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-media px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendMedia) }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-annee" }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 73,
                 columnNumber: 15
               }, this),
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-media px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendMedia) }, void 0, false, {
+                fileName: "frontend/components/CampagnesSubList.js",
+                lineNumber: 74,
+                columnNumber: 15
+              }, this),
               /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-prod px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendProd) }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
-                lineNumber: 76,
+                lineNumber: 77,
                 columnNumber: 15
               }, this)
             ]
@@ -41730,6 +41745,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     spendBudgetField,
     budgetField,
     percentField,
+    budgetReviseField,
     soldeField,
     probableField,
     spendMediaField,
@@ -41754,7 +41770,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     if (!records || records.length === 0) {
       return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-empty py-10 text-center text-sm text-gray-gray400", children: "Aucune campagne." }, void 0, false, {
         fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 225,
+        lineNumber: 226,
         columnNumber: 7
       }, this);
     }
@@ -41775,7 +41791,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
             false,
             {
               fileName: "frontend/components/CampagnesMetaList.js",
-              lineNumber: 238,
+              lineNumber: 239,
               columnNumber: 11
             },
             this
@@ -41785,7 +41801,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         false,
         {
           fileName: "frontend/components/CampagnesMetaList.js",
-          lineNumber: 233,
+          lineNumber: 234,
           columnNumber: 7
         },
         this
@@ -41816,7 +41832,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                     "aria-expanded": expanded,
                     children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(ChevronRight, { className: `transition-transform ${expanded ? "rotate-90" : ""}` }, void 0, false, {
                       fileName: "frontend/components/CampagnesMetaList.js",
-                      lineNumber: 272,
+                      lineNumber: 273,
                       columnNumber: 17
                     }, this)
                   },
@@ -41824,7 +41840,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                   false,
                   {
                     fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 265,
+                    lineNumber: 266,
                     columnNumber: 15
                   },
                   this
@@ -41842,14 +41858,14 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                   false,
                   {
                     fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 276,
+                    lineNumber: 277,
                     columnNumber: 15
                   },
                   this
                 ),
                 /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-budget px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendBudget) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 284,
+                  lineNumber: 285,
                   columnNumber: 15
                 }, this),
                 /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-budget px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
@@ -41866,13 +41882,13 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                   false,
                   {
                     fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 288,
+                    lineNumber: 289,
                     columnNumber: 17
                   },
                   this
                 ) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 287,
+                  lineNumber: 288,
                   columnNumber: 15
                 }, this),
                 /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-percent px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
@@ -41888,42 +41904,62 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                   false,
                   {
                     fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 302,
+                    lineNumber: 303,
                     columnNumber: 17
                   },
                   this
                 ) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 301,
+                  lineNumber: 302,
+                  columnNumber: 15
+                }, this),
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-budget-revise px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+                  EditableCurrencyCell,
+                  {
+                    record: r,
+                    table: campagnesTable,
+                    field: budgetReviseField
+                  },
+                  void 0,
+                  false,
+                  {
+                    fileName: "frontend/components/CampagnesMetaList.js",
+                    lineNumber: 312,
+                    columnNumber: 17
+                  },
+                  this
+                ) }, void 0, false, {
+                  fileName: "frontend/components/CampagnesMetaList.js",
+                  lineNumber: 311,
                   columnNumber: 15
                 }, this),
                 /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-solde px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(solde) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 310,
+                  lineNumber: 318,
                   columnNumber: 15
                 }, this),
                 /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-probable px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(EditableCurrencyCell, { record: r, table: campagnesTable, field: probableField }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 314,
+                  lineNumber: 322,
                   columnNumber: 17
                 }, this) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 313,
+                  lineNumber: 321,
                   columnNumber: 15
                 }, this),
                 /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-annee px-3 min-w-0 truncate", children: annee || "\u2014" }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 316,
+                  lineNumber: 324,
                   columnNumber: 15
                 }, this),
                 /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-media px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendMedia) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 319,
+                  lineNumber: 327,
                   columnNumber: 15
                 }, this),
                 /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-prod px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendProd) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 322,
+                  lineNumber: 330,
                   columnNumber: 15
                 }, this)
               ]
@@ -41932,7 +41968,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
             true,
             {
               fileName: "frontend/components/CampagnesMetaList.js",
-              lineNumber: 260,
+              lineNumber: 261,
               columnNumber: 13
             },
             this
@@ -41950,24 +41986,24 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
             false,
             {
               fileName: "frontend/components/CampagnesMetaList.js",
-              lineNumber: 327,
+              lineNumber: 335,
               columnNumber: 15
             },
             this
           )
         ] }, r.id, true, {
           fileName: "frontend/components/CampagnesMetaList.js",
-          lineNumber: 259,
+          lineNumber: 260,
           columnNumber: 13
         }, this);
       }) }, void 0, false, {
         fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 248,
+        lineNumber: 249,
         columnNumber: 7
       }, this)
     ] }, void 0, true, {
       fileName: "frontend/components/CampagnesMetaList.js",
-      lineNumber: 232,
+      lineNumber: 233,
       columnNumber: 5
     }, this);
   }
@@ -42025,7 +42061,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
   var init_style = __esm({
     "frontend/style.css"() {
       style = document.createElement("style");
-      style.textContent = '*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.19 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Courier,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.visible{visibility:visible}.absolute{position:absolute}.relative{position:relative}.left-0{left:0}.top-full{top:100%}.z-20{z-index:20}.mx-2{margin-left:.5rem;margin-right:.5rem}.mt-1{margin-top:.25rem}.mt-2{margin-top:.5rem}.block{display:block}.inline-block{display:inline-block}.flex{display:flex}.inline-flex{display:inline-flex}.\\!table{display:table!important}.table{display:table}.grid{display:grid}.h-2{height:.5rem}.h-7{height:1.75rem}.h-8{height:2rem}.h-full{height:100%}.min-h-\\[32px\\]{min-height:32px}.min-h-\\[36px\\]{min-height:36px}.min-h-screen{min-height:100vh}.w-full{width:100%}.min-w-0{min-width:0}.min-w-\\[160px\\]{min-width:160px}.rotate-90{--tw-rotate:90deg;transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-pointer{cursor:pointer}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.justify-center{justify-content:center}.gap-1\\.5{gap:.375rem}.gap-3{gap:.75rem}.space-y-4>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem*var(--tw-space-y-reverse))}.overflow-hidden{overflow:hidden}.overflow-x-auto{overflow-x:auto}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rounded{border-radius:.25rem}.rounded-full{border-radius:9999px}.rounded-md{border-radius:.375rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-none{border-style:none}.border-gray-gray100{--tw-border-opacity:1;border-color:rgb(229 233 240/var(--tw-border-opacity,1))}.border-gray-gray200{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.border-transparent{border-color:transparent}.bg-blue-blue{--tw-bg-opacity:1;background-color:rgb(22 110 225/var(--tw-bg-opacity,1))}.bg-blue-blueLight3{--tw-bg-opacity:1;background-color:rgb(241 245 255/var(--tw-bg-opacity,1))}.bg-gray-gray100{--tw-bg-opacity:1;background-color:rgb(229 233 240/var(--tw-bg-opacity,1))}.bg-gray-gray25{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.bg-transparent{background-color:transparent}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.p-0{padding:0}.p-4{padding:1rem}.px-1{padding-left:.25rem;padding-right:.25rem}.px-2{padding-left:.5rem;padding-right:.5rem}.px-2\\.5{padding-left:.625rem;padding-right:.625rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-0\\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\\.5{padding-top:.375rem;padding-bottom:.375rem}.py-10{padding-top:2.5rem;padding-bottom:2.5rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.pl-10{padding-left:2.5rem}.text-left{text-align:left}.text-center{text-align:center}.text-right{text-align:right}.text-2xl{font-size:1.3125rem;line-height:1.625rem}.text-sm{font-size:.6875rem;line-height:1rem}.text-xs{font-size:.5625rem;line-height:.875rem}.font-medium{font-weight:500}.font-semibold{font-weight:600}.italic{font-style:italic}.tabular-nums{--tw-numeric-spacing:tabular-nums;font-variant-numeric:var(--tw-ordinal) var(--tw-slashed-zero) var(--tw-numeric-figure) var(--tw-numeric-spacing) var(--tw-numeric-fraction)}.text-blue-blue{--tw-text-opacity:1;color:rgb(22 110 225/var(--tw-text-opacity,1))}.text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.text-gray-gray700{--tw-text-opacity:1;color:rgb(49 53 62/var(--tw-text-opacity,1))}.text-gray-gray800{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.text-gray-gray900{--tw-text-opacity:1;color:rgb(17 18 21/var(--tw-text-opacity,1))}.shadow-lg{--tw-shadow:0px 0px 1px 0px rgba(0,0,0,.48),0px 0px 2px 0px rgba(0,0,0,.08),0px 2px 4px 0px rgba(0,0,0,.12),0px 2px 8px 0px rgba(0,0,0,.08);--tw-shadow-colored:0px 0px 1px 0px var(--tw-shadow-color),0px 0px 2px 0px var(--tw-shadow-color),0px 2px 4px 0px var(--tw-shadow-color),0px 2px 8px 0px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.outline-none{outline:2px solid transparent;outline-offset:2px}.blur{--tw-blur:blur(8px)}.blur,.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition-all{transition-property:all;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-transform{transition-property:transform;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.bn-year-dropdown::hover{cursor:pointer}.bn-year-dropdown-button{padding:5px 7px;font-size:14px}.bn-list-cell,.editable{color:#1f1f1f;font-size:14px}.bn-list-cell-name{font-size:16px}.bn-list-cell-name:hover{text-decoration:none!important}.grid{gap:5px}.bn-list-head,.bn-list-row,.bn-sublist{width:-moz-fit-content;width:fit-content}.bn-list-row:hover,.bn-sublist-row:hover{background-color:#e0e8f5a9!important}.bn-sublist-cell-name{cursor:default}.bn-annual-budget-numerator{font-size:32px}.bn-annual-budget-remaining{font-size:13px;background-color:rgba(208,255,208,.846);color:#3e613e;border:1px solid rgba(62,97,62,.267)}.bn-annual-budget-caption{font-size:11px}.bn-annual-budget{width:-moz-fit-content;width:fit-content}.hover\\:border-gray-gray200:hover{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.hover\\:bg-gray-gray25:hover{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.hover\\:bg-gray-gray50:hover{--tw-bg-opacity:1;background-color:rgb(246 248 252/var(--tw-bg-opacity,1))}.hover\\:text-blue-blueDark1:hover{--tw-text-opacity:1;color:rgb(13 82 172/var(--tw-text-opacity,1))}.hover\\:text-gray-gray800:hover{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.hover\\:underline:hover{text-decoration-line:underline}.focus\\:border-blue-blue:focus{--tw-border-opacity:1;border-color:rgb(22 110 225/var(--tw-border-opacity,1))}.focus\\:bg-white:focus{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}@media (prefers-color-scheme:dark){.dark\\:border-gray-gray600{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:border-gray-gray700{--tw-border-opacity:1;border-color:rgb(49 53 62/var(--tw-border-opacity,1))}.dark\\:bg-gray-gray700{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray800{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray900{--tw-bg-opacity:1;background-color:rgb(17 18 21/var(--tw-bg-opacity,1))}.dark\\:text-gray-gray100{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:text-gray-gray200{--tw-text-opacity:1;color:rgb(218 222 230/var(--tw-text-opacity,1))}.dark\\:text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.dark\\:hover\\:border-gray-gray600:hover{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:hover\\:bg-gray-gray800:hover{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:hover\\:text-gray-gray100:hover{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:focus\\:bg-gray-gray700:focus{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}}';
+      style.textContent = '*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.19 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Courier,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.visible{visibility:visible}.absolute{position:absolute}.relative{position:relative}.sticky{position:sticky}.left-0{left:0}.top-0{top:0}.top-full{top:100%}.z-10{z-index:10}.z-20{z-index:20}.mx-2{margin-left:.5rem;margin-right:.5rem}.mt-1{margin-top:.25rem}.mt-2{margin-top:.5rem}.block{display:block}.inline-block{display:inline-block}.flex{display:flex}.inline-flex{display:inline-flex}.\\!table{display:table!important}.table{display:table}.grid{display:grid}.h-2{height:.5rem}.h-7{height:1.75rem}.h-8{height:2rem}.h-full{height:100%}.min-h-\\[32px\\]{min-height:32px}.min-h-\\[36px\\]{min-height:36px}.min-h-screen{min-height:100vh}.w-full{width:100%}.min-w-0{min-width:0}.min-w-\\[160px\\]{min-width:160px}.rotate-90{--tw-rotate:90deg;transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-pointer{cursor:pointer}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.justify-center{justify-content:center}.gap-1\\.5{gap:.375rem}.gap-3{gap:.75rem}.space-y-4>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem*var(--tw-space-y-reverse))}.overflow-hidden{overflow:hidden}.overflow-x-auto{overflow-x:auto}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rounded{border-radius:.25rem}.rounded-full{border-radius:9999px}.rounded-md{border-radius:.375rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-none{border-style:none}.border-gray-gray100{--tw-border-opacity:1;border-color:rgb(229 233 240/var(--tw-border-opacity,1))}.border-gray-gray200{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.border-transparent{border-color:transparent}.bg-blue-blue{--tw-bg-opacity:1;background-color:rgb(22 110 225/var(--tw-bg-opacity,1))}.bg-blue-blueLight3{--tw-bg-opacity:1;background-color:rgb(241 245 255/var(--tw-bg-opacity,1))}.bg-gray-gray100{--tw-bg-opacity:1;background-color:rgb(229 233 240/var(--tw-bg-opacity,1))}.bg-gray-gray25{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.bg-red-red{--tw-bg-opacity:1;background-color:rgb(220 4 59/var(--tw-bg-opacity,1))}.bg-transparent{background-color:transparent}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.p-0{padding:0}.p-4{padding:1rem}.px-1{padding-left:.25rem;padding-right:.25rem}.px-2{padding-left:.5rem;padding-right:.5rem}.px-2\\.5{padding-left:.625rem;padding-right:.625rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-0\\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\\.5{padding-top:.375rem;padding-bottom:.375rem}.py-10{padding-top:2.5rem;padding-bottom:2.5rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.pl-10{padding-left:2.5rem}.text-left{text-align:left}.text-center{text-align:center}.text-right{text-align:right}.text-2xl{font-size:1.3125rem;line-height:1.625rem}.text-sm{font-size:.6875rem;line-height:1rem}.text-xs{font-size:.5625rem;line-height:.875rem}.font-medium{font-weight:500}.font-semibold{font-weight:600}.italic{font-style:italic}.tabular-nums{--tw-numeric-spacing:tabular-nums;font-variant-numeric:var(--tw-ordinal) var(--tw-slashed-zero) var(--tw-numeric-figure) var(--tw-numeric-spacing) var(--tw-numeric-fraction)}.text-blue-blue{--tw-text-opacity:1;color:rgb(22 110 225/var(--tw-text-opacity,1))}.text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.text-gray-gray700{--tw-text-opacity:1;color:rgb(49 53 62/var(--tw-text-opacity,1))}.text-gray-gray800{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.text-gray-gray900{--tw-text-opacity:1;color:rgb(17 18 21/var(--tw-text-opacity,1))}.shadow-lg{--tw-shadow:0px 0px 1px 0px rgba(0,0,0,.48),0px 0px 2px 0px rgba(0,0,0,.08),0px 2px 4px 0px rgba(0,0,0,.12),0px 2px 8px 0px rgba(0,0,0,.08);--tw-shadow-colored:0px 0px 1px 0px var(--tw-shadow-color),0px 0px 2px 0px var(--tw-shadow-color),0px 2px 4px 0px var(--tw-shadow-color),0px 2px 8px 0px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.outline-none{outline:2px solid transparent;outline-offset:2px}.blur{--tw-blur:blur(8px)}.blur,.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition-all{transition-property:all;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-transform{transition-property:transform;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.bn-year-dropdown::hover{cursor:pointer}.bn-year-dropdown-button{padding:5px 7px;font-size:14px}.bn-list-cell,.editable{color:#1f1f1f;font-size:14px}.bn-list-cell-name{font-size:16px}.bn-list-cell-name:hover{text-decoration:none!important}.grid{gap:5px}.bn-list-head,.bn-list-row,.bn-sublist{width:-moz-fit-content;width:fit-content}.bn-list-row:hover,.bn-sublist-row:hover{background-color:#e0e8f5a9!important}.bn-sublist-cell-name{cursor:default}.bn-annual-budget-numerator{font-size:32px}.bn-annual-budget-remaining{font-size:13px;background-color:rgba(208,255,208,.846);color:#3e613e;border:1px solid rgba(62,97,62,.267)}.bn-annual-budget-remaining--over{background-color:#ffd7d7;color:#7b3434;border:1px solid rgba(164,41,41,.348)}.bn-annual-budget-caption{font-size:11px}.bn-annual-budget{width:-moz-fit-content;width:fit-content}.hover\\:border-gray-gray200:hover{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.hover\\:bg-gray-gray25:hover{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.hover\\:bg-gray-gray50:hover{--tw-bg-opacity:1;background-color:rgb(246 248 252/var(--tw-bg-opacity,1))}.hover\\:text-blue-blueDark1:hover{--tw-text-opacity:1;color:rgb(13 82 172/var(--tw-text-opacity,1))}.hover\\:text-gray-gray800:hover{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.hover\\:underline:hover{text-decoration-line:underline}.focus\\:border-blue-blue:focus{--tw-border-opacity:1;border-color:rgb(22 110 225/var(--tw-border-opacity,1))}.focus\\:bg-white:focus{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}@media (prefers-color-scheme:dark){.dark\\:border-gray-gray600{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:border-gray-gray700{--tw-border-opacity:1;border-color:rgb(49 53 62/var(--tw-border-opacity,1))}.dark\\:bg-gray-gray700{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray800{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray900{--tw-bg-opacity:1;background-color:rgb(17 18 21/var(--tw-bg-opacity,1))}.dark\\:text-gray-gray100{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:text-gray-gray200{--tw-text-opacity:1;color:rgb(218 222 230/var(--tw-text-opacity,1))}.dark\\:text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.dark\\:hover\\:border-gray-gray600:hover{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:hover\\:bg-gray-gray800:hover{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:hover\\:text-gray-gray100:hover{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:focus\\:bg-gray-gray700:focus{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}}';
       document.head.appendChild(style);
     }
   });
@@ -42088,6 +42124,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     const spendBudgetField = findField(campagnesMetaTable, "spend_budget");
     const budgetField = findField(campagnesMetaTable, "budget");
     const percentField = findField(campagnesMetaTable, "Ratio Budget");
+    const budgetReviseField = findField(campagnesMetaTable, "Budget R\xE9vis\xE9");
     const soldeField = findField(campagnesMetaTable, "solde");
     const probableField = findField(campagnesMetaTable, "Probable");
     const spendMediaField = findField(campagnesMetaTable, "spend_media");
@@ -42182,7 +42219,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800 space-y-4", children: [
       /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(YearDropdown, { options, value: year, onChange: setYear }, void 0, false, {
         fileName: "frontend/index.js",
-        lineNumber: 194,
+        lineNumber: 195,
         columnNumber: 7
       }, this),
       /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
@@ -42196,7 +42233,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         false,
         {
           fileName: "frontend/index.js",
-          lineNumber: 195,
+          lineNumber: 196,
           columnNumber: 7
         },
         this
@@ -42210,6 +42247,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
           spendBudgetField,
           budgetField,
           percentField,
+          budgetReviseField,
           soldeField,
           probableField,
           spendMediaField,
@@ -42226,14 +42264,14 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         false,
         {
           fileName: "frontend/index.js",
-          lineNumber: 200,
+          lineNumber: 201,
           columnNumber: 7
         },
         this
       )
     ] }, void 0, true, {
       fileName: "frontend/index.js",
-      lineNumber: 193,
+      lineNumber: 194,
       columnNumber: 5
     }, this);
   }
@@ -42252,7 +42290,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       ) || null;
       initializeBlock({ interface: () => /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(App, {}, void 0, false, {
         fileName: "frontend/index.js",
-        lineNumber: 223,
+        lineNumber: 225,
         columnNumber: 36
       }) });
     }

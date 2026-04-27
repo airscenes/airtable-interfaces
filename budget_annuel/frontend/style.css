@@ -57,6 +57,12 @@
     border: 1px solid rgba(62, 97, 62, 0.267);
 }
 
+.bn-annual-budget-remaining--over{
+    background-color:rgb(255, 215, 215);
+    color:rgb(123, 52, 52);
+    border: 1px solid rgba(164, 41, 41, 0.348);
+}
+
 .bn-annual-budget-caption{
     font-size:11px;
 }

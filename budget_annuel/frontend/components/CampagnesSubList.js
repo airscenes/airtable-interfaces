@@ -67,6 +67,7 @@ export function CampagnesSubList({ budgets, nameField, spendTotalField, spendMed
               </div>
               <div className="bn-sublist-cell bn-sublist-cell-budget" />
               <div className="bn-sublist-cell bn-sublist-cell-percent" />
+              <div className="bn-sublist-cell bn-sublist-cell-budget-revise" />
               <div className="bn-sublist-cell bn-sublist-cell-solde" />
               <div className="bn-sublist-cell bn-sublist-cell-probable" />
               <div className="bn-sublist-cell bn-sublist-cell-annee" />

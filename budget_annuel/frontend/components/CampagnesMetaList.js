@@ -197,6 +197,7 @@ export function CampagnesMetaList({
   spendBudgetField,
   budgetField,
   percentField,
+  budgetReviseField,
   soldeField,
   probableField,
   spendMediaField,
@@ -305,6 +306,13 @@ export function CampagnesMetaList({
                   field={percentField}
                   sourceField={budgetField}
                   factor={annualBudget}
+                />
+              </div>
+              <div className="bn-list-cell bn-list-cell-budget-revise px-3 min-w-0 tabular-nums text-right">
+                <EditableCurrencyCell
+                  record={r}
+                  table={campagnesTable}
+                  field={budgetReviseField}
                 />
               </div>
               <div className="bn-list-cell bn-list-cell-solde px-3 min-w-0 tabular-nums text-right">
