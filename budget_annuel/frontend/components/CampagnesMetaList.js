@@ -101,7 +101,23 @@ function ProbableCell({ record, table, field }) {
   );
 }
 
-export function CampagnesMetaList({ records, campagnesTable, nameField, spendBudgetField, budgetField, soldeField, probableField, spendMediaField, spendProdField, yearByCampagneId, budgetsByCampagneMetaId, budgetNameField, budgetSpendTotalField, budgetSpendMediaField, budgetSpendProdField }) {
+export function CampagnesMetaList({ 
+  records, 
+  campagnesTable, 
+  nameField, 
+  spendBudgetField, 
+  budgetField, 
+  soldeField, 
+  probableField, 
+  spendMediaField, 
+  spendProdField, 
+  yearByCampagneId, 
+  budgetsByCampagneMetaId, 
+  budgetNameField, 
+  budgetSpendTotalField, 
+  budgetSpendMediaField, 
+  budgetSpendProdField 
+}) {
   const [expandedIds, setExpandedIds] = useState(() => new Set());
 
   const toggleExpanded = (id) => {
@@ -171,7 +187,7 @@ export function CampagnesMetaList({ records, campagnesTable, nameField, spendBud
                 type="button"
                 onClick={() => expandRecord(r)}
                 className="bn-list-cell bn-list-cell-name px-3 min-w-0 text-left truncate font-medium text-blue-blue hover:text-blue-blueDark1 hover:underline bg-transparent border-none cursor-pointer"
-                title="Ouvrir la campagne"
+                title={name || "—"}
               >
                 {name || "—"}
               </button>

@@ -14,7 +14,7 @@ import { LIST_COLS, GRID_TEMPLATE } from "./listColumns";
 
 const SUB_LABELS = {
   name: "Campagne",
-  spend_budget: "Total dépensé",
+  spend_budget: "Total Dépensé",
   spend_media: "Média",
   spend_prod: "Prod",
 };
@@ -47,7 +47,8 @@ export function CampagnesSubList({ budgets, nameField, spendTotalField, spendMed
 
       <div className="bn-sublist-body">
         {budgets.map((b) => {
-          const name = nameField ? b.getCellValueAsString(nameField) : "";
+          const linked = nameField ? b.getCellValue(nameField) : null;
+          const name = Array.isArray(linked) ? linked.map((l) => l.name).join(", ") : "";
           const spendTotal = spendTotalField ? b.getCellValue(spendTotalField) : null;
           const spendMedia = spendMediaField ? b.getCellValue(spendMediaField) : null;
           const spendProd = spendProdField ? b.getCellValue(spendProdField) : null;
@@ -58,7 +59,7 @@ export function CampagnesSubList({ budgets, nameField, spendTotalField, spendMed
               style={{ gridTemplateColumns: GRID_TEMPLATE }}
             >
               <div className="bn-sublist-cell bn-sublist-cell-spacer" />
-              <div className="bn-sublist-cell bn-sublist-cell-name px-3 min-w-0 truncate">
+              <div className="bn-sublist-cell bn-sublist-cell-name px-3 min-w-0 truncate" title={name || "—"}>
                 {name || "—"}
               </div>
               <div className="bn-sublist-cell bn-sublist-cell-spend-total px-3 min-w-0 tabular-nums text-right">

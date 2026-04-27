@@ -21,6 +21,10 @@
     font-size: 16px;
 }
 
+.bn-list-cell-name:hover{
+    text-decoration:none !important;
+}
+
 input {
     font-size: 14px;
 }
@@ -33,10 +37,16 @@ input {
     gap: 5px;
 }
 
+
 .bn-list-head,
 .bn-list-row,
 .bn-sublist {
     width:fit-content;
+}
+
+.bn-list-row:hover,
+.bn-sublist-row:hover{
+    background-color:#e0e8f5a9 !important;
 }
 
 .bn-sublist-cell-name{
