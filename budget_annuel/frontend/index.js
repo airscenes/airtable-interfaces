@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   initializeBlock,
   useBase,
@@ -16,8 +16,10 @@ const findField = (table, name) =>
 function App() {
   const base = useBase();
   const yearsTable = base?.tables?.find(
-    (t) => t?.name?.toLowerCase() === "budget_annuel",
+    (t) => t?.name?.toLowerCase() === "budget annuel",
   ) || null;
+
+  console.log(yearsTable)
   const campagnesMetaTable = base?.tables?.find(
     (t) => t?.name?.toLowerCase() === "campagnes_meta",
   ) || null;
@@ -26,7 +28,7 @@ function App() {
   ) || null;
 
   // Guard at the boundary: useRecords crashes on null tables. If the
-  // budget_annuel table can't be found, render the widget with no options.
+  // "Budget Annuel" table can't be found, render the widget with no options.
   if (!yearsTable || !yearsTable.id) {
     return (
       <div className="bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800">
@@ -69,6 +71,7 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
   const nameField = findField(campagnesMetaTable, "name");
   const spendBudgetField = findField(campagnesMetaTable, "spend_budget");
   const budgetField = findField(campagnesMetaTable, "budget");
+  const percentField = findField(campagnesMetaTable, "Ratio Budget");
   const soldeField = findField(campagnesMetaTable, "solde");
   const probableField = findField(campagnesMetaTable, "Probable");
   const spendMediaField = findField(campagnesMetaTable, "spend_media");
@@ -102,6 +105,12 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
     }
     return out.sort((a, b) => b.localeCompare(a));
   }, [yearRecords, yearField]);
+
+  useEffect(() => {
+    if (year == null && options.length > 0) {
+      setYear(options[0]);
+    }
+  }, [options, year]);
 
   // Reverse lookup: campagneId → year string. Same source as the filter.
   // If a campagne is linked from multiple years, the first match wins.
@@ -166,6 +175,7 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
         nameField={nameField}
         spendBudgetField={spendBudgetField}
         budgetField={budgetField}
+        percentField={percentField}
         soldeField={soldeField}
         probableField={probableField}
         spendMediaField={spendMediaField}

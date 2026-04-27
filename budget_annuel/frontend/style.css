@@ -12,7 +12,8 @@
     font-size: 14px;
 }
 
-.bn-list-cell{
+.bn-list-cell,
+.editable {
     color:rgb(31, 31, 31);
     font-size: 14px;
 }
@@ -23,14 +24,6 @@
 
 .bn-list-cell-name:hover{
     text-decoration:none !important;
-}
-
-input {
-    font-size: 14px;
-}
-
-.bn-list-cell-probable input {
-    font-size: 14px;
 }
 
 .grid{

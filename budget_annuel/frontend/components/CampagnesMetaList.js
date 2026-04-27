@@ -4,6 +4,9 @@ import { fmtCurrency } from "../utils/format";
 import { CampagnesSubList } from "./CampagnesSubList";
 import { LIST_COLS, GRID_TEMPLATE } from "./listColumns";
 
+/*HARDCODED FOR TESTING PURPOSES*/ 
+const annualBudget = 1015000;
+
 {/*Design des chevrons*/}
 const ChevronRight = ({ className = "" }) => (
   <svg
@@ -38,7 +41,10 @@ const ChevronRight = ({ className = "" }) => (
 //   .bn-list-cell-solde
 //   .bn-list-empty             — empty state
 
-function ProbableCell({ record, table, field }) {
+// `extraUpdates(parsed)` returns additional `{ fieldId: value }` pairs to write
+// in the same transaction — used to keep a sibling field in sync (e.g. write
+// Ratio Budget when budget changes).
+function EditableCurrencyCell({ record, table, field, extraUpdates }) {
   const current = field ? record.getCellValue(field) : null;
   const rawString = current == null ? "" : String(current).replace(".", ",");
   const [draft, setDraft] = useState(rawString);
@@ -63,10 +69,12 @@ function ProbableCell({ record, table, field }) {
       return;
     }
     if (parsed === current) return;
+    const updates = { [field.id]: parsed };
+    if (extraUpdates) Object.assign(updates, extraUpdates(parsed));
     try {
-      await table.updateRecordAsync(record, { [field.id]: parsed });
+      await table.updateRecordAsync(record, updates);
     } catch (e) {
-      console.error("Failed to update Probable:", e);
+      console.error(`Failed to update ${field.name}:`, e);
       revert();
     }
   };
@@ -96,7 +104,90 @@ function ProbableCell({ record, table, field }) {
         }
       }}
       placeholder="-"
-      className="w-full text-right px-2 py-0.5 rounded border border-transparent hover:border-gray-gray200 dark:hover:border-gray-gray600 focus:border-blue-blue focus:bg-white dark:focus:bg-gray-gray700 bg-transparent text-sm tabular-nums outline-none"
+      className="editable w-full text-right px-2 py-0.5 rounded border border-transparent hover:border-gray-gray200 dark:hover:border-gray-gray600 focus:border-blue-blue focus:bg-white dark:focus:bg-gray-gray700 bg-transparent text-sm tabular-nums outline-none"
+    />
+  );
+}
+
+// Two-way bound percent cell:
+//   - Display is computed live from `sourceField` (budget) / `factor`
+//     (annualBudget) — when budget changes elsewhere, this cell re-renders.
+//   - On save, writes the decimal to its own `field` AND back-propagates
+//     decimal × factor to `sourceField` in the same transaction.
+function EditablePercentageCell({ record, table, field, sourceField, factor }) {
+  const sourceValue = sourceField ? record.getCellValue(sourceField) : null;
+  const current =
+    sourceValue != null && factor ? sourceValue / factor : null;
+  const draftFromCurrent =
+    current == null ? "" : String(current * 100).replace(".", ",");
+  const [draft, setDraft] = useState(draftFromCurrent);
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) setDraft(draftFromCurrent);
+  }, [draftFromCurrent, focused]);
+
+  if (!field || !table || !sourceField || !factor) {
+    return <span className="text-gray-gray400">—</span>;
+  }
+
+  const revert = () => setDraft(draftFromCurrent);
+
+  const save = async () => {
+    const trimmed = draft.trim().replace("%", "").replace(",", ".");
+    let decimal;
+    if (trimmed === "") {
+      decimal = null;
+    } else {
+      const parsed = Number(trimmed);
+      if (isNaN(parsed)) {
+        revert();
+        return;
+      }
+      decimal = parsed / 100;
+    }
+    if (decimal === current) return;
+    const updates = {
+      [field.id]: decimal,
+      [sourceField.id]: decimal == null ? null : decimal * factor,
+    };
+    try {
+      await table.updateRecordAsync(record, updates);
+    } catch (e) {
+      console.error(`Failed to update ${field.name}:`, e);
+      revert();
+    }
+  };
+
+  const displayValue = focused
+    ? draft
+    : current == null
+      ? ""
+      : `${(current * 100).toLocaleString("fr-FR", {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 2,
+        })} %`;
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={displayValue}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        save();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          revert();
+          e.currentTarget.blur();
+        }
+      }}
+      placeholder="-"
+      className="editable w-full text-right px-2 py-0.5 rounded border border-transparent hover:border-gray-gray200 dark:hover:border-gray-gray600 focus:border-blue-blue focus:bg-white dark:focus:bg-gray-gray700 bg-transparent text-sm tabular-nums outline-none"
     />
   );
 }
@@ -106,9 +197,10 @@ export function CampagnesMetaList({
   campagnesTable, 
   nameField, 
   spendBudgetField, 
-  budgetField, 
-  soldeField, 
-  probableField, 
+  budgetField,
+  percentField,
+  soldeField,
+  probableField,
   spendMediaField, 
   spendProdField, 
   yearByCampagneId, 
@@ -158,7 +250,6 @@ export function CampagnesMetaList({
         {records.map((r) => {
           const name = nameField ? r.getCellValueAsString(nameField) : "";
           const spendBudget = spendBudgetField ? r.getCellValue(spendBudgetField) : null;
-          const budget = budgetField ? r.getCellValue(budgetField) : null;
           const solde = soldeField ? r.getCellValue(soldeField) : null;
           const spendMedia = spendMediaField ? r.getCellValue(spendMediaField) : null;
           const spendProd = spendProdField ? r.getCellValue(spendProdField) : null;
@@ -195,13 +286,33 @@ export function CampagnesMetaList({
                 {fmtCurrency(spendBudget)}
               </div>
               <div className="bn-list-cell bn-list-cell-budget px-3 min-w-0 tabular-nums text-right">
-                {fmtCurrency(budget)}
+                <EditableCurrencyCell
+                  record={r}
+                  table={campagnesTable}
+                  field={budgetField}
+                  extraUpdates={
+                    percentField && annualBudget
+                      ? (b) => ({
+                          [percentField.id]: b == null ? null : b / annualBudget,
+                        })
+                      : undefined
+                  }
+                />
+              </div>
+              <div className="bn-list-cell bn-list-cell-percent px-3 min-w-0 tabular-nums text-right">
+                <EditablePercentageCell
+                  record={r}
+                  table={campagnesTable}
+                  field={percentField}
+                  sourceField={budgetField}
+                  factor={annualBudget}
+                />
               </div>
               <div className="bn-list-cell bn-list-cell-solde px-3 min-w-0 tabular-nums text-right">
                 {fmtCurrency(solde)}
               </div>
               <div className="bn-list-cell bn-list-cell-probable px-3 min-w-0 tabular-nums text-right">
-                <ProbableCell record={r} table={campagnesTable} field={probableField} />
+                <EditableCurrencyCell record={r} table={campagnesTable} field={probableField} />
               </div>
               <div className="bn-list-cell bn-list-cell-annee px-3 min-w-0 truncate">
                 {annee || "—"}
