@@ -4,8 +4,6 @@ import { fmtCurrency } from "../utils/format";
 import { CampagnesSubList } from "./CampagnesSubList";
 import { LIST_COLS, GRID_TEMPLATE } from "./listColumns";
 
-/*HARDCODED FOR TESTING PURPOSES*/ 
-const annualBudget = 1015000;
 
 {/*Design des chevrons*/}
 const ChevronRight = ({ className = "" }) => (
@@ -192,23 +190,24 @@ function EditablePercentageCell({ record, table, field, sourceField, factor }) {
   );
 }
 
-export function CampagnesMetaList({ 
-  records, 
-  campagnesTable, 
-  nameField, 
-  spendBudgetField, 
+export function CampagnesMetaList({
+  records,
+  campagnesTable,
+  nameField,
+  spendBudgetField,
   budgetField,
   percentField,
   soldeField,
   probableField,
-  spendMediaField, 
-  spendProdField, 
-  yearByCampagneId, 
-  budgetsByCampagneMetaId, 
-  budgetNameField, 
-  budgetSpendTotalField, 
-  budgetSpendMediaField, 
-  budgetSpendProdField 
+  spendMediaField,
+  spendProdField,
+  yearByCampagneId,
+  budgetsByCampagneMetaId,
+  budgetNameField,
+  budgetSpendTotalField,
+  budgetSpendMediaField,
+  budgetSpendProdField,
+  annualBudget,
 }) {
   const [expandedIds, setExpandedIds] = useState(() => new Set());
 

@@ -41326,6 +41326,98 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     }
   });
 
+  // frontend/components/AnnualBudget.js
+  function AnnualBudget({ year, annualBudget, sumOfBudgets }) {
+    const ratio = annualBudget && sumOfBudgets != null ? sumOfBudgets / annualBudget : 0;
+    const fillPercent = Math.max(0, Math.min(1, ratio)) * 100;
+    const remaining = annualBudget != null && sumOfBudgets != null ? annualBudget - sumOfBudgets : null;
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget px-1 py-1", children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-amounts flex items-center flex-wrap gap-3 text-2xl font-semibold text-gray-gray900 dark:text-gray-gray100 tabular-nums", children: [
+        /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { children: [
+          /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "bn-annual-budget-numerator", children: sumOfBudgets != null ? fmtCurrency(sumOfBudgets) : "\u2014" }, void 0, false, {
+            fileName: "frontend/components/AnnualBudget.js",
+            lineNumber: 21,
+            columnNumber: 11
+          }, this),
+          /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "bn-annual-budget-sep text-gray-gray500 dark:text-gray-gray400 mx-2", children: "/" }, void 0, false, {
+            fileName: "frontend/components/AnnualBudget.js",
+            lineNumber: 24,
+            columnNumber: 11
+          }, this),
+          /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "bn-annual-budget-denominator text-gray-gray500 dark:text-gray-gray400", children: annualBudget != null ? fmtCurrency(annualBudget) : "\u2014" }, void 0, false, {
+            fileName: "frontend/components/AnnualBudget.js",
+            lineNumber: 25,
+            columnNumber: 11
+          }, this)
+        ] }, void 0, true, {
+          fileName: "frontend/components/AnnualBudget.js",
+          lineNumber: 20,
+          columnNumber: 9
+        }, this),
+        remaining != null && /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "bn-annual-budget-remaining inline-flex items-center px-3 py-0.5 rounded-full text-sm font-sm", children: [
+          fmtCurrency(remaining),
+          " restants"
+        ] }, void 0, true, {
+          fileName: "frontend/components/AnnualBudget.js",
+          lineNumber: 30,
+          columnNumber: 11
+        }, this)
+      ] }, void 0, true, {
+        fileName: "frontend/components/AnnualBudget.js",
+        lineNumber: 19,
+        columnNumber: 7
+      }, this),
+      /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-caption mt-1 text-xs text-gray-gray500 dark:text-gray-gray400 tabular-nums", children: [
+        /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("b", { children: [
+          fillPercent.toLocaleString("fr-FR", {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+          }),
+          " %"
+        ] }, void 0, true, {
+          fileName: "frontend/components/AnnualBudget.js",
+          lineNumber: 36,
+          columnNumber: 9
+        }, this),
+        " du budget annuel allou\xE9"
+      ] }, void 0, true, {
+        fileName: "frontend/components/AnnualBudget.js",
+        lineNumber: 35,
+        columnNumber: 7
+      }, this),
+      /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-progress mt-2 h-2 w-full rounded-full bg-gray-gray100 dark:bg-gray-gray700 overflow-hidden", children: /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
+        "div",
+        {
+          className: "bn-annual-budget-progress-fill h-full rounded-full bg-blue-blue transition-all",
+          style: { width: `${fillPercent}%` }
+        },
+        void 0,
+        false,
+        {
+          fileName: "frontend/components/AnnualBudget.js",
+          lineNumber: 42,
+          columnNumber: 9
+        },
+        this
+      ) }, void 0, false, {
+        fileName: "frontend/components/AnnualBudget.js",
+        lineNumber: 41,
+        columnNumber: 7
+      }, this)
+    ] }, void 0, true, {
+      fileName: "frontend/components/AnnualBudget.js",
+      lineNumber: 18,
+      columnNumber: 5
+    }, this);
+  }
+  var import_jsx_dev_runtime2;
+  var init_AnnualBudget = __esm({
+    "frontend/components/AnnualBudget.js"() {
+      init_format();
+      import_jsx_dev_runtime2 = __toESM(require_jsx_dev_runtime());
+    }
+  });
+
   // frontend/components/listColumns.js
   var LIST_COLS, GRID_TEMPLATE;
   var init_listColumns = __esm({
@@ -41349,19 +41441,19 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
   // frontend/components/CampagnesSubList.js
   function CampagnesSubList({ budgets, nameField, spendTotalField, spendMediaField, spendProdField }) {
     if (!budgets || budgets.length === 0) {
-      return /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-empty py-2 pl-10 text-xs italic text-gray-gray400", children: "Aucune campagne li\xE9e." }, void 0, false, {
+      return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-empty py-2 pl-10 text-xs italic text-gray-gray400", children: "Aucune campagne li\xE9e." }, void 0, false, {
         fileName: "frontend/components/CampagnesSubList.js",
         lineNumber: 25,
         columnNumber: 7
       }, this);
     }
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist bg-gray-gray25 dark:bg-gray-gray900 border-b border-gray-gray100 dark:border-gray-gray600", children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist bg-gray-gray25 dark:bg-gray-gray900 border-b border-gray-gray100 dark:border-gray-gray600", children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
         "div",
         {
           className: "bn-sublist-head grid items-center h-7 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray700",
           style: { gridTemplateColumns: GRID_TEMPLATE },
-          children: LIST_COLS.map((col) => /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
+          children: LIST_COLS.map((col) => /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
             "div",
             {
               className: `bn-sublist-head-cell bn-sublist-head-cell-${col.key} px-3 min-w-0 truncate`,
@@ -41387,64 +41479,64 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         },
         this
       ),
-      /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-body", children: budgets.map((b) => {
+      /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-body", children: budgets.map((b) => {
         const linked = nameField ? b.getCellValue(nameField) : null;
         const name = Array.isArray(linked) ? linked.map((l) => l.name).join(", ") : "";
         const spendTotal = spendTotalField ? b.getCellValue(spendTotalField) : null;
         const spendMedia = spendMediaField ? b.getCellValue(spendMediaField) : null;
         const spendProd = spendProdField ? b.getCellValue(spendProdField) : null;
-        return /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
+        return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
           "div",
           {
             className: "bn-sublist-row grid items-center min-h-[32px] text-sm text-gray-gray800 dark:text-gray-gray100 border-b border-gray-gray100 dark:border-gray-gray700 hover:bg-gray-gray50 dark:hover:bg-gray-gray800 transition-colors",
             style: { gridTemplateColumns: GRID_TEMPLATE },
             children: [
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spacer" }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spacer" }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 61,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-name px-3 min-w-0 truncate", title: name || "\u2014", children: name || "\u2014" }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-name px-3 min-w-0 truncate", title: name || "\u2014", children: name || "\u2014" }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 62,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-total px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendTotal) }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-total px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendTotal) }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 65,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-budget" }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-budget" }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 68,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-percent" }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-percent" }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 69,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-solde" }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-solde" }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 70,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-probable" }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-probable" }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 71,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-annee" }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-annee" }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 72,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-media px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendMedia) }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-media px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendMedia) }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 73,
                 columnNumber: 15
               }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-prod px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendProd) }, void 0, false, {
+              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-prod px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendProd) }, void 0, false, {
                 fileName: "frontend/components/CampagnesSubList.js",
                 lineNumber: 76,
                 columnNumber: 15
@@ -41471,12 +41563,12 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       columnNumber: 5
     }, this);
   }
-  var import_jsx_dev_runtime2, SUB_LABELS;
+  var import_jsx_dev_runtime3, SUB_LABELS;
   var init_CampagnesSubList = __esm({
     "frontend/components/CampagnesSubList.js"() {
       init_format();
       init_listColumns();
-      import_jsx_dev_runtime2 = __toESM(require_jsx_dev_runtime());
+      import_jsx_dev_runtime3 = __toESM(require_jsx_dev_runtime());
       SUB_LABELS = {
         name: "Campagne",
         spend_budget: "Total D\xE9pens\xE9",
@@ -41496,9 +41588,9 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       if (!focused) setDraft(rawString);
     }, [rawString, focused]);
     if (!field || !table) {
-      return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("span", { className: "text-gray-gray400", children: "\u2014" }, void 0, false, {
+      return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("span", { className: "text-gray-gray400", children: "\u2014" }, void 0, false, {
         fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 59,
+        lineNumber: 57,
         columnNumber: 12
       }, this);
     }
@@ -41521,7 +41613,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       }
     };
     const displayValue = focused ? draft : current == null || current === "" ? "" : fmtCurrency(current);
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
       "input",
       {
         type: "text",
@@ -41547,7 +41639,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       false,
       {
         fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 89,
+        lineNumber: 87,
         columnNumber: 5
       },
       this
@@ -41563,9 +41655,9 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       if (!focused) setDraft(draftFromCurrent);
     }, [draftFromCurrent, focused]);
     if (!field || !table || !sourceField || !factor) {
-      return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("span", { className: "text-gray-gray400", children: "\u2014" }, void 0, false, {
+      return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("span", { className: "text-gray-gray400", children: "\u2014" }, void 0, false, {
         fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 131,
+        lineNumber: 129,
         columnNumber: 12
       }, this);
     }
@@ -41599,7 +41691,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       minimumFractionDigits: 0,
       maximumFractionDigits: 2
     })} %`;
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
       "input",
       {
         type: "text",
@@ -41625,7 +41717,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       false,
       {
         fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 172,
+        lineNumber: 170,
         columnNumber: 5
       },
       this
@@ -41647,7 +41739,8 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     budgetNameField,
     budgetSpendTotalField,
     budgetSpendMediaField,
-    budgetSpendProdField
+    budgetSpendProdField,
+    annualBudget
   }) {
     const [expandedIds, setExpandedIds] = (0, import_react7.useState)(() => /* @__PURE__ */ new Set());
     const toggleExpanded = (id) => {
@@ -41659,19 +41752,19 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       });
     };
     if (!records || records.length === 0) {
-      return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list-empty py-10 text-center text-sm text-gray-gray400", children: "Aucune campagne." }, void 0, false, {
+      return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-empty py-10 text-center text-sm text-gray-gray400", children: "Aucune campagne." }, void 0, false, {
         fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 226,
+        lineNumber: 225,
         columnNumber: 7
       }, this);
     }
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list overflow-x-auto", children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list overflow-x-auto", children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
         "div",
         {
           className: "bn-list-head grid items-center h-8 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray600",
           style: { gridTemplateColumns: GRID_TEMPLATE },
-          children: LIST_COLS.map((col) => /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+          children: LIST_COLS.map((col) => /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
             "div",
             {
               className: `bn-list-head-cell bn-list-head-cell-${col.key} px-3 min-w-0 truncate`,
@@ -41682,7 +41775,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
             false,
             {
               fileName: "frontend/components/CampagnesMetaList.js",
-              lineNumber: 239,
+              lineNumber: 238,
               columnNumber: 11
             },
             this
@@ -41692,12 +41785,12 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         false,
         {
           fileName: "frontend/components/CampagnesMetaList.js",
-          lineNumber: 234,
+          lineNumber: 233,
           columnNumber: 7
         },
         this
       ),
-      /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list-body", children: records.map((r) => {
+      /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-body", children: records.map((r) => {
         const name = nameField ? r.getCellValueAsString(nameField) : "";
         const spendBudget = spendBudgetField ? r.getCellValue(spendBudgetField) : null;
         const solde = soldeField ? r.getCellValue(soldeField) : null;
@@ -41706,14 +41799,14 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         const annee = yearByCampagneId?.get(r.id) || "";
         const expanded = expandedIds.has(r.id);
         const childBudgets = budgetsByCampagneMetaId?.get(r.id) || [];
-        return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list-group", children: [
-          /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+        return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-group", children: [
+          /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
             "div",
             {
               className: "bn-list-row grid items-center min-h-[36px] text-sm text-gray-gray800 dark:text-gray-gray100 border-b border-gray-gray100 dark:border-gray-gray600 hover:bg-gray-gray25 dark:hover:bg-gray-gray800 transition-colors",
               style: { gridTemplateColumns: GRID_TEMPLATE },
               children: [
-                /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
                   "button",
                   {
                     type: "button",
@@ -41721,9 +41814,9 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                     className: "bn-list-cell bn-list-cell-chevron flex items-center justify-center p-0 bg-transparent border-none cursor-pointer text-gray-gray500 hover:text-gray-gray800 dark:text-gray-gray400 dark:hover:text-gray-gray100",
                     "aria-label": expanded ? "Replier la campagne" : "D\xE9plier la campagne",
                     "aria-expanded": expanded,
-                    children: /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(ChevronRight, { className: `transition-transform ${expanded ? "rotate-90" : ""}` }, void 0, false, {
+                    children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(ChevronRight, { className: `transition-transform ${expanded ? "rotate-90" : ""}` }, void 0, false, {
                       fileName: "frontend/components/CampagnesMetaList.js",
-                      lineNumber: 273,
+                      lineNumber: 272,
                       columnNumber: 17
                     }, this)
                   },
@@ -41731,12 +41824,12 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                   false,
                   {
                     fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 266,
+                    lineNumber: 265,
                     columnNumber: 15
                   },
                   this
                 ),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
                   "button",
                   {
                     type: "button",
@@ -41749,17 +41842,17 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                   false,
                   {
                     fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 277,
+                    lineNumber: 276,
                     columnNumber: 15
                   },
                   this
                 ),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-budget px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendBudget) }, void 0, false, {
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-budget px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendBudget) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 285,
+                  lineNumber: 284,
                   columnNumber: 15
                 }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-budget px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-budget px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
                   EditableCurrencyCell,
                   {
                     record: r,
@@ -41773,16 +41866,16 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                   false,
                   {
                     fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 289,
+                    lineNumber: 288,
                     columnNumber: 17
                   },
                   this
                 ) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 288,
+                  lineNumber: 287,
                   columnNumber: 15
                 }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-percent px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-percent px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
                   EditablePercentageCell,
                   {
                     record: r,
@@ -41795,42 +41888,42 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
                   false,
                   {
                     fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 303,
+                    lineNumber: 302,
                     columnNumber: 17
                   },
                   this
                 ) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 302,
+                  lineNumber: 301,
                   columnNumber: 15
                 }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-solde px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(solde) }, void 0, false, {
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-solde px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(solde) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 311,
+                  lineNumber: 310,
                   columnNumber: 15
                 }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-probable px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(EditableCurrencyCell, { record: r, table: campagnesTable, field: probableField }, void 0, false, {
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-probable px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(EditableCurrencyCell, { record: r, table: campagnesTable, field: probableField }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 315,
+                  lineNumber: 314,
                   columnNumber: 17
                 }, this) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 314,
+                  lineNumber: 313,
                   columnNumber: 15
                 }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-annee px-3 min-w-0 truncate", children: annee || "\u2014" }, void 0, false, {
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-annee px-3 min-w-0 truncate", children: annee || "\u2014" }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 317,
+                  lineNumber: 316,
                   columnNumber: 15
                 }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-media px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendMedia) }, void 0, false, {
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-media px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendMedia) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 320,
+                  lineNumber: 319,
                   columnNumber: 15
                 }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-prod px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendProd) }, void 0, false, {
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-prod px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendProd) }, void 0, false, {
                   fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 323,
+                  lineNumber: 322,
                   columnNumber: 15
                 }, this)
               ]
@@ -41839,12 +41932,12 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
             true,
             {
               fileName: "frontend/components/CampagnesMetaList.js",
-              lineNumber: 261,
+              lineNumber: 260,
               columnNumber: 13
             },
             this
           ),
-          expanded && /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+          expanded && /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
             CampagnesSubList,
             {
               budgets: childBudgets,
@@ -41857,28 +41950,28 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
             false,
             {
               fileName: "frontend/components/CampagnesMetaList.js",
-              lineNumber: 328,
+              lineNumber: 327,
               columnNumber: 15
             },
             this
           )
         ] }, r.id, true, {
           fileName: "frontend/components/CampagnesMetaList.js",
-          lineNumber: 260,
+          lineNumber: 259,
           columnNumber: 13
         }, this);
       }) }, void 0, false, {
         fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 249,
+        lineNumber: 248,
         columnNumber: 7
       }, this)
     ] }, void 0, true, {
       fileName: "frontend/components/CampagnesMetaList.js",
-      lineNumber: 233,
+      lineNumber: 232,
       columnNumber: 5
     }, this);
   }
-  var import_react7, import_jsx_dev_runtime3, annualBudget, ChevronRight;
+  var import_react7, import_jsx_dev_runtime4, ChevronRight;
   var init_CampagnesMetaList = __esm({
     "frontend/components/CampagnesMetaList.js"() {
       import_react7 = __toESM(require_react());
@@ -41886,11 +41979,10 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       init_format();
       init_CampagnesSubList();
       init_listColumns();
-      import_jsx_dev_runtime3 = __toESM(require_jsx_dev_runtime());
-      annualBudget = 1015e3;
+      import_jsx_dev_runtime4 = __toESM(require_jsx_dev_runtime());
       {
       }
-      ChevronRight = ({ className = "" }) => /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+      ChevronRight = ({ className = "" }) => /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
         "svg",
         {
           className,
@@ -41899,7 +41991,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
           viewBox: "0 0 16 16",
           fill: "none",
           "aria-hidden": "true",
-          children: /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+          children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
             "path",
             {
               d: "M6 4l4 4-4 4",
@@ -41912,7 +42004,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
             false,
             {
               fileName: "frontend/components/CampagnesMetaList.js",
-              lineNumber: 20,
+              lineNumber: 18,
               columnNumber: 5
             }
           )
@@ -41921,7 +42013,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         false,
         {
           fileName: "frontend/components/CampagnesMetaList.js",
-          lineNumber: 12,
+          lineNumber: 10,
           columnNumber: 3
         }
       );
@@ -41933,7 +42025,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
   var init_style = __esm({
     "frontend/style.css"() {
       style = document.createElement("style");
-      style.textContent = '*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.19 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Courier,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.absolute{position:absolute}.relative{position:relative}.left-0{left:0}.top-full{top:100%}.z-20{z-index:20}.mt-1{margin-top:.25rem}.block{display:block}.inline-block{display:inline-block}.flex{display:flex}.inline-flex{display:inline-flex}.\\!table{display:table!important}.table{display:table}.grid{display:grid}.h-7{height:1.75rem}.h-8{height:2rem}.min-h-\\[32px\\]{min-height:32px}.min-h-\\[36px\\]{min-height:36px}.min-h-screen{min-height:100vh}.w-full{width:100%}.min-w-0{min-width:0}.min-w-\\[160px\\]{min-width:160px}.rotate-90{--tw-rotate:90deg;transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-pointer{cursor:pointer}.items-center{align-items:center}.justify-center{justify-content:center}.gap-1\\.5{gap:.375rem}.space-y-4>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem*var(--tw-space-y-reverse))}.overflow-x-auto{overflow-x:auto}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rounded{border-radius:.25rem}.rounded-md{border-radius:.375rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-none{border-style:none}.border-gray-gray100{--tw-border-opacity:1;border-color:rgb(229 233 240/var(--tw-border-opacity,1))}.border-gray-gray200{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.border-transparent{border-color:transparent}.bg-blue-blueLight3{--tw-bg-opacity:1;background-color:rgb(241 245 255/var(--tw-bg-opacity,1))}.bg-gray-gray25{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.bg-transparent{background-color:transparent}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.p-0{padding:0}.p-4{padding:1rem}.px-2{padding-left:.5rem;padding-right:.5rem}.px-2\\.5{padding-left:.625rem;padding-right:.625rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-0\\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\\.5{padding-top:.375rem;padding-bottom:.375rem}.py-10{padding-top:2.5rem;padding-bottom:2.5rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.pl-10{padding-left:2.5rem}.text-left{text-align:left}.text-center{text-align:center}.text-right{text-align:right}.text-sm{font-size:.6875rem;line-height:1rem}.text-xs{font-size:.5625rem;line-height:.875rem}.font-medium{font-weight:500}.italic{font-style:italic}.tabular-nums{--tw-numeric-spacing:tabular-nums;font-variant-numeric:var(--tw-ordinal) var(--tw-slashed-zero) var(--tw-numeric-figure) var(--tw-numeric-spacing) var(--tw-numeric-fraction)}.text-blue-blue{--tw-text-opacity:1;color:rgb(22 110 225/var(--tw-text-opacity,1))}.text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.text-gray-gray700{--tw-text-opacity:1;color:rgb(49 53 62/var(--tw-text-opacity,1))}.text-gray-gray800{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.shadow-lg{--tw-shadow:0px 0px 1px 0px rgba(0,0,0,.48),0px 0px 2px 0px rgba(0,0,0,.08),0px 2px 4px 0px rgba(0,0,0,.12),0px 2px 8px 0px rgba(0,0,0,.08);--tw-shadow-colored:0px 0px 1px 0px var(--tw-shadow-color),0px 0px 2px 0px var(--tw-shadow-color),0px 2px 4px 0px var(--tw-shadow-color),0px 2px 8px 0px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.outline-none{outline:2px solid transparent;outline-offset:2px}.blur{--tw-blur:blur(8px)}.blur,.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-transform{transition-property:transform;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.bn-year-dropdown::hover{cursor:pointer}.bn-year-dropdown-button{padding:5px 7px;font-size:14px}.bn-list-cell,.editable{color:#1f1f1f;font-size:14px}.bn-list-cell-name{font-size:16px}.bn-list-cell-name:hover{text-decoration:none!important}.grid{gap:5px}.bn-list-head,.bn-list-row,.bn-sublist{width:-moz-fit-content;width:fit-content}.bn-list-row:hover,.bn-sublist-row:hover{background-color:#e0e8f5a9!important}.bn-sublist-cell-name{cursor:default}.hover\\:border-gray-gray200:hover{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.hover\\:bg-gray-gray25:hover{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.hover\\:bg-gray-gray50:hover{--tw-bg-opacity:1;background-color:rgb(246 248 252/var(--tw-bg-opacity,1))}.hover\\:text-blue-blueDark1:hover{--tw-text-opacity:1;color:rgb(13 82 172/var(--tw-text-opacity,1))}.hover\\:text-gray-gray800:hover{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.hover\\:underline:hover{text-decoration-line:underline}.focus\\:border-blue-blue:focus{--tw-border-opacity:1;border-color:rgb(22 110 225/var(--tw-border-opacity,1))}.focus\\:bg-white:focus{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}@media (prefers-color-scheme:dark){.dark\\:border-gray-gray600{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:border-gray-gray700{--tw-border-opacity:1;border-color:rgb(49 53 62/var(--tw-border-opacity,1))}.dark\\:bg-gray-gray700{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray800{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray900{--tw-bg-opacity:1;background-color:rgb(17 18 21/var(--tw-bg-opacity,1))}.dark\\:text-gray-gray100{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:text-gray-gray200{--tw-text-opacity:1;color:rgb(218 222 230/var(--tw-text-opacity,1))}.dark\\:text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.dark\\:hover\\:border-gray-gray600:hover{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:hover\\:bg-gray-gray800:hover{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:hover\\:text-gray-gray100:hover{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:focus\\:bg-gray-gray700:focus{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}}';
+      style.textContent = '*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.19 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Courier,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.visible{visibility:visible}.absolute{position:absolute}.relative{position:relative}.left-0{left:0}.top-full{top:100%}.z-20{z-index:20}.mx-2{margin-left:.5rem;margin-right:.5rem}.mt-1{margin-top:.25rem}.mt-2{margin-top:.5rem}.block{display:block}.inline-block{display:inline-block}.flex{display:flex}.inline-flex{display:inline-flex}.\\!table{display:table!important}.table{display:table}.grid{display:grid}.h-2{height:.5rem}.h-7{height:1.75rem}.h-8{height:2rem}.h-full{height:100%}.min-h-\\[32px\\]{min-height:32px}.min-h-\\[36px\\]{min-height:36px}.min-h-screen{min-height:100vh}.w-full{width:100%}.min-w-0{min-width:0}.min-w-\\[160px\\]{min-width:160px}.rotate-90{--tw-rotate:90deg;transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-pointer{cursor:pointer}.flex-wrap{flex-wrap:wrap}.items-center{align-items:center}.justify-center{justify-content:center}.gap-1\\.5{gap:.375rem}.gap-3{gap:.75rem}.space-y-4>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem*var(--tw-space-y-reverse))}.overflow-hidden{overflow:hidden}.overflow-x-auto{overflow-x:auto}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rounded{border-radius:.25rem}.rounded-full{border-radius:9999px}.rounded-md{border-radius:.375rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-none{border-style:none}.border-gray-gray100{--tw-border-opacity:1;border-color:rgb(229 233 240/var(--tw-border-opacity,1))}.border-gray-gray200{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.border-transparent{border-color:transparent}.bg-blue-blue{--tw-bg-opacity:1;background-color:rgb(22 110 225/var(--tw-bg-opacity,1))}.bg-blue-blueLight3{--tw-bg-opacity:1;background-color:rgb(241 245 255/var(--tw-bg-opacity,1))}.bg-gray-gray100{--tw-bg-opacity:1;background-color:rgb(229 233 240/var(--tw-bg-opacity,1))}.bg-gray-gray25{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.bg-transparent{background-color:transparent}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.p-0{padding:0}.p-4{padding:1rem}.px-1{padding-left:.25rem;padding-right:.25rem}.px-2{padding-left:.5rem;padding-right:.5rem}.px-2\\.5{padding-left:.625rem;padding-right:.625rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-0\\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\\.5{padding-top:.375rem;padding-bottom:.375rem}.py-10{padding-top:2.5rem;padding-bottom:2.5rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.pl-10{padding-left:2.5rem}.text-left{text-align:left}.text-center{text-align:center}.text-right{text-align:right}.text-2xl{font-size:1.3125rem;line-height:1.625rem}.text-sm{font-size:.6875rem;line-height:1rem}.text-xs{font-size:.5625rem;line-height:.875rem}.font-medium{font-weight:500}.font-semibold{font-weight:600}.italic{font-style:italic}.tabular-nums{--tw-numeric-spacing:tabular-nums;font-variant-numeric:var(--tw-ordinal) var(--tw-slashed-zero) var(--tw-numeric-figure) var(--tw-numeric-spacing) var(--tw-numeric-fraction)}.text-blue-blue{--tw-text-opacity:1;color:rgb(22 110 225/var(--tw-text-opacity,1))}.text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.text-gray-gray700{--tw-text-opacity:1;color:rgb(49 53 62/var(--tw-text-opacity,1))}.text-gray-gray800{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.text-gray-gray900{--tw-text-opacity:1;color:rgb(17 18 21/var(--tw-text-opacity,1))}.shadow-lg{--tw-shadow:0px 0px 1px 0px rgba(0,0,0,.48),0px 0px 2px 0px rgba(0,0,0,.08),0px 2px 4px 0px rgba(0,0,0,.12),0px 2px 8px 0px rgba(0,0,0,.08);--tw-shadow-colored:0px 0px 1px 0px var(--tw-shadow-color),0px 0px 2px 0px var(--tw-shadow-color),0px 2px 4px 0px var(--tw-shadow-color),0px 2px 8px 0px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.outline-none{outline:2px solid transparent;outline-offset:2px}.blur{--tw-blur:blur(8px)}.blur,.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition-all{transition-property:all;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-transform{transition-property:transform;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.bn-year-dropdown::hover{cursor:pointer}.bn-year-dropdown-button{padding:5px 7px;font-size:14px}.bn-list-cell,.editable{color:#1f1f1f;font-size:14px}.bn-list-cell-name{font-size:16px}.bn-list-cell-name:hover{text-decoration:none!important}.grid{gap:5px}.bn-list-head,.bn-list-row,.bn-sublist{width:-moz-fit-content;width:fit-content}.bn-list-row:hover,.bn-sublist-row:hover{background-color:#e0e8f5a9!important}.bn-sublist-cell-name{cursor:default}.bn-annual-budget-numerator{font-size:32px}.bn-annual-budget-remaining{font-size:13px;background-color:rgba(208,255,208,.846);color:#3e613e;border:1px solid rgba(62,97,62,.267)}.bn-annual-budget-caption{font-size:11px}.bn-annual-budget{width:-moz-fit-content;width:fit-content}.hover\\:border-gray-gray200:hover{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.hover\\:bg-gray-gray25:hover{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.hover\\:bg-gray-gray50:hover{--tw-bg-opacity:1;background-color:rgb(246 248 252/var(--tw-bg-opacity,1))}.hover\\:text-blue-blueDark1:hover{--tw-text-opacity:1;color:rgb(13 82 172/var(--tw-text-opacity,1))}.hover\\:text-gray-gray800:hover{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.hover\\:underline:hover{text-decoration-line:underline}.focus\\:border-blue-blue:focus{--tw-border-opacity:1;border-color:rgb(22 110 225/var(--tw-border-opacity,1))}.focus\\:bg-white:focus{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}@media (prefers-color-scheme:dark){.dark\\:border-gray-gray600{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:border-gray-gray700{--tw-border-opacity:1;border-color:rgb(49 53 62/var(--tw-border-opacity,1))}.dark\\:bg-gray-gray700{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray800{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray900{--tw-bg-opacity:1;background-color:rgb(17 18 21/var(--tw-bg-opacity,1))}.dark\\:text-gray-gray100{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:text-gray-gray200{--tw-text-opacity:1;color:rgb(218 222 230/var(--tw-text-opacity,1))}.dark\\:text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.dark\\:hover\\:border-gray-gray600:hover{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:hover\\:bg-gray-gray800:hover{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:hover\\:text-gray-gray100:hover{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:focus\\:bg-gray-gray700:focus{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}}';
       document.head.appendChild(style);
     }
   });
@@ -41945,7 +42037,6 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     const yearsTable = base?.tables?.find(
       (t) => t?.name?.toLowerCase() === "budget annuel"
     ) || null;
-    console.log(yearsTable);
     const campagnesMetaTable = base?.tables?.find(
       (t) => t?.name?.toLowerCase() === "campagnes_meta"
     ) || null;
@@ -41953,7 +42044,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       (t) => t?.name?.toLowerCase() === "budgets"
     ) || null;
     if (!yearsTable || !yearsTable.id) {
-      return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800", children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(YearDropdown, { options: [], value: null, onChange: () => {
+      return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800", children: /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(YearDropdown, { options: [], value: null, onChange: () => {
       } }, void 0, false, {
         fileName: "frontend/index.js",
         lineNumber: 35,
@@ -41964,7 +42055,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         columnNumber: 7
       }, this);
     }
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
       AppInner,
       {
         yearsTable,
@@ -41992,6 +42083,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     const campagnesLinkField = findField(yearsTable, "campagnes_meta") || yearsTable.fields?.find(
       (f) => f?.name?.toLowerCase().includes("campagne")
     ) || null;
+    const budgetAnnualTotalField = findField(yearsTable, "Budget Annuel Total");
     const nameField = findField(campagnesMetaTable, "name");
     const spendBudgetField = findField(campagnesMetaTable, "spend_budget");
     const budgetField = findField(campagnesMetaTable, "budget");
@@ -42054,6 +42146,24 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       if (!allowedIds) return campagneRecords;
       return campagneRecords.filter((r) => allowedIds.has(r.id));
     }, [campagneRecords, allowedIds]);
+    const annualBudgetForYear = (0, import_react8.useMemo)(() => {
+      if (!year || !yearRecords || !yearField || !budgetAnnualTotalField) return null;
+      const rec = yearRecords.find(
+        (r) => r.getCellValueAsString(yearField) === year
+      );
+      if (!rec) return null;
+      const v = rec.getCellValue(budgetAnnualTotalField);
+      return typeof v === "number" ? v : null;
+    }, [year, yearRecords, yearField, budgetAnnualTotalField]);
+    const sumOfBudgets = (0, import_react8.useMemo)(() => {
+      if (!visibleCampagnes || !budgetField) return 0;
+      let sum = 0;
+      for (const r of visibleCampagnes) {
+        const v = r.getCellValue(budgetField);
+        if (typeof v === "number") sum += v;
+      }
+      return sum;
+    }, [visibleCampagnes, budgetField]);
     const budgetsByCampagneMetaId = (0, import_react8.useMemo)(() => {
       const map = /* @__PURE__ */ new Map();
       if (!budgetRecords || !budgetCampagneMetaLinkField) return map;
@@ -42069,13 +42179,29 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       }
       return map;
     }, [budgetRecords, budgetCampagneMetaLinkField]);
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800 space-y-4", children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(YearDropdown, { options, value: year, onChange: setYear }, void 0, false, {
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800 space-y-4", children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(YearDropdown, { options, value: year, onChange: setYear }, void 0, false, {
         fileName: "frontend/index.js",
-        lineNumber: 171,
+        lineNumber: 194,
         columnNumber: 7
       }, this),
-      /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+      /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
+        AnnualBudget,
+        {
+          year,
+          annualBudget: annualBudgetForYear,
+          sumOfBudgets
+        },
+        void 0,
+        false,
+        {
+          fileName: "frontend/index.js",
+          lineNumber: 195,
+          columnNumber: 7
+        },
+        this
+      ),
+      /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
         CampagnesMetaList,
         {
           records: visibleCampagnes,
@@ -42093,38 +42219,40 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
           budgetNameField,
           budgetSpendTotalField,
           budgetSpendMediaField,
-          budgetSpendProdField
+          budgetSpendProdField,
+          annualBudget: annualBudgetForYear
         },
         void 0,
         false,
         {
           fileName: "frontend/index.js",
-          lineNumber: 172,
+          lineNumber: 200,
           columnNumber: 7
         },
         this
       )
     ] }, void 0, true, {
       fileName: "frontend/index.js",
-      lineNumber: 170,
+      lineNumber: 193,
       columnNumber: 5
     }, this);
   }
-  var import_react8, import_jsx_dev_runtime4, findField;
+  var import_react8, import_jsx_dev_runtime5, findField;
   var init_frontend = __esm({
     "frontend/index.js"() {
       import_react8 = __toESM(require_react());
       init_ui();
       init_YearDropdown();
+      init_AnnualBudget();
       init_CampagnesMetaList();
       init_style();
-      import_jsx_dev_runtime4 = __toESM(require_jsx_dev_runtime());
+      import_jsx_dev_runtime5 = __toESM(require_jsx_dev_runtime());
       findField = (table, name) => table?.fields?.find(
         (f) => f?.name?.toLowerCase() === name.toLowerCase()
       ) || null;
-      initializeBlock({ interface: () => /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(App, {}, void 0, false, {
+      initializeBlock({ interface: () => /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(App, {}, void 0, false, {
         fileName: "frontend/index.js",
-        lineNumber: 194,
+        lineNumber: 223,
         columnNumber: 36
       }) });
     }

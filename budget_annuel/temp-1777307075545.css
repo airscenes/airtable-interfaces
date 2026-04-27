@@ -30,6 +30,7 @@
     gap: 5px;
 }
 
+
 .bn-list-head,
 .bn-list-row,
 .bn-sublist {
@@ -45,24 +46,7 @@
     cursor:default;
 }
 
-/*----Annual Budget----*/
-.bn-annual-budget-numerator{
-    font-size:32px;
-}
+.bn-annual-budget-numerator
 
-.bn-annual-budget-remaining{
-    font-size:13px;
-    background-color:rgba(208, 255, 208, 0.846);
-    color:rgb(62, 97, 62);
-    border: 1px solid rgba(62, 97, 62, 0.267);
-}
-
-.bn-annual-budget-caption{
-    font-size:11px;
-}
-
-.bn-annual-budget{
-    width:fit-content;
-}
 
 

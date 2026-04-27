@@ -5,6 +5,7 @@ import {
   useRecords,
 } from "@airtable/blocks/interface/ui";
 import { YearDropdown } from "./components/YearDropdown";
+import { AnnualBudget } from "./components/AnnualBudget";
 import { CampagnesMetaList } from "./components/CampagnesMetaList";
 import "./style.css";
 
@@ -19,7 +20,6 @@ function App() {
     (t) => t?.name?.toLowerCase() === "budget annuel",
   ) || null;
 
-  console.log(yearsTable)
   const campagnesMetaTable = base?.tables?.find(
     (t) => t?.name?.toLowerCase() === "campagnes_meta",
   ) || null;
@@ -66,6 +66,7 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
       f?.name?.toLowerCase().includes("campagne"),
     ) ||
     null;
+  const budgetAnnualTotalField = findField(yearsTable, "Budget Annuel Total");
 
   // Fields on Campagnes_META
   const nameField = findField(campagnesMetaTable, "name");
@@ -147,6 +148,28 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
     return campagneRecords.filter((r) => allowedIds.has(r.id));
   }, [campagneRecords, allowedIds]);
 
+  // Annual budget for the selected year, read from the matching year record.
+  const annualBudgetForYear = useMemo(() => {
+    if (!year || !yearRecords || !yearField || !budgetAnnualTotalField) return null;
+    const rec = yearRecords.find(
+      (r) => r.getCellValueAsString(yearField) === year,
+    );
+    if (!rec) return null;
+    const v = rec.getCellValue(budgetAnnualTotalField);
+    return typeof v === "number" ? v : null;
+  }, [year, yearRecords, yearField, budgetAnnualTotalField]);
+
+  // Sum of `budget` across the visible campagnes — what's been allocated.
+  const sumOfBudgets = useMemo(() => {
+    if (!visibleCampagnes || !budgetField) return 0;
+    let sum = 0;
+    for (const r of visibleCampagnes) {
+      const v = r.getCellValue(budgetField);
+      if (typeof v === "number") sum += v;
+    }
+    return sum;
+  }, [visibleCampagnes, budgetField]);
+
   // Bucket Budgets by their Campagnes_META link → one entry per Meta with the
   // list of Budget records that belong to it. Spend values live on Budgets,
   // so we need the Records (not just refs) to read them per row.
@@ -169,6 +192,11 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
   return (
     <div className="bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800 space-y-4">
       <YearDropdown options={options} value={year} onChange={setYear} />
+      <AnnualBudget
+        year={year}
+        annualBudget={annualBudgetForYear}
+        sumOfBudgets={sumOfBudgets}
+      />
       <CampagnesMetaList
         records={visibleCampagnes}
         campagnesTable={campagnesMetaTable}
@@ -186,6 +214,7 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
         budgetSpendTotalField={budgetSpendTotalField}
         budgetSpendMediaField={budgetSpendMediaField}
         budgetSpendProdField={budgetSpendProdField}
+        annualBudget={annualBudgetForYear}
       />
     </div>
   );
