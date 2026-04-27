@@ -171,6 +171,28 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
     return sum;
   }, [visibleCampagnes, budgetField]);
 
+  // Sum of `spend_budget` across the visible campagnes — what's been spent.
+  const sumOfSpent = useMemo(() => {
+    if (!visibleCampagnes || !spendBudgetField) return 0;
+    let sum = 0;
+    for (const r of visibleCampagnes) {
+      const v = r.getCellValue(spendBudgetField);
+      if (typeof v === "number") sum += v;
+    }
+    return sum;
+  }, [visibleCampagnes, spendBudgetField]);
+
+  // Sum of `Budget Révisé` across the visible campagnes — the revised target.
+  const sumOfRevise = useMemo(() => {
+    if (!visibleCampagnes || !budgetReviseField) return 0;
+    let sum = 0;
+    for (const r of visibleCampagnes) {
+      const v = r.getCellValue(budgetReviseField);
+      if (typeof v === "number") sum += v;
+    }
+    return sum;
+  }, [visibleCampagnes, budgetReviseField]);
+
   // Bucket Budgets by their Campagnes_META link → one entry per Meta with the
   // list of Budget records that belong to it. Spend values live on Budgets,
   // so we need the Records (not just refs) to read them per row.
@@ -193,11 +215,24 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
   return (
     <div className="bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800 space-y-4">
       <YearDropdown options={options} value={year} onChange={setYear} />
-      <AnnualBudget
-        year={year}
-        annualBudget={annualBudgetForYear}
-        sumOfBudgets={sumOfBudgets}
-      />
+      <div className="bn-budget-card-container sticky top-0 z-10 bg-white dark:bg-gray-gray800">
+        <div className="bn-budget-cards grid grid-cols-1 md:grid-cols-2 gap-4 py-2 border-b border-gray-gray100 dark:border-gray-gray700">
+          <AnnualBudget
+            title="ALLOUÉ / BUDGET ANNUEL"
+            numerator={sumOfBudgets}
+            denominator={annualBudgetForYear}
+            captionUnder="du budget annuel alloué"
+            fillColorClass="bg-blue-blue"
+          />
+          <AnnualBudget
+            title="DÉPENSÉ / BUDGET RÉVISÉ"
+            numerator={sumOfSpent}
+            denominator={sumOfRevise}
+            captionUnder="du budget révisé dépensé"
+            fillColorClass="bg-green-green"
+          />
+        </div>
+      </div>
       <CampagnesMetaList
         records={visibleCampagnes}
         campagnesTable={campagnesMetaTable}

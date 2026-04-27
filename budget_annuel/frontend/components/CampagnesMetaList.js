@@ -202,7 +202,6 @@ export function CampagnesMetaList({
   probableField,
   spendMediaField,
   spendProdField,
-  yearByCampagneId,
   budgetsByCampagneMetaId,
   budgetNameField,
   budgetSpendTotalField,
@@ -230,9 +229,9 @@ export function CampagnesMetaList({
   }
 
   return (
-    <div className="bn-list overflow-x-auto">
+    <div className="bn-list">
       <div
-        className="bn-list-head grid items-center h-8 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray600"
+        className="bn-list-head sticky top-[var(--bn-budget-cards-height,140px)] z-10 bg-white dark:bg-gray-gray800 grid items-center h-8 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray600"
         style={{ gridTemplateColumns: GRID_TEMPLATE }}
       >
         {LIST_COLS.map((col) => (
@@ -253,7 +252,6 @@ export function CampagnesMetaList({
           const solde = soldeField ? r.getCellValue(soldeField) : null;
           const spendMedia = spendMediaField ? r.getCellValue(spendMediaField) : null;
           const spendProd = spendProdField ? r.getCellValue(spendProdField) : null;
-          const annee = yearByCampagneId?.get(r.id) || "";
           const expanded = expandedIds.has(r.id);
           const childBudgets = budgetsByCampagneMetaId?.get(r.id) || [];
           return (
@@ -320,9 +318,6 @@ export function CampagnesMetaList({
               </div>
               <div className="bn-list-cell bn-list-cell-probable px-3 min-w-0 tabular-nums text-right">
                 <EditableCurrencyCell record={r} table={campagnesTable} field={probableField} />
-              </div>
-              <div className="bn-list-cell bn-list-cell-annee px-3 min-w-0 truncate">
-                {annee || "—"}
               </div>
               <div className="bn-list-cell bn-list-cell-spend-media px-3 min-w-0 tabular-nums text-right">
                 {fmtCurrency(spendMedia)}

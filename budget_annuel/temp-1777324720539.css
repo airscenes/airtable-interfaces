@@ -76,12 +76,10 @@
 }
 
 .bn-budget-cards{
-    width:100vw !important;
+    width:100vw;
 }
 
-.bn-budget-card-container{
-    width:100%;
-}
+bn-budget-cards
 
 
 

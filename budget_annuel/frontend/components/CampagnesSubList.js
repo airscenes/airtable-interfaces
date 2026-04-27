@@ -10,7 +10,7 @@ import { LIST_COLS, GRID_TEMPLATE } from "./listColumns";
 //   spend_budget slot → Total dépensé
 //   spend_media slot  → Média
 //   spend_prod slot   → Prod
-// Other parent columns (budget, solde, probable, annee) render empty in the sub-list.
+// Other parent columns (budget, solde, probable) render empty in the sub-list.
 
 const SUB_LABELS = {
   name: "Campagne",
@@ -70,7 +70,6 @@ export function CampagnesSubList({ budgets, nameField, spendTotalField, spendMed
               <div className="bn-sublist-cell bn-sublist-cell-budget-revise" />
               <div className="bn-sublist-cell bn-sublist-cell-solde" />
               <div className="bn-sublist-cell bn-sublist-cell-probable" />
-              <div className="bn-sublist-cell bn-sublist-cell-annee" />
               <div className="bn-sublist-cell bn-sublist-cell-spend-media px-3 min-w-0 tabular-nums text-right">
                 {fmtCurrency(spendMedia)}
               </div>

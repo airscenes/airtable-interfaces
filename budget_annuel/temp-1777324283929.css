@@ -5,7 +5,7 @@
 
 .bn-app {
     width: fit-content;
-}
+}*/
 
 .bn-year-dropdown::hover{
     cursor:pointer;
@@ -75,13 +75,7 @@
     letter-spacing: 0.06em;
 }
 
-.bn-budget-cards{
-    width:100vw !important;
-}
 
-.bn-budget-card-container{
-    width:100%;
-}
 
 
 
