@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { expandRecord } from "@airtable/blocks/interface/ui";
 import { fmtCurrency } from "../utils/format";
 import { CampagnesSubList } from "./CampagnesSubList";
+import { CampaignBudget } from "./CampaignBudget";
 import { LIST_COLS, GRID_TEMPLATE } from "./listColumns";
 
 
@@ -229,9 +230,9 @@ export function CampagnesMetaList({
   }
 
   return (
-    <div className="bn-list">
+    <div className="bn-list overflow-x-auto">
       <div
-        className="bn-list-head sticky top-[var(--bn-budget-cards-height,140px)] z-10 bg-white dark:bg-gray-gray800 grid items-center h-8 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray600"
+        className="bn-list-head grid items-center h-8 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray600"
         style={{ gridTemplateColumns: GRID_TEMPLATE }}
       >
         {LIST_COLS.map((col) => (
@@ -249,6 +250,9 @@ export function CampagnesMetaList({
         {records.map((r) => {
           const name = nameField ? r.getCellValueAsString(nameField) : "";
           const spendBudget = spendBudgetField ? r.getCellValue(spendBudgetField) : null;
+          const budget = budgetField ? r.getCellValue(budgetField) : null;
+          const budgetRevise = budgetReviseField ? r.getCellValue(budgetReviseField) : null;
+          const probable = probableField ? r.getCellValue(probableField) : null;
           const solde = soldeField ? r.getCellValue(soldeField) : null;
           const spendMedia = spendMediaField ? r.getCellValue(spendMediaField) : null;
           const spendProd = spendProdField ? r.getCellValue(spendProdField) : null;
@@ -281,7 +285,7 @@ export function CampagnesMetaList({
                 {name || "—"}
               </button>
               <div className="bn-list-cell bn-list-cell-spend-budget px-3 min-w-0 tabular-nums text-right">
-                {fmtCurrency(spendBudget)}
+                <CampaignBudget spent={spendBudget} probable={probable} budget={budget} revise={budgetRevise} solde={solde} />
               </div>
               <div className="bn-list-cell bn-list-cell-budget px-3 min-w-0 tabular-nums text-right">
                 <EditableCurrencyCell

@@ -182,6 +182,17 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
     return sum;
   }, [visibleCampagnes, spendBudgetField]);
 
+  // Sum of `Probable` across the visible campagnes — committed/expected amount.
+  const sumProbable = useMemo(() => {
+    if (!visibleCampagnes || !probableField) return 0;
+    let sum = 0;
+    for (const r of visibleCampagnes) {
+      const v = r.getCellValue(probableField);
+      if (typeof v === "number") sum += v;
+    }
+    return sum;
+  }, [visibleCampagnes, probableField]);
+
   // Sum of `Budget Révisé` across the visible campagnes — the revised target.
   const sumOfRevise = useMemo(() => {
     if (!visibleCampagnes || !budgetReviseField) return 0;
@@ -214,22 +225,15 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
 
   return (
     <div className="bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800 space-y-4">
-      <YearDropdown options={options} value={year} onChange={setYear} />
-      <div className="bn-budget-card-container sticky top-0 z-10 bg-white dark:bg-gray-gray800">
-        <div className="bn-budget-cards grid grid-cols-1 md:grid-cols-2 gap-4 py-2 border-b border-gray-gray100 dark:border-gray-gray700">
+      <div className="bn-budget-card-container">
+        <div className="bn-budget-cards flex items-start gap-4 py-2">
+          <YearDropdown options={options} value={year} onChange={setYear} />
           <AnnualBudget
-            title="ALLOUÉ / BUDGET ANNUEL"
-            numerator={sumOfBudgets}
-            denominator={annualBudgetForYear}
-            captionUnder="du budget annuel alloué"
-            fillColorClass="bg-blue-blue"
-          />
-          <AnnualBudget
-            title="DÉPENSÉ / BUDGET RÉVISÉ"
-            numerator={sumOfSpent}
-            denominator={sumOfRevise}
-            captionUnder="du budget révisé dépensé"
-            fillColorClass="bg-green-green"
+            sumOfSpent={sumOfSpent}
+            sumProbable={sumProbable}
+            annualBudget={annualBudgetForYear}
+            sumOfRevise={sumOfRevise}
+            sumOfBudgets={sumOfBudgets}
           />
         </div>
       </div>

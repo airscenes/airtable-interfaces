@@ -54,19 +54,11 @@
     font-size:32px;
 }
 
-.bn-annual-budget-remaining,
-.bn-campaign-budget-solde{
+.bn-annual-budget-remaining{
+    font-size:13px;
     background-color:rgba(208, 255, 208, 0.846);
     color:rgb(62, 97, 62);
     border: 1px solid rgba(62, 97, 62, 0.267);
-}
-
-.bn-campaign-budget-solde{
-    border-radius:10px;
-}
-
-.bn-annual-budget-remaining{
-    font-size:13px;
 }
 
 .bn-annual-budget-remaining--over{
@@ -92,13 +84,7 @@
 }
 
 .bn-campaign-budget-denom,
-.bn-campaign-budget-sep{
-    font-size:11px;
-}
-
-.bn-campaign-budget-spent{
-    font-weight:500;
-}
+bn-campaign-budget-sep
 
 
 
