@@ -10,13 +10,21 @@ import { LIST_COLS, GRID_TEMPLATE } from "./listColumns";
 //   spend_budget slot → Total dépensé
 //   spend_media slot  → Média
 //   spend_prod slot   → Prod
-// Other parent columns (budget, solde, probable) render empty in the sub-list.
+// Other parent columns (budget, probable) render empty in the sub-list.
 
 const SUB_LABELS = {
   name: "Campagne",
-  spend_budget: "Total Dépensé",
+  spend_budget: "Total dépensé",
   spend_media: "Média",
   spend_prod: "Prod",
+};
+
+// Per-column alignment override for the sub-list (falls back to col.align).
+// `spend_budget` is left-aligned in the parent so the CampaignBudget widget
+// can spread out, but in the sub-list we want it right-aligned with the rest
+// of the spend columns.
+const SUB_ALIGNS = {
+  spend_budget: "right",
 };
 
 export function CampagnesSubList({ budgets, nameField, spendTotalField, spendMediaField, spendProdField }) {
@@ -38,7 +46,7 @@ export function CampagnesSubList({ budgets, nameField, spendTotalField, spendMed
           <div
             key={col.key}
             className={`bn-sublist-head-cell bn-sublist-head-cell-${col.key} px-3 min-w-0 truncate`}
-            style={{ textAlign: col.align }}
+            style={{ textAlign: SUB_ALIGNS[col.key] || col.align }}
           >
             {SUB_LABELS[col.key] || ""}
           </div>
@@ -65,11 +73,10 @@ export function CampagnesSubList({ budgets, nameField, spendTotalField, spendMed
               <div className="bn-sublist-cell bn-sublist-cell-spend-total px-3 min-w-0 tabular-nums text-right">
                 {fmtCurrency(spendTotal)}
               </div>
+              <div className="bn-sublist-cell bn-sublist-cell-probable" />
+              <div className="bn-sublist-cell bn-sublist-cell-budget-revise" />
               <div className="bn-sublist-cell bn-sublist-cell-budget" />
               <div className="bn-sublist-cell bn-sublist-cell-percent" />
-              <div className="bn-sublist-cell bn-sublist-cell-budget-revise" />
-              <div className="bn-sublist-cell bn-sublist-cell-solde" />
-              <div className="bn-sublist-cell bn-sublist-cell-probable" />
               <div className="bn-sublist-cell bn-sublist-cell-spend-media px-3 min-w-0 tabular-nums text-right">
                 {fmtCurrency(spendMedia)}
               </div>

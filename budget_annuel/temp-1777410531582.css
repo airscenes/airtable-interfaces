@@ -111,15 +111,11 @@ bn-annual-budget-caption{
     margin-top:10px;
 }
 
-.bn-campaign-budget-progress-probable,
 .bn-annual-budget-progress-probable{
-    background-color: #0D1285;
+    background-color: rgb(59, 59, 121);
 }
 
-.bn-campaign-budget-progress-spent,
-.bn-annual-budget-progress-spent{
-    background-color: #0177E4;
-}
+bn-annual-budget-progress-spent
 
 
 

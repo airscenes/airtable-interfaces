@@ -37,7 +37,6 @@ const ChevronRight = ({ className = "" }) => (
 //   .bn-list-cell-name         — Name cell (link-styled)
 //   .bn-list-cell-spend-budget
 //   .bn-list-cell-budget
-//   .bn-list-cell-solde
 //   .bn-list-empty             — empty state
 
 // `extraUpdates(parsed)` returns additional `{ fieldId: value }` pairs to write
@@ -287,6 +286,16 @@ export function CampagnesMetaList({
               <div className="bn-list-cell bn-list-cell-spend-budget px-3 min-w-0 tabular-nums text-right">
                 <CampaignBudget spent={spendBudget} probable={probable} budget={budget} revise={budgetRevise} solde={solde} />
               </div>
+              <div className="bn-list-cell bn-list-cell-probable px-3 min-w-0 tabular-nums text-right">
+                <EditableCurrencyCell record={r} table={campagnesTable} field={probableField} />
+              </div>
+              <div className="bn-list-cell bn-list-cell-budget-revise px-3 min-w-0 tabular-nums text-right">
+                <EditableCurrencyCell
+                  record={r}
+                  table={campagnesTable}
+                  field={budgetReviseField}
+                />
+              </div>
               <div className="bn-list-cell bn-list-cell-budget px-3 min-w-0 tabular-nums text-right">
                 <EditableCurrencyCell
                   record={r}
@@ -309,19 +318,6 @@ export function CampagnesMetaList({
                   sourceField={budgetField}
                   factor={annualBudget}
                 />
-              </div>
-              <div className="bn-list-cell bn-list-cell-budget-revise px-3 min-w-0 tabular-nums text-right">
-                <EditableCurrencyCell
-                  record={r}
-                  table={campagnesTable}
-                  field={budgetReviseField}
-                />
-              </div>
-              <div className="bn-list-cell bn-list-cell-solde px-3 min-w-0 tabular-nums text-right">
-                {fmtCurrency(solde)}
-              </div>
-              <div className="bn-list-cell bn-list-cell-probable px-3 min-w-0 tabular-nums text-right">
-                <EditableCurrencyCell record={r} table={campagnesTable} field={probableField} />
               </div>
               <div className="bn-list-cell bn-list-cell-spend-media px-3 min-w-0 tabular-nums text-right">
                 {fmtCurrency(spendMedia)}

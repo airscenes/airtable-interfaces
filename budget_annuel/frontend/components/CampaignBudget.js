@@ -43,11 +43,11 @@ export function CampaignBudget({ spent, probable, budget, revise, solde }) {
           ) : (
             <>
               <div
-                className="bn-campaign-budget-progress-spent h-full bg-blue-blue transition-all"
+                className="bn-campaign-budget-progress-spent h-full transition-all"
                 style={{ width: `${spentPct}%` }}
               />
               <div
-                className="bn-campaign-budget-progress-probable h-full bg-blue-blueDark1 transition-all"
+                className="bn-campaign-budget-progress-probable h-full transition-all"
                 style={{ width: `${visibleProbablePct}%` }}
               />
             </>

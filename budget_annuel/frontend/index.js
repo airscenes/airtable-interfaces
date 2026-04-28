@@ -67,6 +67,7 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
     ) ||
     null;
   const budgetAnnualTotalField = findField(yearsTable, "Budget Annuel Total");
+  const budgetReviseTotalField = findField(yearsTable, "Budget Révisé Total");
 
   // Fields on Campagnes_META
   const nameField = findField(campagnesMetaTable, "name");
@@ -194,6 +195,8 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
   }, [visibleCampagnes, probableField]);
 
   // Sum of `Budget Révisé` across the visible campagnes — the revised target.
+  // This is the live source of truth; the year-level "Budget Révisé Total"
+  // is kept in sync from this value via the useEffect below.
   const sumOfRevise = useMemo(() => {
     if (!visibleCampagnes || !budgetReviseField) return 0;
     let sum = 0;
@@ -203,6 +206,31 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
     }
     return sum;
   }, [visibleCampagnes, budgetReviseField]);
+
+  // Write-back: whenever the sum changes and differs from the year record's
+  // stored value, push the new sum into "Budget Révisé Total". This keeps
+  // the year-level rollup in sync with the per-campagne Révisé column.
+  useEffect(() => {
+    if (!year || !yearRecords || !yearField || !budgetReviseTotalField) return;
+    const rec = yearRecords.find(
+      (r) => r.getCellValueAsString(yearField) === year,
+    );
+    if (!rec) return;
+    const current = rec.getCellValue(budgetReviseTotalField);
+    if (typeof current === "number" && current === sumOfRevise) return;
+    yearsTable
+      .updateRecordAsync(rec, { [budgetReviseTotalField.id]: sumOfRevise })
+      .catch((e) => {
+        console.error("Failed to sync Budget Révisé Total:", e);
+      });
+  }, [
+    sumOfRevise,
+    year,
+    yearRecords,
+    yearField,
+    budgetReviseTotalField,
+    yearsTable,
+  ]);
 
   // Bucket Budgets by their Campagnes_META link → one entry per Meta with the
   // list of Budget records that belong to it. Spend values live on Budgets,

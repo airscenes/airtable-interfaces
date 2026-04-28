@@ -50,11 +50,6 @@
 }
 
 /*----Annual Budget----*/
-
-.bn-annual-budget{
-    margin-left:40px;
-}
-
 .bn-annual-budget-numerator{
     font-size:32px;
 }
@@ -80,23 +75,21 @@
     border: 1px solid rgba(164, 41, 41, 0.348);
 }
 
+.bn-annual-budget-caption{
+    font-size:11px;
+}
+
 .bn-annual-budget-title{
     letter-spacing: 0.06em;
 }
 
-
-.bn-annual-budget-info{
-    margin-left: 150px;
+.bn-budget-cards{
+    width:100vw !important;
 }
 
-.bn-annual-budget-info,
-bn-annual-budget-caption{
-    font-size: 15px;
-}
-
-.leading-tight {
-    line-height: 1.6;
-}
+.bn-budget-card-container{
+    width:100%;
+}*/
 
 .bn-campaign-budget-denom,
 .bn-campaign-budget-sep{
@@ -105,20 +98,6 @@ bn-annual-budget-caption{
 
 .bn-campaign-budget-spent{
     font-weight:500;
-}
-
-.bn-year-dropdown-button{
-    margin-top:10px;
-}
-
-.bn-campaign-budget-progress-probable,
-.bn-annual-budget-progress-probable{
-    background-color: #0D1285;
-}
-
-.bn-campaign-budget-progress-spent,
-.bn-annual-budget-progress-spent{
-    background-color: #0177E4;
 }
 
 

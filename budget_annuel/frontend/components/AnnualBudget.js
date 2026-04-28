@@ -1,15 +1,21 @@
 import { fmtCurrency } from "../utils/format";
 
-// Top-line widget for the selected year. Shows:
-//   - Title:        DÉPENSÉ / ANNUEL + RÉVISÉ
-//   - Fraction:     sumOfSpent / (annualBudget + sumOfRevise), denominator
-//                   rendered as "$annuel + $révisé"
-//   - Pill:         (denominator − numerator) restants, or "X $ dépassés" if over
-//   - Caption:      sumOfBudgets / annualBudget, "% du budget annuel alloué"
-//                   — separate metric from the bar
-//   - Progress bar: tricolor — blue = sumOfSpent, dark blue = sumProbable,
-//                   gray remainder = what's still available. Goes full red if
-//                   sumOfSpent overflows the denominator.
+// Top-line widget for the selected year. Layout:
+//   [TITLE]
+//   [FRACTION]                        [Solde total: $X]
+//                                     [Y % du budget annuel alloué]
+//   [━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━]
+//
+//   - Fraction:    sumOfSpent / (annualBudget + sumOfRevise)
+//                  annualBudget comes from the year record (Budget Annuel Total).
+//                  sumOfRevise is the live sum of the per-campagne Révisé
+//                  column; it's also written back to "Budget Révisé Total"
+//                  on the year record so the two stay in sync.
+//   - Solde total: denominator − sumOfSpent  (probable NOT subtracted)
+//   - Caption:     sumOfBudgets / annualBudget, "% du budget annuel alloué"
+//   - Bar:         tricolor — blue = sumOfSpent, dark blue = sumProbable,
+//                  gray remainder = available. Full red if (spent + probable)
+//                  exceeds the denominator (overBudget).
 export function AnnualBudget({
   sumOfSpent,
   sumProbable,
@@ -36,10 +42,15 @@ export function AnnualBudget({
     Math.max(0, 100 - spentPct),
   );
 
+  // overBudget still triggers on (spent + probable) > denom — the bar's red
+  // state is about projected commitment, not just what's already spent.
   const totalCommitted = (sumOfSpent ?? 0) + (sumProbable ?? 0);
   const overBudget = denominator > 0 && totalCommitted > denominator;
+
+  // Solde total = what's left of the budget after spent. Probable is *not*
+  // subtracted here — it's already visualized in the dark-blue bar segment.
   const remaining =
-    denominator > 0 ? denominator - totalCommitted : null;
+    denominator > 0 ? denominator - (sumOfSpent ?? 0) : null;
 
   const allocatedPercent =
     annual && sumOfBudgets != null
@@ -53,52 +64,70 @@ export function AnnualBudget({
       <div className="bn-annual-budget-title text-xs uppercase tracking-wider text-gray-gray500 dark:text-gray-gray400 mb-1">
         DÉPENSÉ / ANNUEL + RÉVISÉ
       </div>
-      <div className="bn-annual-budget-amounts flex items-center flex-wrap gap-3 text-2xl font-semibold text-gray-gray900 dark:text-gray-gray100 tabular-nums">
-        <div>
-          <span className="bn-annual-budget-numerator">
-            {sumOfSpent != null ? fmtCurrency(sumOfSpent) : "—"}
-          </span>
-          <span className="bn-annual-budget-sep text-gray-gray500 dark:text-gray-gray400 mx-2">/</span>
-          <span className="bn-annual-budget-denominator text-gray-gray500 dark:text-gray-gray400">
-            {fmtCurrency(annual)}
-            <span className="mx-2">+</span>
-            {fmtCurrency(revise)}
-          </span>
+      <div className="bn-annual-budget-infos flex items-end justify-between">
+        <div className="flex-1 min-w-0">
+          <div className="bn-annual-budget-amounts text-2xl font-semibold text-gray-gray900 dark:text-gray-gray100 tabular-nums">
+            <span className="bn-annual-budget-numerator">
+              {sumOfSpent != null ? fmtCurrency(sumOfSpent) : "—"}
+            </span>
+            <span className="bn-annual-budget-sep text-gray-gray500 dark:text-gray-gray400 mx-2">/</span>
+            <span className="bn-annual-budget-denominator text-gray-gray500 dark:text-gray-gray400">
+              {fmtCurrency(annual)}
+              <span className="mx-2">+</span>
+              {fmtCurrency(revise)}
+            </span>
+          </div>
+          <div className="bn-annual-budget-progress mt-2 h-2 w-full rounded-full bg-gray-gray100 dark:bg-gray-gray700 overflow-hidden flex">
+            {overBudget ? (
+              <div
+                className="bn-annual-budget-progress-fill h-full bg-red-red transition-all"
+                style={{ width: "100%" }}
+              />
+            ) : (
+              <>
+                <div
+                  className="bn-annual-budget-progress-spent h-full transition-all"
+                  style={{ width: `${spentPct}%` }}
+                />
+                <div
+                  className="bn-annual-budget-progress-probable h-full transition-all"
+                  style={{ width: `${visibleProbablePct}%` }}
+                />
+              </>
+            )}
+          </div>
         </div>
-        {remaining != null && (
-          <span
-            className={`bn-annual-budget-remaining ${overBudget ? "bn-annual-budget-remaining--over" : ""} inline-flex items-center px-3 py-0.5 rounded-full text-sm font-sm`}
-          >
-            {overBudget
-              ? `${fmtCurrency(-remaining)} dépassés`
-              : `${fmtCurrency(remaining)} restants`}
-          </span>
-        )}
-      </div>
-      <div className="bn-annual-budget-caption mt-1 text-xs text-gray-gray500 dark:text-gray-gray400 tabular-nums">
-        <b>{allocatedPercent.toLocaleString("fr-FR", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        })} %</b> du budget annuel alloué
-      </div>
-      <div className="bn-annual-budget-progress mt-2 h-2 w-full rounded-full bg-gray-gray100 dark:bg-gray-gray700 overflow-hidden flex">
-        {overBudget ? (
-          <div
-            className="bn-annual-budget-progress-fill h-full bg-red-red transition-all"
-            style={{ width: "100%" }}
-          />
-        ) : (
-          <>
-            <div
-              className="bn-annual-budget-progress-spent h-full bg-blue-blue transition-all"
-              style={{ width: `${spentPct}%` }}
-            />
-            <div
-              className="bn-annual-budget-progress-probable h-full bg-blue-blueDark1 transition-all"
-              style={{ width: `${visibleProbablePct}%` }}
-            />
-          </>
-        )}
+        <div className="bn-annual-budget-info text-right tabular-nums whitespace-nowrap leading-tight">
+          {remaining != null && (
+            <div className="bn-annual-budget-solde-total">
+              <span
+                className={`text-[16px] uppercase tracking-wider mr-1 ${remaining < 0 ? "text-red-red" : "text-gray-gray500 dark:text-gray-gray400"}`}
+              >
+                Solde:
+              </span>
+              <span
+                className={`font-medium ${remaining < 0 ? "text-red-red" : "text-gray-gray900 dark:text-gray-gray100"}`}
+              >
+                {fmtCurrency(remaining)}
+              </span>
+            </div>
+          )}
+          <div className="bn-annual-budget-caption mt-0.5">
+            <span
+              className={`text-[16px] uppercase tracking-wider mr-1 ${allocatedPercent > 100 ? "text-red-red" : "text-gray-gray500 dark:text-gray-gray400"}`}
+            >
+              Budget annuel alloué:
+            </span>
+            <span
+              className={`font-medium ${allocatedPercent > 100 ? "text-red-red" : "text-gray-gray900 dark:text-gray-gray100"}`}
+            >
+              {allocatedPercent.toLocaleString("fr-FR", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })} %
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
