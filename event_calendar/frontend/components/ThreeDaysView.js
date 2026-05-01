@@ -6,6 +6,7 @@ import {
   HOUR_HEIGHT,
 } from "../utils/timeGrid";
 import { ThreeDaysEventBlock } from "./ThreeDaysEventBlock";
+import { ThreeDaysEventGroup } from "./ThreeDaysEventGroup";
 import { TimeGridColumn } from "./TimeGridColumn";
 
 export function ThreeDaysView({
@@ -101,6 +102,8 @@ export function ThreeDaysView({
                     base={base}
                     onEventClick={onEventClick}
                     EventComponent={ThreeDaysEventBlock}
+                    GroupComponent={ThreeDaysEventGroup}
+                    groupThreshold={3}
                   />
                 </div>
               </div>

@@ -42022,16 +42022,16 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         title: `${label}
 ${evt.startLabel} - ${evt.endLabel}`,
         children: [
-          /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "three-days-event-block__label font-medium", children: label }, void 0, false, {
-            fileName: "frontend/components/ThreeDaysEventBlock.js",
-            lineNumber: 33,
-            columnNumber: 7
-          }, this),
-          /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "text-[10px] opacity-70", children: [
+          /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "three-days-event-block__hours text-[10px] opacity-70", children: [
             evt.startLabel,
             " - ",
             evt.endLabel
           ] }, void 0, true, {
+            fileName: "frontend/components/ThreeDaysEventBlock.js",
+            lineNumber: 33,
+            columnNumber: 7
+          }, this),
+          /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "three-days-event-block__label font-medium", children: label }, void 0, false, {
             fileName: "frontend/components/ThreeDaysEventBlock.js",
             lineNumber: 34,
             columnNumber: 7
@@ -42057,6 +42057,99 @@ ${evt.startLabel} - ${evt.endLabel}`,
     }
   });
 
+  // frontend/components/ThreeDaysEventGroup.js
+  function ThreeDaysEventGroup({
+    group,
+    nameField1,
+    nameField2,
+    colorField,
+    base,
+    onEventClick
+  }) {
+    const widthPct = 100 / group.totalCols;
+    const leftPct = group.col * widthPct;
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+      "div",
+      {
+        className: "absolute rounded overflow-hidden border-l-[3px] border-gray-gray400 bg-gray-gray100/70 dark:bg-gray-gray700/40 flex flex-col",
+        style: {
+          top: group.top,
+          height: group.height,
+          left: `${leftPct}%`,
+          width: `calc(${widthPct}% - 2px)`
+        },
+        children: [
+          /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "shrink-0 px-1.5 pt-1 text-[10px] font-medium opacity-70", children: [
+            group.startLabel,
+            " - ",
+            group.endLabel,
+            " \xB7 ",
+            group.records.length
+          ] }, void 0, true, {
+            fileName: "frontend/components/ThreeDaysEventGroup.js",
+            lineNumber: 24,
+            columnNumber: 7
+          }, this),
+          /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "flex-1 overflow-y-auto divide-y divide-gray-gray200/60 dark:divide-gray-gray600/40", children: group.records.map((record) => {
+            const color = getEventColor(record, colorField, base);
+            const part1 = readFieldLabel(record, nameField1);
+            const part2 = readFieldLabel(record, nameField2);
+            const label = [part1, part2].filter(Boolean).join(" - ") || record.name;
+            return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+              "button",
+              {
+                onClick: (e) => {
+                  e.stopPropagation();
+                  onEventClick(record);
+                },
+                className: "block w-full text-left px-1.5 py-1 text-[11px] leading-tight cursor-pointer hover:opacity-80 transition-opacity",
+                style: {
+                  backgroundColor: color.bg + "22",
+                  color: color.text === "#fff" ? color.bg : color.text,
+                  borderLeft: `2px solid ${color.bg}`
+                },
+                title: label,
+                children: /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "three-days-event-group__label font-medium", children: label }, void 0, false, {
+                  fileName: "frontend/components/ThreeDaysEventGroup.js",
+                  lineNumber: 45,
+                  columnNumber: 15
+                }, this)
+              },
+              record.id,
+              false,
+              {
+                fileName: "frontend/components/ThreeDaysEventGroup.js",
+                lineNumber: 34,
+                columnNumber: 13
+              },
+              this
+            );
+          }) }, void 0, false, {
+            fileName: "frontend/components/ThreeDaysEventGroup.js",
+            lineNumber: 27,
+            columnNumber: 7
+          }, this)
+        ]
+      },
+      void 0,
+      true,
+      {
+        fileName: "frontend/components/ThreeDaysEventGroup.js",
+        lineNumber: 15,
+        columnNumber: 5
+      },
+      this
+    );
+  }
+  var import_jsx_dev_runtime3;
+  var init_ThreeDaysEventGroup = __esm({
+    "frontend/components/ThreeDaysEventGroup.js"() {
+      init_colors2();
+      init_fields();
+      import_jsx_dev_runtime3 = __toESM(require_jsx_dev_runtime());
+    }
+  });
+
   // frontend/components/TimeGridColumn.js
   function TimeGridColumn({
     cell,
@@ -42068,56 +42161,103 @@ ${evt.startLabel} - ${evt.endLabel}`,
     endDateField,
     base,
     onEventClick,
-    EventComponent
+    EventComponent,
+    GroupComponent,
+    groupThreshold
   }) {
     const positioned = (0, import_react7.useMemo)(() => {
       const items = events.map((record) => {
         const pos = getTimePosition(record, dateField, endDateField);
         return __spreadValues({ record }, pos);
       });
+      if (GroupComponent && groupThreshold && groupThreshold > 1) {
+        const buckets = /* @__PURE__ */ new Map();
+        for (const item of items) {
+          const key = `${item.top}_${item.height}`;
+          if (!buckets.has(key)) buckets.set(key, []);
+          buckets.get(key).push(item);
+        }
+        const merged = [];
+        for (const bucket of buckets.values()) {
+          if (bucket.length >= groupThreshold) {
+            const head = bucket[0];
+            merged.push({
+              isGroup: true,
+              records: bucket.map((b) => b.record),
+              top: head.top,
+              height: head.height,
+              startLabel: head.startLabel,
+              endLabel: head.endLabel
+            });
+          } else {
+            for (const item of bucket) merged.push(__spreadValues({ isGroup: false }, item));
+          }
+        }
+        return layoutOverlapping(merged);
+      }
       return layoutOverlapping(items);
-    }, [events, dateField, endDateField]);
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+    }, [events, dateField, endDateField, GroupComponent, groupThreshold]);
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
       "div",
       {
         className: `relative ${cell.isToday ? "bg-blue-blueLight2/30 dark:bg-[#1a2a4a]/30" : ""}`,
         style: { height: (GRID_END_HOUR - GRID_START_HOUR + 1) * HOUR_HEIGHT },
-        children: positioned.map((evt) => /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
-          EventComponent,
-          {
-            evt,
-            nameField1,
-            nameField2,
-            colorField,
-            base,
-            onEventClick
-          },
-          evt.record.id,
-          false,
-          {
-            fileName: "frontend/components/TimeGridColumn.js",
-            lineNumber: 36,
-            columnNumber: 9
-          },
-          this
-        ))
+        children: positioned.map(
+          (evt) => evt.isGroup ? /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+            GroupComponent,
+            {
+              group: evt,
+              nameField1,
+              nameField2,
+              colorField,
+              base,
+              onEventClick
+            },
+            `group-${evt.top}-${evt.height}-${evt.col}`,
+            false,
+            {
+              fileName: "frontend/components/TimeGridColumn.js",
+              lineNumber: 66,
+              columnNumber: 11
+            },
+            this
+          ) : /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+            EventComponent,
+            {
+              evt,
+              nameField1,
+              nameField2,
+              colorField,
+              base,
+              onEventClick
+            },
+            evt.record.id,
+            false,
+            {
+              fileName: "frontend/components/TimeGridColumn.js",
+              lineNumber: 76,
+              columnNumber: 11
+            },
+            this
+          )
+        )
       },
       void 0,
       false,
       {
         fileName: "frontend/components/TimeGridColumn.js",
-        lineNumber: 31,
+        lineNumber: 60,
         columnNumber: 5
       },
       this
     );
   }
-  var import_react7, import_jsx_dev_runtime3;
+  var import_react7, import_jsx_dev_runtime4;
   var init_TimeGridColumn = __esm({
     "frontend/components/TimeGridColumn.js"() {
       import_react7 = __toESM(require_react());
       init_timeGrid();
-      import_jsx_dev_runtime3 = __toESM(require_jsx_dev_runtime());
+      import_jsx_dev_runtime4 = __toESM(require_jsx_dev_runtime());
     }
   });
 
@@ -42140,30 +42280,30 @@ ${evt.startLabel} - ${evt.endLabel}`,
         timeGridRef.current.scrollTop = DEFAULT_SCROLL_HOUR * HOUR_HEIGHT;
       }
     }, [refDate]);
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(import_jsx_dev_runtime4.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "flex border-b border-gray-gray200 dark:border-gray-gray700", children: [
-        /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "w-14 shrink-0" }, void 0, false, {
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(import_jsx_dev_runtime5.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "flex border-b border-gray-gray200 dark:border-gray-gray700", children: [
+        /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "w-14 shrink-0" }, void 0, false, {
           fileName: "frontend/components/ThreeDaysView.js",
-          lineNumber: 35,
+          lineNumber: 36,
           columnNumber: 9
         }, this),
-        /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "grid grid-cols-3 flex-1", children: days.map((cell) => {
+        /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "grid grid-cols-3 flex-1", children: days.map((cell) => {
           const jsDate = new Date(cell.year, cell.month - 1, cell.day);
           const dayOfWeek = (jsDate.getDay() + 6) % 7;
-          return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+          return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
             "div",
             {
               className: `text-center text-xs font-medium py-2 ${cell.isToday ? "text-blue-blueBright" : "text-gray-gray400 dark:text-gray-gray500"}`,
               children: [
-                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { children: [
+                /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { children: [
                   DAYS_SHORT[dayOfWeek],
                   "."
                 ] }, void 0, true, {
                   fileName: "frontend/components/ThreeDaysView.js",
-                  lineNumber: 47,
+                  lineNumber: 48,
                   columnNumber: 17
                 }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+                /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
                   "div",
                   {
                     className: `text-lg font-semibold ${cell.isToday ? "text-blue-blueBright" : "text-gray-gray700 dark:text-gray-gray200"}`,
@@ -42173,7 +42313,7 @@ ${evt.startLabel} - ${evt.endLabel}`,
                   false,
                   {
                     fileName: "frontend/components/ThreeDaysView.js",
-                    lineNumber: 48,
+                    lineNumber: 49,
                     columnNumber: 17
                   },
                   this
@@ -42184,29 +42324,29 @@ ${evt.startLabel} - ${evt.endLabel}`,
             true,
             {
               fileName: "frontend/components/ThreeDaysView.js",
-              lineNumber: 41,
+              lineNumber: 42,
               columnNumber: 15
             },
             this
           );
         }) }, void 0, false, {
           fileName: "frontend/components/ThreeDaysView.js",
-          lineNumber: 36,
+          lineNumber: 37,
           columnNumber: 9
         }, this)
       ] }, void 0, true, {
         fileName: "frontend/components/ThreeDaysView.js",
-        lineNumber: 34,
+        lineNumber: 35,
         columnNumber: 7
       }, this),
-      /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+      /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
         "div",
         {
           ref: timeGridRef,
           className: "border border-gray-gray200 dark:border-gray-gray700 rounded-b-md overflow-auto",
           style: { maxHeight: "calc(100vh - 140px)" },
-          children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "flex", children: [
-            /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "w-14 shrink-0", children: HOURS.map((h) => /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+          children: /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "flex", children: [
+            /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "w-14 shrink-0", children: HOURS.map((h) => /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
               "div",
               {
                 className: "text-right pr-2 text-[11px] text-gray-gray400 dark:text-gray-gray500",
@@ -42217,17 +42357,17 @@ ${evt.startLabel} - ${evt.endLabel}`,
               false,
               {
                 fileName: "frontend/components/ThreeDaysView.js",
-                lineNumber: 70,
+                lineNumber: 71,
                 columnNumber: 15
               },
               this
             )) }, void 0, false, {
               fileName: "frontend/components/ThreeDaysView.js",
-              lineNumber: 68,
+              lineNumber: 69,
               columnNumber: 11
             }, this),
-            /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "grid grid-cols-3 flex-1 divide-x divide-gray-gray100 dark:divide-gray-gray700", children: days.map((cell) => /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "relative", children: [
-              HOURS.map((h) => /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+            /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "grid grid-cols-3 flex-1 divide-x divide-gray-gray100 dark:divide-gray-gray700", children: days.map((cell) => /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "relative", children: [
+              HOURS.map((h) => /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
                 "div",
                 {
                   className: "border-t border-gray-gray100 dark:border-gray-gray700",
@@ -42237,12 +42377,12 @@ ${evt.startLabel} - ${evt.endLabel}`,
                 false,
                 {
                   fileName: "frontend/components/ThreeDaysView.js",
-                  lineNumber: 85,
+                  lineNumber: 86,
                   columnNumber: 19
                 },
                 this
               )),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "absolute inset-0", children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+              /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "absolute inset-0", children: /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
                 TimeGridColumn,
                 {
                   cell,
@@ -42254,33 +42394,35 @@ ${evt.startLabel} - ${evt.endLabel}`,
                   endDateField,
                   base,
                   onEventClick,
-                  EventComponent: ThreeDaysEventBlock
+                  EventComponent: ThreeDaysEventBlock,
+                  GroupComponent: ThreeDaysEventGroup,
+                  groupThreshold: 3
                 },
                 void 0,
                 false,
                 {
                   fileName: "frontend/components/ThreeDaysView.js",
-                  lineNumber: 93,
+                  lineNumber: 94,
                   columnNumber: 19
                 },
                 this
               ) }, void 0, false, {
                 fileName: "frontend/components/ThreeDaysView.js",
-                lineNumber: 92,
+                lineNumber: 93,
                 columnNumber: 17
               }, this)
             ] }, cell.dateKey, true, {
               fileName: "frontend/components/ThreeDaysView.js",
-              lineNumber: 82,
+              lineNumber: 83,
               columnNumber: 15
             }, this)) }, void 0, false, {
               fileName: "frontend/components/ThreeDaysView.js",
-              lineNumber: 80,
+              lineNumber: 81,
               columnNumber: 11
             }, this)
           ] }, void 0, true, {
             fileName: "frontend/components/ThreeDaysView.js",
-            lineNumber: 66,
+            lineNumber: 67,
             columnNumber: 9
           }, this)
         },
@@ -42288,26 +42430,27 @@ ${evt.startLabel} - ${evt.endLabel}`,
         false,
         {
           fileName: "frontend/components/ThreeDaysView.js",
-          lineNumber: 61,
+          lineNumber: 62,
           columnNumber: 7
         },
         this
       )
     ] }, void 0, true, {
       fileName: "frontend/components/ThreeDaysView.js",
-      lineNumber: 32,
+      lineNumber: 33,
       columnNumber: 5
     }, this);
   }
-  var import_react8, import_jsx_dev_runtime4;
+  var import_react8, import_jsx_dev_runtime5;
   var init_ThreeDaysView = __esm({
     "frontend/components/ThreeDaysView.js"() {
       import_react8 = __toESM(require_react());
       init_dates();
       init_timeGrid();
       init_ThreeDaysEventBlock();
+      init_ThreeDaysEventGroup();
       init_TimeGridColumn();
-      import_jsx_dev_runtime4 = __toESM(require_jsx_dev_runtime());
+      import_jsx_dev_runtime5 = __toESM(require_jsx_dev_runtime());
     }
   });
 
@@ -42317,7 +42460,7 @@ ${evt.startLabel} - ${evt.endLabel}`,
     const part1 = readFieldLabel(record, nameField1);
     const part2 = readFieldLabel(record, nameField2);
     const label = [part1, part2].filter(Boolean).join(" - ") || record.name;
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(
       "button",
       {
         onClick: (e) => {
@@ -42339,30 +42482,30 @@ ${evt.startLabel} - ${evt.endLabel}`,
       this
     );
   }
-  var import_jsx_dev_runtime5;
+  var import_jsx_dev_runtime6;
   var init_EventPill = __esm({
     "frontend/components/EventPill.js"() {
       init_colors2();
       init_fields();
-      import_jsx_dev_runtime5 = __toESM(require_jsx_dev_runtime());
+      import_jsx_dev_runtime6 = __toESM(require_jsx_dev_runtime());
     }
   });
 
   // frontend/components/DayCell.js
   function DayCell({ cell, events, nameField1, nameField2, colorField, base, onEventClick }) {
     if (!cell.day) {
-      return /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)("div", { className: "bg-gray-gray50 dark:bg-gray-gray900" }, void 0, false, {
+      return /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)("div", { className: "bg-gray-gray50 dark:bg-gray-gray900" }, void 0, false, {
         fileName: "frontend/components/DayCell.js",
         lineNumber: 5,
         columnNumber: 12
       }, this);
     }
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)(
       "div",
       {
         className: `p-1 border-t border-gray-gray100 dark:border-gray-gray700 ${cell.isToday ? "bg-blue-blueLight2 dark:bg-[#1a2a4a]" : "bg-white dark:bg-gray-gray800"}`,
         children: [
-          /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(
+          /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)(
             "span",
             {
               className: `text-xs font-medium inline-block mb-0.5 ${cell.isToday ? "bg-blue-blueBright text-white rounded-full w-5 h-5 flex items-center justify-center" : "text-gray-gray500 dark:text-gray-gray300"}`,
@@ -42377,7 +42520,7 @@ ${evt.startLabel} - ${evt.endLabel}`,
             },
             this
           ),
-          /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)("div", { className: "space-y-0.5", children: events.map((record) => /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(
+          /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)("div", { className: "space-y-0.5", children: events.map((record) => /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)(
             EventPill,
             {
               record,
@@ -42412,18 +42555,18 @@ ${evt.startLabel} - ${evt.endLabel}`,
       this
     );
   }
-  var import_jsx_dev_runtime6;
+  var import_jsx_dev_runtime7;
   var init_DayCell = __esm({
     "frontend/components/DayCell.js"() {
       init_EventPill();
-      import_jsx_dev_runtime6 = __toESM(require_jsx_dev_runtime());
+      import_jsx_dev_runtime7 = __toESM(require_jsx_dev_runtime());
     }
   });
 
   // frontend/components/WeeksGridView.js
   function WeeksGridView({ weeks, eventsByDate, cellProps }) {
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)(import_jsx_dev_runtime7.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)("div", { className: "grid grid-cols-7 border-b border-gray-gray200 dark:border-gray-gray700 mb-0", children: DAYS_SHORT.map((d) => /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)("div", { className: "text-center text-xs font-medium text-gray-gray400 dark:text-gray-gray500 py-1.5", children: d }, d, false, {
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(import_jsx_dev_runtime8.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)("div", { className: "grid grid-cols-7 border-b border-gray-gray200 dark:border-gray-gray700 mb-0", children: DAYS_SHORT.map((d) => /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)("div", { className: "text-center text-xs font-medium text-gray-gray400 dark:text-gray-gray500 py-1.5", children: d }, d, false, {
         fileName: "frontend/components/WeeksGridView.js",
         lineNumber: 10,
         columnNumber: 11
@@ -42432,7 +42575,7 @@ ${evt.startLabel} - ${evt.endLabel}`,
         lineNumber: 8,
         columnNumber: 7
       }, this),
-      /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)("div", { className: "border border-gray-gray200 dark:border-gray-gray700 rounded-b-md overflow-hidden", children: weeks.map((week, wi) => /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)("div", { className: "grid grid-cols-7 divide-x divide-gray-gray100 dark:divide-gray-gray700", children: week.map((cell, ci) => /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)(
+      /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)("div", { className: "border border-gray-gray200 dark:border-gray-gray700 rounded-b-md overflow-hidden", children: weeks.map((week, wi) => /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)("div", { className: "grid grid-cols-7 divide-x divide-gray-gray100 dark:divide-gray-gray700", children: week.map((cell, ci) => /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(
         DayCell,
         __spreadValues({
           cell,
@@ -42461,12 +42604,12 @@ ${evt.startLabel} - ${evt.endLabel}`,
       columnNumber: 5
     }, this);
   }
-  var import_jsx_dev_runtime7;
+  var import_jsx_dev_runtime8;
   var init_WeeksGridView = __esm({
     "frontend/components/WeeksGridView.js"() {
       init_dates();
       init_DayCell();
-      import_jsx_dev_runtime7 = __toESM(require_jsx_dev_runtime());
+      import_jsx_dev_runtime8 = __toESM(require_jsx_dev_runtime());
     }
   });
 
@@ -42475,7 +42618,7 @@ ${evt.startLabel} - ${evt.endLabel}`,
   var init_style = __esm({
     "frontend/style.css"() {
       style = document.createElement("style");
-      style.textContent = '*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }\r\n\r\n/*! tailwindcss v3.4.19 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Courier,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.absolute{position:absolute}.relative{position:relative}.inset-0{inset:0}.mb-0{margin-bottom:0}.mb-0\\.5{margin-bottom:.125rem}.mb-3{margin-bottom:.75rem}.ml-1{margin-left:.25rem}.inline-block{display:inline-block}.flex{display:flex}.table{display:table}.grid{display:grid}.h-5{height:1.25rem}.h-8{height:2rem}.w-14{width:3.5rem}.w-5{width:1.25rem}.w-8{width:2rem}.w-full{width:100%}.flex-1{flex:1 1 0%}.shrink-0{flex-shrink:0}.cursor-pointer{cursor:pointer}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-cols-7{grid-template-columns:repeat(7,minmax(0,1fr))}.items-center{align-items:center}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-1{gap:.25rem}.gap-2{gap:.5rem}.space-y-0\\.5>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.125rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.125rem*var(--tw-space-y-reverse))}.divide-x>:not([hidden])~:not([hidden]){--tw-divide-x-reverse:0;border-right-width:calc(1px*var(--tw-divide-x-reverse));border-left-width:calc(1px*(1 - var(--tw-divide-x-reverse)))}.divide-gray-gray100>:not([hidden])~:not([hidden]){--tw-divide-opacity:1;border-color:rgb(229 233 240/var(--tw-divide-opacity,1))}.overflow-auto{overflow:auto}.overflow-hidden,.truncate{overflow:hidden}.truncate{text-overflow:ellipsis;white-space:nowrap}.rounded{border-radius:.25rem}.rounded-full{border-radius:9999px}.rounded-md{border-radius:.375rem}.rounded-b-md{border-bottom-right-radius:.375rem;border-bottom-left-radius:.375rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-l-\\[3px\\]{border-left-width:3px}.border-t{border-top-width:1px}.border-gray-gray100{--tw-border-opacity:1;border-color:rgb(229 233 240/var(--tw-border-opacity,1))}.border-gray-gray200{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.bg-blue-blueLight2{--tw-bg-opacity:1;background-color:rgb(209 226 255/var(--tw-bg-opacity,1))}.bg-blue-blueLight2\\/30{background-color:rgba(209,226,255,.3)}.bg-gray-gray50{--tw-bg-opacity:1;background-color:rgb(246 248 252/var(--tw-bg-opacity,1))}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.p-1{padding:.25rem}.p-3{padding:.75rem}.px-1\\.5{padding-left:.375rem;padding-right:.375rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-0\\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\\.5{padding-top:.375rem;padding-bottom:.375rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.pr-2{padding-right:.5rem}.text-left{text-align:left}.text-center{text-align:center}.text-right{text-align:right}.text-\\[10px\\]{font-size:10px}.text-\\[11px\\]{font-size:11px}.text-lg{font-size:.9375rem;line-height:1.375rem}.text-sm{font-size:.6875rem;line-height:1rem}.text-xs{font-size:.5625rem;line-height:.875rem}.font-medium{font-weight:500}.font-semibold{font-weight:600}.leading-tight{line-height:1.25}.text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.text-gray-gray600{--tw-text-opacity:1;color:rgb(65 69 77/var(--tw-text-opacity,1))}.text-gray-gray700{--tw-text-opacity:1;color:rgb(49 53 62/var(--tw-text-opacity,1))}.text-gray-gray800{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255/var(--tw-text-opacity,1))}.opacity-70{opacity:.7}.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-opacity{transition-property:opacity;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.three-days-event-block__label{text-align:left;display:-webkit-box;-webkit-line-clamp:4;line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}.hover\\:bg-gray-gray100:hover{--tw-bg-opacity:1;background-color:rgb(229 233 240/var(--tw-bg-opacity,1))}.hover\\:opacity-80:hover{opacity:.8}@media (prefers-color-scheme:dark){.dark\\:divide-gray-gray700>:not([hidden])~:not([hidden]){--tw-divide-opacity:1;border-color:rgb(49 53 62/var(--tw-divide-opacity,1))}.dark\\:border-gray-gray600{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:border-gray-gray700{--tw-border-opacity:1;border-color:rgb(49 53 62/var(--tw-border-opacity,1))}.dark\\:bg-\\[\\#1a2a4a\\]{--tw-bg-opacity:1;background-color:rgb(26 42 74/var(--tw-bg-opacity,1))}.dark\\:bg-\\[\\#1a2a4a\\]\\/30{background-color:rgba(26,42,74,.3)}.dark\\:bg-gray-gray800{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray900{--tw-bg-opacity:1;background-color:rgb(17 18 21/var(--tw-bg-opacity,1))}.dark\\:text-gray-gray100{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:text-gray-gray200{--tw-text-opacity:1;color:rgb(218 222 230/var(--tw-text-opacity,1))}.dark\\:text-gray-gray300{--tw-text-opacity:1;color:rgb(196 199 205/var(--tw-text-opacity,1))}.dark\\:text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.dark\\:hover\\:bg-gray-gray700:hover{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}}';
+      style.textContent = '*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }\r\n\r\n/*! tailwindcss v3.4.19 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Courier,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.absolute{position:absolute}.relative{position:relative}.inset-0{inset:0}.mb-0{margin-bottom:0}.mb-0\\.5{margin-bottom:.125rem}.mb-3{margin-bottom:.75rem}.ml-1{margin-left:.25rem}.block{display:block}.inline-block{display:inline-block}.flex{display:flex}.table{display:table}.grid{display:grid}.h-5{height:1.25rem}.h-8{height:2rem}.w-14{width:3.5rem}.w-5{width:1.25rem}.w-8{width:2rem}.w-full{width:100%}.flex-1{flex:1 1 0%}.shrink-0{flex-shrink:0}.cursor-pointer{cursor:pointer}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-cols-7{grid-template-columns:repeat(7,minmax(0,1fr))}.flex-col{flex-direction:column}.items-center{align-items:center}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-1{gap:.25rem}.gap-2{gap:.5rem}.space-y-0\\.5>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.125rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.125rem*var(--tw-space-y-reverse))}.divide-x>:not([hidden])~:not([hidden]){--tw-divide-x-reverse:0;border-right-width:calc(1px*var(--tw-divide-x-reverse));border-left-width:calc(1px*(1 - var(--tw-divide-x-reverse)))}.divide-y>:not([hidden])~:not([hidden]){--tw-divide-y-reverse:0;border-top-width:calc(1px*(1 - var(--tw-divide-y-reverse)));border-bottom-width:calc(1px*var(--tw-divide-y-reverse))}.divide-gray-gray100>:not([hidden])~:not([hidden]){--tw-divide-opacity:1;border-color:rgb(229 233 240/var(--tw-divide-opacity,1))}.divide-gray-gray200\\/60>:not([hidden])~:not([hidden]){border-color:rgba(218,222,230,.6)}.overflow-auto{overflow:auto}.overflow-hidden{overflow:hidden}.overflow-y-auto{overflow-y:auto}.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.rounded{border-radius:.25rem}.rounded-full{border-radius:9999px}.rounded-md{border-radius:.375rem}.rounded-b-md{border-bottom-right-radius:.375rem;border-bottom-left-radius:.375rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-l-\\[3px\\]{border-left-width:3px}.border-t{border-top-width:1px}.border-gray-gray100{--tw-border-opacity:1;border-color:rgb(229 233 240/var(--tw-border-opacity,1))}.border-gray-gray200{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.border-gray-gray400{--tw-border-opacity:1;border-color:rgb(151 154 160/var(--tw-border-opacity,1))}.bg-blue-blueLight2{--tw-bg-opacity:1;background-color:rgb(209 226 255/var(--tw-bg-opacity,1))}.bg-blue-blueLight2\\/30{background-color:rgba(209,226,255,.3)}.bg-gray-gray100\\/70{background-color:rgba(229,233,240,.7)}.bg-gray-gray50{--tw-bg-opacity:1;background-color:rgb(246 248 252/var(--tw-bg-opacity,1))}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.p-1{padding:.25rem}.p-3{padding:.75rem}.px-1\\.5{padding-left:.375rem;padding-right:.375rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-0\\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\\.5{padding-top:.375rem;padding-bottom:.375rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.pr-2{padding-right:.5rem}.pt-1{padding-top:.25rem}.text-left{text-align:left}.text-center{text-align:center}.text-right{text-align:right}.text-\\[10px\\]{font-size:10px}.text-\\[11px\\]{font-size:11px}.text-lg{font-size:.9375rem;line-height:1.375rem}.text-sm{font-size:.6875rem;line-height:1rem}.text-xs{font-size:.5625rem;line-height:.875rem}.font-medium{font-weight:500}.font-semibold{font-weight:600}.leading-tight{line-height:1.25}.text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.text-gray-gray600{--tw-text-opacity:1;color:rgb(65 69 77/var(--tw-text-opacity,1))}.text-gray-gray700{--tw-text-opacity:1;color:rgb(49 53 62/var(--tw-text-opacity,1))}.text-gray-gray800{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255/var(--tw-text-opacity,1))}.opacity-70{opacity:.7}.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-opacity{transition-property:opacity;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.three-days-event-block__label,.three-days-event-group__label{margin:5px 0;text-align:left;display:-webkit-box;-webkit-line-clamp:4;line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}.three-days-event-block__hours{white-space:nowrap;text-align:left}.hover\\:bg-gray-gray100:hover{--tw-bg-opacity:1;background-color:rgb(229 233 240/var(--tw-bg-opacity,1))}.hover\\:opacity-80:hover{opacity:.8}@media (prefers-color-scheme:dark){.dark\\:divide-gray-gray600\\/40>:not([hidden])~:not([hidden]){border-color:rgba(65,69,77,.4)}.dark\\:divide-gray-gray700>:not([hidden])~:not([hidden]){--tw-divide-opacity:1;border-color:rgb(49 53 62/var(--tw-divide-opacity,1))}.dark\\:border-gray-gray600{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:border-gray-gray700{--tw-border-opacity:1;border-color:rgb(49 53 62/var(--tw-border-opacity,1))}.dark\\:bg-\\[\\#1a2a4a\\]{--tw-bg-opacity:1;background-color:rgb(26 42 74/var(--tw-bg-opacity,1))}.dark\\:bg-\\[\\#1a2a4a\\]\\/30{background-color:rgba(26,42,74,.3)}.dark\\:bg-gray-gray700\\/40{background-color:rgba(49,53,62,.4)}.dark\\:bg-gray-gray800{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray900{--tw-bg-opacity:1;background-color:rgb(17 18 21/var(--tw-bg-opacity,1))}.dark\\:text-gray-gray100{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:text-gray-gray200{--tw-text-opacity:1;color:rgb(218 222 230/var(--tw-text-opacity,1))}.dark\\:text-gray-gray300{--tw-text-opacity:1;color:rgb(196 199 205/var(--tw-text-opacity,1))}.dark\\:text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.dark\\:hover\\:bg-gray-gray700:hover{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}}';
       document.head.appendChild(style);
     }
   });
@@ -42575,8 +42718,8 @@ ${evt.startLabel} - ${evt.endLabel}`,
       expandRecord(eventRecord);
     }
     const cellProps = { nameField1, nameField2, colorField, base, onEventClick: handleEventClick };
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)("div", { className: "p-3 bg-white dark:bg-gray-gray900 text-gray-gray800 dark:text-gray-gray100", children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime9.jsxDEV)("div", { className: "p-3 bg-white dark:bg-gray-gray900 text-gray-gray800 dark:text-gray-gray100", children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime9.jsxDEV)(
         CalendarHeader,
         {
           title: getHeaderTitle(),
@@ -42595,17 +42738,17 @@ ${evt.startLabel} - ${evt.endLabel}`,
         },
         this
       ),
-      viewMode === "month" && /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(WeeksGridView, { weeks: monthGrid, eventsByDate, cellProps }, void 0, false, {
+      viewMode === "month" && /* @__PURE__ */ (0, import_jsx_dev_runtime9.jsxDEV)(WeeksGridView, { weeks: monthGrid, eventsByDate, cellProps }, void 0, false, {
         fileName: "frontend/index.js",
         lineNumber: 141,
         columnNumber: 9
       }, this),
-      viewMode === "2weeks" && /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(WeeksGridView, { weeks: twoWeeksGrid, eventsByDate, cellProps }, void 0, false, {
+      viewMode === "2weeks" && /* @__PURE__ */ (0, import_jsx_dev_runtime9.jsxDEV)(WeeksGridView, { weeks: twoWeeksGrid, eventsByDate, cellProps }, void 0, false, {
         fileName: "frontend/index.js",
         lineNumber: 145,
         columnNumber: 9
       }, this),
-      viewMode === "3days" && /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(
+      viewMode === "3days" && /* @__PURE__ */ (0, import_jsx_dev_runtime9.jsxDEV)(
         ThreeDaysView,
         {
           days: threeDaysGrid,
@@ -42634,7 +42777,7 @@ ${evt.startLabel} - ${evt.endLabel}`,
       columnNumber: 5
     }, this);
   }
-  var import_react9, import_jsx_dev_runtime8;
+  var import_react9, import_jsx_dev_runtime9;
   var init_frontend = __esm({
     "frontend/index.js"() {
       import_react9 = __toESM(require_react());
@@ -42645,8 +42788,8 @@ ${evt.startLabel} - ${evt.endLabel}`,
       init_ThreeDaysView();
       init_WeeksGridView();
       init_style();
-      import_jsx_dev_runtime8 = __toESM(require_jsx_dev_runtime());
-      initializeBlock({ interface: () => /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(CalendarApp, {}, void 0, false, {
+      import_jsx_dev_runtime9 = __toESM(require_jsx_dev_runtime());
+      initializeBlock({ interface: () => /* @__PURE__ */ (0, import_jsx_dev_runtime9.jsxDEV)(CalendarApp, {}, void 0, false, {
         fileName: "frontend/index.js",
         lineNumber: 166,
         columnNumber: 36

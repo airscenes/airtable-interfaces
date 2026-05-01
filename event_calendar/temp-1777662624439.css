@@ -43,7 +43,4 @@
     word-break: break-word;
 }
 
-.three-days-event-block__hours{
-    white-space: nowrap;
-    text-align: left;
-}
+.three-days-event-block__hours

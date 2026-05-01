@@ -30,8 +30,8 @@ export function ThreeDaysEventBlock({
       }}
       title={`${label}\n${evt.startLabel} - ${evt.endLabel}`}
     >
+      <div className="three-days-event-block__hours text-[10px] opacity-70">{evt.startLabel} - {evt.endLabel}</div>
       <div className="three-days-event-block__label font-medium">{label}</div>
-      <div className="text-[10px] opacity-70">{evt.startLabel} - {evt.endLabel}</div>
     </button>
   );
 }
