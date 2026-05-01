@@ -30,6 +30,14 @@
 @tailwind components;
 @tailwind utilities;
 
+.three-days-event-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    text-align: left;
+}
+
 .three-days-event-group__label,
 .three-days-event-block__label {
     margin: 5px 0px;
@@ -44,6 +52,6 @@
 }
 
 .three-days-event-block__hours{
-    white-space: nowrap;
+    white-space: break-spaces;
     text-align: left;
 }

@@ -18,7 +18,7 @@ export function ThreeDaysEventBlock({
   return (
     <button
       onClick={(e) => { e.stopPropagation(); onEventClick(evt.record); }}
-      className="absolute rounded px-1.5 py-1 text-[11px] leading-tight cursor-pointer hover:opacity-80 transition-opacity border-l-[3px]"
+      className="three-days-event-block absolute rounded px-1.5 py-1 text-[11px] leading-tight cursor-pointer hover:opacity-80 transition-opacity border-l-[3px]"
       style={{
         top: evt.top,
         height: evt.height,
