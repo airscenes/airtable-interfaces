@@ -4196,7 +4196,7 @@
           );
           return [workInProgressHook.memoizedState, reducer];
         }
-        function useMemo3(nextCreate, deps) {
+        function useMemo4(nextCreate, deps) {
           currentlyRenderingComponent = resolveCurrentlyRenderingComponent();
           workInProgressHook = createWorkInProgressHook();
           deps = void 0 === deps ? null : deps;
@@ -8264,7 +8264,7 @@
             resolveCurrentlyRenderingComponent();
             return context._currentValue2;
           },
-          useMemo: useMemo3,
+          useMemo: useMemo4,
           useReducer,
           useRef: function(initialValue) {
             currentlyRenderingComponent = resolveCurrentlyRenderingComponent();
@@ -8279,7 +8279,7 @@
           useInsertionEffect: noop,
           useLayoutEffect: noop,
           useCallback: function(callback, deps) {
-            return useMemo3(function() {
+            return useMemo4(function() {
               return callback;
             }, deps);
           },
@@ -11418,7 +11418,7 @@
           );
           return [workInProgressHook.memoizedState, reducer];
         }
-        function useMemo3(nextCreate, deps) {
+        function useMemo4(nextCreate, deps) {
           currentlyRenderingComponent = resolveCurrentlyRenderingComponent();
           workInProgressHook = createWorkInProgressHook();
           deps = void 0 === deps ? null : deps;
@@ -15719,7 +15719,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
             resolveCurrentlyRenderingComponent();
             return context._currentValue;
           },
-          useMemo: useMemo3,
+          useMemo: useMemo4,
           useReducer,
           useRef: function(initialValue) {
             currentlyRenderingComponent = resolveCurrentlyRenderingComponent();
@@ -15734,7 +15734,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
           useInsertionEffect: noop,
           useLayoutEffect: noop,
           useCallback: function(callback, deps) {
-            return useMemo3(function() {
+            return useMemo4(function() {
               return callback;
             }, deps);
           },
@@ -16137,6 +16137,11 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       throw spawnErrorWithOriginOmittedFromStackTrace(errorMessageFormat, errorMessageArgs, invariant);
     }
   }
+  function spawnUnknownSwitchCaseError(valueDescription, providedValue, key) {
+    const providedValueKey = providedValue[key];
+    const providedValueKeyString = providedValueKey !== null && providedValueKey !== void 0 ? providedValueKey : "null";
+    return spawnErrorWithOriginOmittedFromStackTrace("Unknown value %s for %s", [providedValueKeyString, valueDescription], spawnUnknownSwitchCaseError);
+  }
   var init_error_utils = __esm({
     "node_modules/@airtable/blocks/dist/esm/shared/error_utils.js"() {
     }
@@ -16164,12 +16169,20 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
   });
 
   // node_modules/@airtable/blocks/dist/esm/interface/types/airtable_interface.js
-  var BlockRunContextType;
+  var BlockRunContextType, BlockInstallationPageElementCustomPropertyTypeForAirtableInterface;
   var init_airtable_interface2 = __esm({
     "node_modules/@airtable/blocks/dist/esm/interface/types/airtable_interface.js"() {
       BlockRunContextType = /* @__PURE__ */ (function(BlockRunContextType3) {
         BlockRunContextType3["PAGE_ELEMENT_IN_QUERY_CONTAINER"] = "pageElementInQueryContainer";
         return BlockRunContextType3;
+      })({});
+      BlockInstallationPageElementCustomPropertyTypeForAirtableInterface = /* @__PURE__ */ (function(BlockInstallationPageElementCustomPropertyTypeForAirtableInterface2) {
+        BlockInstallationPageElementCustomPropertyTypeForAirtableInterface2["BOOLEAN"] = "boolean";
+        BlockInstallationPageElementCustomPropertyTypeForAirtableInterface2["STRING"] = "string";
+        BlockInstallationPageElementCustomPropertyTypeForAirtableInterface2["ENUM"] = "enum";
+        BlockInstallationPageElementCustomPropertyTypeForAirtableInterface2["FIELD_ID"] = "fieldId";
+        BlockInstallationPageElementCustomPropertyTypeForAirtableInterface2["TABLE_ID"] = "tableId";
+        return BlockInstallationPageElementCustomPropertyTypeForAirtableInterface2;
       })({});
     }
   });
@@ -16861,7 +16874,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
          * @hidden
          */
         // @ts-ignore
-        static VERSION = "0.0.0-experimental-801a212b8-20260206";
+        static VERSION = "0.0.0-experimental-8575f0e0d-20260428";
         /** Storage for this block installation's configuration. */
         /** Contains information about the current session. */
         /** Represents the current Airtable {@link Base}. */
@@ -20040,6 +20053,47 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     }
   });
 
+  // node_modules/@airtable/blocks/dist/esm/interface/models/search_params.js
+  var WatchableSearchParamsKeys, SearchParams;
+  var init_search_params = __esm({
+    "node_modules/@airtable/blocks/dist/esm/interface/models/search_params.js"() {
+      init_error_utils();
+      init_private_utils();
+      init_watchable();
+      WatchableSearchParamsKeys = Object.freeze({
+        searchParams: "searchParams"
+      });
+      SearchParams = class extends watchable_default {
+        static _className = "SearchParams";
+        static _isWatchableKey(key) {
+          return isEnumValue(WatchableSearchParamsKeys, key);
+        }
+        constructor(initialSearchParams, sdk3) {
+          super();
+          this._sdk = sdk3;
+          this._searchParams = initialSearchParams;
+        }
+        getSearchParams() {
+          return this._searchParams;
+        }
+        setSearchParamsAsync(searchParams) {
+          for (const key of Object.keys(searchParams)) {
+            invariant(/^\w+$/.test(key), 'Invalid search param key "%s". Keys must only contain letters, digits, and underscores.', key);
+          }
+          return this._sdk.__airtableInterface.setSearchParamsAsync(searchParams);
+        }
+        /**
+         * This shouldn't be called directly - instead, use this._sdk.__applySearchParamsUpdates().
+         * This is called by the SDK when hyperbase sends a message with new search params.
+         */
+        __set(searchParams) {
+          this._searchParams = searchParams;
+          this._onChange(WatchableSearchParamsKeys.searchParams);
+        }
+      };
+    }
+  });
+
   // node_modules/@airtable/blocks/dist/esm/interface/sdk.js
   var InterfaceBlockSdk;
   var init_sdk = __esm({
@@ -20049,9 +20103,12 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       init_session();
       init_mutations2();
       init_base();
+      init_search_params();
       InterfaceBlockSdk = class extends BlockSdkCore {
+        /** @internal */
         constructor(airtableInterface2) {
           super(airtableInterface2);
+          this._searchParams = new SearchParams(airtableInterface2.sdkInitData.initialSearchParams, this);
           this._registerHandlers();
         }
         /** @internal */
@@ -20080,6 +20137,12 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
             } = _ref2;
             this.__applyGlobalConfigUpdates(updates);
           });
+          this.__airtableInterface.subscribeToSearchParamsUpdates((_ref3) => {
+            let {
+              searchParams
+            } = _ref3;
+            this.__applySearchParamsUpdates(searchParams);
+          });
         }
         /** @internal */
         __applyModelChanges(changes) {
@@ -20092,6 +20155,10 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         __applyGlobalConfigUpdates(updates) {
           this.globalConfig.__setMultipleKvPaths(updates);
         }
+        /** @internal */
+        __applySearchParamsUpdates(searchParams) {
+          this._searchParams.__set(searchParams);
+        }
         /**
          * @internal
          */
@@ -20101,6 +20168,10 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
         /** @hidden */
         getBlockRunContext() {
           return this.__airtableInterface.sdkInitData.runContext;
+        }
+        /** @internal */
+        getInitialSearchParams() {
+          return this.__airtableInterface.sdkInitData.initialSearchParams;
         }
         /**
          * @internal
@@ -20127,7 +20198,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
           return this.__airtableInterface.unsubscribeFromSelectionData();
         }
         /**
-         * @hidden
+         * @internal
          */
         unstable_getMapApiTokenAsync() {
           invariant(this.__airtableInterface.getMapApiTokenAsync, "map API token is not supported in this context");
@@ -40578,6 +40649,14 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     }
   });
 
+  // node_modules/@airtable/blocks/dist/esm/shared/ui/use_color_scheme.js
+  var import_react4;
+  var init_use_color_scheme = __esm({
+    "node_modules/@airtable/blocks/dist/esm/shared/ui/use_color_scheme.js"() {
+      import_react4 = __toESM(require_react(), 1);
+    }
+  });
+
   // node_modules/@airtable/blocks/dist/esm/shared/ui/cell_renderer.js
   var React5;
   var init_cell_renderer = __esm({
@@ -40586,6 +40665,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       init_error_utils();
       init_field_core();
       init_use_watchable();
+      init_use_color_scheme();
       init_sdk_context();
     }
   });
@@ -40637,15 +40717,16 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     }
   });
 
-  // node_modules/@airtable/blocks/dist/esm/shared/ui/use_color_scheme.js
-  var import_react4;
-  var init_use_color_scheme = __esm({
-    "node_modules/@airtable/blocks/dist/esm/shared/ui/use_color_scheme.js"() {
-      import_react4 = __toESM(require_react(), 1);
-    }
-  });
-
   // node_modules/@airtable/blocks/dist/esm/shared/ui/use_global_config.js
+  function useGlobalConfig() {
+    const {
+      globalConfig,
+      session
+    } = useSdk();
+    useWatchable(session, ["permissionLevel"]);
+    useWatchable(globalConfig, ["*"]);
+    return globalConfig;
+  }
   var init_use_global_config = __esm({
     "node_modules/@airtable/blocks/dist/esm/shared/ui/use_global_config.js"() {
       init_use_watchable();
@@ -40654,6 +40735,172 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
   });
 
   // node_modules/@airtable/blocks/dist/esm/interface/ui/use_custom_properties.js
+  function useCustomProperties(getCustomProperties2) {
+    const sdk3 = useSdk();
+    const [customProperties, setCustomProperties] = (0, import_react5.useState)(() => {
+      return getCustomProperties2(sdk3.base);
+    });
+    const globalConfig = useGlobalConfig();
+    const [errorState, setErrorState] = (0, import_react5.useState)(null);
+    (0, import_react5.useEffect)(() => {
+      const base = sdk3.base;
+      const onSchemaChange = (base2) => {
+        const customProperties2 = getCustomProperties2(base2);
+        setCustomProperties(customProperties2);
+      };
+      base.watch("schema", onSchemaChange);
+      return () => {
+        base.unwatch("schema", onSchemaChange);
+      };
+    }, [sdk3, getCustomProperties2]);
+    const hasError = errorState !== null;
+    (0, import_react5.useEffect)(() => {
+      if (hasError) {
+        return;
+      }
+      const customPropertiesForAirtableInterface = customProperties.map((customProperty) => convertBlockPageElementCustomPropertyToBlockInstallationPageElementCustomPropertyForAirtableInterface(sdk3.base._getAllTableDataForEditModeConfiguration(), (fieldData, fieldNamesById) => sdk3.__airtableInterface.fieldTypeProvider.getConfig(sdk3.__appInterface, fieldData, fieldNamesById), customProperty));
+      sdk3.setCustomPropertiesAsync(customPropertiesForAirtableInterface).catch((error) => {
+        setErrorState({
+          error
+        });
+      });
+    }, [sdk3, customProperties, hasError]);
+    const customPropertyValueByKey = hasError ? {} : Object.fromEntries(customProperties.map((property) => [property.key, getCustomPropertyValue(sdk3.base, globalConfig, property)]));
+    return {
+      customPropertyValueByKey,
+      errorState
+    };
+  }
+  function convertBlockPageElementCustomPropertyToBlockInstallationPageElementCustomPropertyForAirtableInterface(allTableDataForEditModeConfiguration, getFieldConfig, property) {
+    switch (property.type) {
+      case "boolean":
+        return {
+          key: property.key,
+          label: property.label,
+          type: BlockInstallationPageElementCustomPropertyTypeForAirtableInterface.BOOLEAN,
+          defaultValue: property.defaultValue
+        };
+      case "string":
+        return {
+          key: property.key,
+          label: property.label,
+          type: BlockInstallationPageElementCustomPropertyTypeForAirtableInterface.STRING,
+          defaultValue: property.defaultValue
+        };
+      case "enum":
+        return {
+          key: property.key,
+          label: property.label,
+          type: BlockInstallationPageElementCustomPropertyTypeForAirtableInterface.ENUM,
+          possibleValues: property.possibleValues,
+          defaultValue: property.defaultValue
+        };
+      case "field": {
+        let possibleValues;
+        if (!allTableDataForEditModeConfiguration) {
+          possibleValues = void 0;
+        } else if (property.possibleValues) {
+          possibleValues = property.possibleValues.map((field) => field.id);
+        } else if (property.shouldFieldBeAllowed) {
+          const shouldFieldBeAllowed = property.shouldFieldBeAllowed;
+          const tableData = allTableDataForEditModeConfiguration[property.table.id];
+          if (!tableData) {
+            possibleValues = [];
+          } else {
+            const fieldNamesById = Object.fromEntries(Object.entries(tableData.fieldsById).map((_ref) => {
+              let [id, field] = _ref;
+              return [id, field.name];
+            }));
+            possibleValues = Object.values(tableData.fieldsById).filter((field) => shouldFieldBeAllowed({
+              id: field.id,
+              config: getFieldConfig(field, fieldNamesById)
+            })).map((field) => field.id);
+          }
+        } else {
+          possibleValues = void 0;
+        }
+        return {
+          key: property.key,
+          label: property.label,
+          type: BlockInstallationPageElementCustomPropertyTypeForAirtableInterface.FIELD_ID,
+          tableId: property.table.id,
+          possibleValues,
+          defaultValue: property.defaultValue?.id
+        };
+      }
+      case "table":
+        return {
+          key: property.key,
+          label: property.label,
+          type: BlockInstallationPageElementCustomPropertyTypeForAirtableInterface.TABLE_ID,
+          defaultValue: property.defaultValue?.id
+        };
+      default:
+        throw spawnUnknownSwitchCaseError("property type", property, "type");
+    }
+  }
+  function getCustomPropertyValue(base, globalConfig, property) {
+    const defaultValue = "defaultValue" in property ? property.defaultValue : null;
+    const rawValue = globalConfig.get(property.key) ?? defaultValue;
+    switch (property.type) {
+      case "boolean": {
+        if (typeof rawValue === "boolean") {
+          return rawValue;
+        }
+        return defaultValue;
+      }
+      case "string": {
+        if (typeof rawValue === "string") {
+          return rawValue;
+        }
+        return defaultValue;
+      }
+      case "enum": {
+        if (typeof rawValue === "string" && property.possibleValues.some((value) => value.value === rawValue)) {
+          return rawValue;
+        }
+        return defaultValue;
+      }
+      case "field": {
+        if (typeof rawValue === "string" && property.table === base.getTableById(property.table.id)) {
+          const fieldModel = property.table.fields.find((field) => field.id === rawValue);
+          if (fieldModel) {
+            if (property.possibleValues) {
+              if (property.possibleValues.includes(fieldModel)) {
+                return fieldModel;
+              }
+              return defaultValue;
+            } else if (property.shouldFieldBeAllowed) {
+              if (property.shouldFieldBeAllowed({
+                id: fieldModel.id,
+                config: {
+                  type: fieldModel.type,
+                  options: fieldModel.options
+                }
+              })) {
+                return fieldModel;
+              }
+              return defaultValue;
+            } else {
+              return fieldModel;
+            }
+          }
+        }
+        return defaultValue;
+      }
+      case "table": {
+        if (typeof rawValue === "string") {
+          const tableIfExists = base.getTableByIdIfExists(rawValue);
+          if (tableIfExists) {
+            return tableIfExists;
+          }
+        }
+        return defaultValue;
+      }
+      default:
+        throw spawnUnknownSwitchCaseError("property type", property, "type");
+    }
+  }
   var import_react5;
   var init_use_custom_properties = __esm({
     "node_modules/@airtable/blocks/dist/esm/interface/ui/use_custom_properties.js"() {
@@ -40679,6 +40926,17 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     "node_modules/@airtable/blocks/dist/esm/interface/ui/use_records.js"() {
       init_sdk_context();
       init_use_watchable();
+    }
+  });
+
+  // node_modules/@airtable/blocks/dist/esm/interface/ui/use_search_params.js
+  var import_react6;
+  var init_use_search_params = __esm({
+    "node_modules/@airtable/blocks/dist/esm/interface/ui/use_search_params.js"() {
+      import_react6 = __toESM(require_react(), 1);
+      init_sdk_context();
+      init_use_watchable();
+      init_error_utils();
     }
   });
 
@@ -40915,6 +41173,7 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       init_use_color_scheme();
       init_use_custom_properties();
       init_use_records();
+      init_use_search_params();
       init_use_run_info();
       init_use_session2();
       init_use_global_config();
@@ -40923,6 +41182,252 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       init_colors();
       init_color_utils();
       init_remote_utils();
+    }
+  });
+
+  // frontend/utils/dates.js
+  function toLocalIso(iso) {
+    if (!iso || !iso.includes("T")) return iso;
+    const d = new Date(iso);
+    const shifted = new Date(d.getTime() - d.getTimezoneOffset() * 6e4);
+    return shifted.toISOString();
+  }
+  function readDateCell(record, field) {
+    if (!record || !field) return null;
+    const raw = record.getCellValue(field);
+    console.log("record name: ", record.name);
+    console.log("raw:", raw);
+    if (raw == null) return null;
+    let iso;
+    if (typeof raw === "string") iso = raw;
+    else if (raw instanceof Date) iso = raw.toISOString();
+    else if (typeof raw === "number") iso = new Date(raw).toISOString();
+    else return null;
+    return toLocalIso(iso);
+  }
+  function parseIsoDate(iso) {
+    if (!iso) return null;
+    const str = typeof iso === "string" ? iso : String(iso);
+    const parts = str.split("T")[0].split("-");
+    if (parts.length < 3) return null;
+    return {
+      year: parseInt(parts[0], 10),
+      month: parseInt(parts[1], 10),
+      day: parseInt(parts[2], 10)
+    };
+  }
+  function parseIsoTime(iso) {
+    if (!iso) return null;
+    const str = typeof iso === "string" ? iso : String(iso);
+    const tPart = str.split("T")[1];
+    if (!tPart) return null;
+    const timeParts = tPart.replace("Z", "").split(":");
+    if (timeParts.length < 2) return null;
+    return {
+      hour: parseInt(timeParts[0], 10),
+      minute: parseInt(timeParts[1], 10)
+    };
+  }
+  function fmtTime(h, m) {
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  }
+  function toDateKey(y, m, d) {
+    return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  function buildCalendarGrid(year, month) {
+    const now = /* @__PURE__ */ new Date();
+    const todayKey = toDateKey(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    const jsDay = new Date(year, month - 1, 1).getDay();
+    const offset = (jsDay + 6) % 7;
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < offset; i++) {
+      cells.push({ day: null, dateKey: null, isToday: false });
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateKey = toDateKey(year, month, d);
+      cells.push({ day: d, dateKey, isToday: dateKey === todayKey });
+    }
+    while (cells.length % 7 !== 0) {
+      cells.push({ day: null, dateKey: null, isToday: false });
+    }
+    const weeks = [];
+    for (let i = 0; i < cells.length; i += 7) {
+      weeks.push(cells.slice(i, i + 7));
+    }
+    return weeks;
+  }
+  function getMonday(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = (day + 6) % 7;
+    d.setDate(d.getDate() - diff);
+    return d;
+  }
+  function buildDaysGrid(startDate, numDays) {
+    const now = /* @__PURE__ */ new Date();
+    const todayKey = toDateKey(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    const cells = [];
+    for (let i = 0; i < numDays; i++) {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + i);
+      const y = d.getFullYear();
+      const m = d.getMonth() + 1;
+      const day = d.getDate();
+      const dateKey = toDateKey(y, m, day);
+      cells.push({ day, dateKey, isToday: dateKey === todayKey, month: m, year: y });
+    }
+    return cells;
+  }
+  function build2WeeksGrid(refDate) {
+    const monday = getMonday(refDate);
+    const cells = buildDaysGrid(monday, 14);
+    const weeks = [];
+    for (let i = 0; i < cells.length; i += 7) {
+      weeks.push(cells.slice(i, i + 7));
+    }
+    return weeks;
+  }
+  function build3DaysGrid(refDate) {
+    return buildDaysGrid(refDate, 3);
+  }
+  function groupEventsByDate(records, dateField) {
+    const map = /* @__PURE__ */ new Map();
+    if (!dateField || !records) return map;
+    for (const record of records) {
+      const iso = readDateCell(record, dateField);
+      if (!iso) continue;
+      const parsed = parseIsoDate(iso);
+      if (!parsed) continue;
+      const key = toDateKey(parsed.year, parsed.month, parsed.day);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(record);
+    }
+    return map;
+  }
+  var MONTHS_FR, DAYS_SHORT;
+  var init_dates = __esm({
+    "frontend/utils/dates.js"() {
+      MONTHS_FR = [
+        "Janvier",
+        "Fevrier",
+        "Mars",
+        "Avril",
+        "Mai",
+        "Juin",
+        "Juillet",
+        "Aout",
+        "Septembre",
+        "Octobre",
+        "Novembre",
+        "Decembre"
+      ];
+      DAYS_SHORT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+    }
+  });
+
+  // node_modules/@airtable/blocks/dist/esm/interface/models/models.js
+  var init_models = __esm({
+    "node_modules/@airtable/blocks/dist/esm/interface/models/models.js"() {
+      init_assert_run_context();
+      init_field_core();
+      init_base();
+      init_table();
+      init_field();
+      init_record();
+      init_session();
+    }
+  });
+
+  // frontend/utils/customProperties.js
+  function getCustomProperties(base) {
+    const evtTable = base.tables.find(
+      (t) => t.name.toLowerCase().includes("evenement") || t.name.toLowerCase().includes("\xE9v\xE9nement")
+    ) || base.tables[0];
+    const projTable = base.tables.find(
+      (t) => t.name.toLowerCase().includes("projet")
+    ) || base.tables[1] || base.tables[0];
+    const findField = (table, filter) => table?.fields?.find(filter) || null;
+    const dateFields = evtTable?.fields?.filter(
+      (f) => f.config.type === FieldType.DATE || f.config.type === FieldType.DATE_TIME
+    ) || [];
+    const dateField = dateFields[0] || null;
+    const endDateField = dateFields[1] || null;
+    const colorField = findField(
+      evtTable,
+      (f) => f.config.type === FieldType.SINGLE_SELECT
+    );
+    const linkField = findField(
+      evtTable,
+      (f) => f.config.type === FieldType.MULTIPLE_RECORD_LINKS && f.name.toLowerCase().includes("projet")
+    ) || findField(
+      evtTable,
+      (f) => f.config.type === FieldType.MULTIPLE_RECORD_LINKS
+    );
+    return [
+      {
+        key: "eventsTable",
+        label: "Table des evenements",
+        type: "table",
+        defaultValue: evtTable
+      },
+      {
+        key: "projetsTable",
+        label: "Table des projets",
+        type: "table",
+        defaultValue: projTable
+      },
+      {
+        key: "dateField",
+        label: "Champ date debut",
+        type: "field",
+        table: evtTable,
+        shouldFieldBeAllowed: (f) => f.config.type === FieldType.DATE || f.config.type === FieldType.DATE_TIME,
+        defaultValue: dateField
+      },
+      {
+        key: "endDateField",
+        label: "Champ date fin",
+        type: "field",
+        table: evtTable,
+        shouldFieldBeAllowed: (f) => f.config.type === FieldType.DATE || f.config.type === FieldType.DATE_TIME,
+        defaultValue: endDateField
+      },
+      {
+        key: "nameField1",
+        label: "Libelle 1",
+        type: "field",
+        table: evtTable,
+        defaultValue: evtTable?.fields?.[0] || null
+      },
+      {
+        key: "nameField2",
+        label: "Libelle 2",
+        type: "field",
+        table: evtTable,
+        defaultValue: null
+      },
+      {
+        key: "colorField",
+        label: "Champ couleur",
+        type: "field",
+        table: evtTable,
+        shouldFieldBeAllowed: (f) => f.config.type === FieldType.SINGLE_SELECT || f.config.type === FieldType.MULTIPLE_LOOKUP_VALUES,
+        defaultValue: colorField
+      },
+      {
+        key: "projetLinkField",
+        label: "Lien vers Projets",
+        type: "field",
+        table: evtTable,
+        shouldFieldBeAllowed: (f) => f.config.type === FieldType.MULTIPLE_RECORD_LINKS,
+        defaultValue: linkField
+      }
+    ];
+  }
+  var init_customProperties = __esm({
+    "frontend/utils/customProperties.js"() {
+      init_models();
     }
   });
 
@@ -41184,356 +41689,351 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
     }
   });
 
-  // frontend/components/YearDropdown.js
-  function YearDropdown({ options = [], value = null, onChange, label = "" }) {
-    const [open, setOpen] = (0, import_react6.useState)(false);
-    const wrapperRef = (0, import_react6.useRef)(null);
-    (0, import_react6.useEffect)(() => {
-      if (!open) return void 0;
-      const onDocClick = (e) => {
-        if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
-          setOpen(false);
-        }
-      };
-      document.addEventListener("mousedown", onDocClick);
-      return () => document.removeEventListener("mousedown", onDocClick);
-    }, [open]);
-    const select = (v) => {
-      if (typeof onChange === "function") onChange(v);
-      setOpen(false);
-    };
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-year-dropdown relative inline-block", ref: wrapperRef, children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
-        "button",
-        {
-          type: "button",
-          onClick: () => setOpen((o) => !o),
-          className: "bn-year-dropdown-button inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-gray-gray200 dark:border-gray-gray600 bg-white dark:bg-gray-gray700 hover:bg-gray-gray50 dark:hover:bg-gray-gray800 text-sm text-gray-gray700 dark:text-gray-gray200 transition-colors",
-          children: [
-            /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("span", { className: "bn-year-dropdown-label", children: value || label }, void 0, false, {
-              fileName: "frontend/components/YearDropdown.js",
-              lineNumber: 49,
-              columnNumber: 9
-            }, this),
-            /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(ChevronDown, { className: "bn-year-dropdown-caret text-gray-gray500 dark:text-gray-gray400" }, void 0, false, {
-              fileName: "frontend/components/YearDropdown.js",
-              lineNumber: 50,
-              columnNumber: 9
-            }, this)
-          ]
-        },
-        void 0,
-        true,
-        {
-          fileName: "frontend/components/YearDropdown.js",
-          lineNumber: 44,
-          columnNumber: 7
-        },
-        this
-      ),
-      open && /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-year-dropdown-menu absolute left-0 top-full mt-1 z-20 min-w-[160px] rounded-md border border-gray-gray200 dark:border-gray-gray600 bg-white dark:bg-gray-gray700 shadow-lg py-1", children: options.length === 0 ? /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "bn-year-dropdown-empty px-3 py-1.5 text-sm text-gray-gray400", children: "Aucune ann\xE9e" }, void 0, false, {
-        fileName: "frontend/components/YearDropdown.js",
-        lineNumber: 56,
-        columnNumber: 13
-      }, this) : options.map((opt) => {
-        const name = typeof opt === "string" ? opt : opt?.name;
-        if (!name) return null;
-        const active = value === name;
-        return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
+  // frontend/components/CalendarHeader.js
+  function CalendarHeader({ title, viewMode, onPrev, onNext, onToday, onChangeView }) {
+    const viewBtnClass = (mode) => `px-3 py-1 text-sm rounded-md transition-colors ${viewMode === mode ? "bg-blue-blueBright text-white" : "border border-gray-gray200 dark:border-gray-gray600 hover:bg-gray-gray100 dark:hover:bg-gray-gray700 text-gray-gray600 dark:text-gray-gray300"}`;
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "flex items-center justify-between mb-3", children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "flex items-center gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
           "button",
           {
-            type: "button",
-            onClick: () => select(name),
-            className: `bn-year-dropdown-item block w-full text-left px-3 py-1.5 text-sm ${active ? "bn-year-dropdown-item-active bg-blue-blueLight3 text-blue-blue" : "text-gray-gray700 dark:text-gray-gray200 hover:bg-gray-gray50 dark:hover:bg-gray-gray800"}`,
-            children: name
+            onClick: onPrev,
+            className: "w-8 h-8 flex items-center justify-center rounded-md hover:bg-gray-gray100 dark:hover:bg-gray-gray700 text-gray-gray600 dark:text-gray-gray300 transition-colors",
+            children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(ChevronLeft, {}, void 0, false, {
+              fileName: "frontend/components/CalendarHeader.js",
+              lineNumber: 28,
+              columnNumber: 11
+            }, this)
           },
-          name,
+          void 0,
           false,
           {
-            fileName: "frontend/components/YearDropdown.js",
-            lineNumber: 65,
-            columnNumber: 17
+            fileName: "frontend/components/CalendarHeader.js",
+            lineNumber: 24,
+            columnNumber: 9
           },
           this
-        );
-      }) }, void 0, false, {
-        fileName: "frontend/components/YearDropdown.js",
-        lineNumber: 54,
-        columnNumber: 9
+        ),
+        /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
+          "button",
+          {
+            onClick: onNext,
+            className: "w-8 h-8 flex items-center justify-center rounded-md hover:bg-gray-gray100 dark:hover:bg-gray-gray700 text-gray-gray600 dark:text-gray-gray300 transition-colors",
+            children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(ChevronRight, {}, void 0, false, {
+              fileName: "frontend/components/CalendarHeader.js",
+              lineNumber: 34,
+              columnNumber: 11
+            }, this)
+          },
+          void 0,
+          false,
+          {
+            fileName: "frontend/components/CalendarHeader.js",
+            lineNumber: 30,
+            columnNumber: 9
+          },
+          this
+        ),
+        /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("h2", { className: "text-lg font-semibold ml-1", children: title }, void 0, false, {
+          fileName: "frontend/components/CalendarHeader.js",
+          lineNumber: 36,
+          columnNumber: 9
+        }, this)
+      ] }, void 0, true, {
+        fileName: "frontend/components/CalendarHeader.js",
+        lineNumber: 23,
+        columnNumber: 7
+      }, this),
+      /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "flex items-center gap-2", children: [
+        /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("div", { className: "flex items-center gap-1", children: [
+          /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("button", { onClick: () => onChangeView("month"), className: viewBtnClass("month"), children: "Mois" }, void 0, false, {
+            fileName: "frontend/components/CalendarHeader.js",
+            lineNumber: 40,
+            columnNumber: 11
+          }, this),
+          /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("button", { onClick: () => onChangeView("2weeks"), className: viewBtnClass("2weeks"), children: "2 Sem." }, void 0, false, {
+            fileName: "frontend/components/CalendarHeader.js",
+            lineNumber: 41,
+            columnNumber: 11
+          }, this),
+          /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("button", { onClick: () => onChangeView("3days"), className: viewBtnClass("3days"), children: "3 Jours" }, void 0, false, {
+            fileName: "frontend/components/CalendarHeader.js",
+            lineNumber: 42,
+            columnNumber: 11
+          }, this)
+        ] }, void 0, true, {
+          fileName: "frontend/components/CalendarHeader.js",
+          lineNumber: 39,
+          columnNumber: 9
+        }, this),
+        /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
+          "button",
+          {
+            onClick: onToday,
+            className: "px-3 py-1 text-sm rounded-md border border-gray-gray200 dark:border-gray-gray600 hover:bg-gray-gray100 dark:hover:bg-gray-gray700 text-gray-gray600 dark:text-gray-gray300 transition-colors",
+            children: "Aujourd'hui"
+          },
+          void 0,
+          false,
+          {
+            fileName: "frontend/components/CalendarHeader.js",
+            lineNumber: 44,
+            columnNumber: 9
+          },
+          this
+        )
+      ] }, void 0, true, {
+        fileName: "frontend/components/CalendarHeader.js",
+        lineNumber: 38,
+        columnNumber: 7
       }, this)
     ] }, void 0, true, {
-      fileName: "frontend/components/YearDropdown.js",
-      lineNumber: 43,
+      fileName: "frontend/components/CalendarHeader.js",
+      lineNumber: 22,
       columnNumber: 5
     }, this);
   }
-  var import_react6, import_jsx_dev_runtime, ChevronDown;
-  var init_YearDropdown = __esm({
-    "frontend/components/YearDropdown.js"() {
-      import_react6 = __toESM(require_react());
+  var import_jsx_dev_runtime, ChevronLeft, ChevronRight;
+  var init_CalendarHeader = __esm({
+    "frontend/components/CalendarHeader.js"() {
       import_jsx_dev_runtime = __toESM(require_jsx_dev_runtime());
-      ChevronDown = ({ className = "" }) => /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
-        "svg",
-        {
-          className,
-          width: "14",
-          height: "14",
-          viewBox: "0 0 16 16",
-          fill: "none",
-          "aria-hidden": "true",
-          children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)(
-            "path",
-            {
-              d: "M4 6l4 4 4-4",
-              stroke: "currentColor",
-              strokeWidth: "1.75",
-              strokeLinecap: "round",
-              strokeLinejoin: "round"
-            },
-            void 0,
-            false,
-            {
-              fileName: "frontend/components/YearDropdown.js",
-              lineNumber: 12,
-              columnNumber: 5
-            }
-          )
-        },
-        void 0,
-        false,
-        {
-          fileName: "frontend/components/YearDropdown.js",
-          lineNumber: 4,
-          columnNumber: 3
+      ChevronLeft = () => /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("path", { d: "M10 12L6 8l4-4", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, void 0, false, {
+        fileName: "frontend/components/CalendarHeader.js",
+        lineNumber: 3,
+        columnNumber: 5
+      }) }, void 0, false, {
+        fileName: "frontend/components/CalendarHeader.js",
+        lineNumber: 2,
+        columnNumber: 3
+      });
+      ChevronRight = () => /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("svg", { width: "16", height: "16", viewBox: "0 0 16 16", fill: "none", children: /* @__PURE__ */ (0, import_jsx_dev_runtime.jsxDEV)("path", { d: "M6 4l4 4-4 4", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round" }, void 0, false, {
+        fileName: "frontend/components/CalendarHeader.js",
+        lineNumber: 9,
+        columnNumber: 5
+      }) }, void 0, false, {
+        fileName: "frontend/components/CalendarHeader.js",
+        lineNumber: 8,
+        columnNumber: 3
+      });
+    }
+  });
+
+  // frontend/utils/timeGrid.js
+  function getTimePosition(record, dateField, endDateField) {
+    const startIso = readDateCell(record, dateField);
+    const startTime = parseIsoTime(startIso);
+    const startH = startTime ? startTime.hour : DEFAULT_SCROLL_HOUR;
+    const startM = startTime ? startTime.minute : 0;
+    let endH = startH + 1;
+    let endM = startM;
+    if (endDateField) {
+      const endIso = readDateCell(record, endDateField);
+      const endTime = parseIsoTime(endIso);
+      if (endTime) {
+        endH = endTime.hour;
+        endM = endTime.minute;
+      }
+    }
+    const top = (startH - GRID_START_HOUR) * HOUR_HEIGHT + startM;
+    const bottom = (endH - GRID_START_HOUR) * HOUR_HEIGHT + endM;
+    const height = Math.max(bottom - top, 20);
+    return {
+      top,
+      height,
+      startLabel: fmtTime(startH, startM),
+      endLabel: fmtTime(endH, endM)
+    };
+  }
+  function layoutOverlapping(events) {
+    if (events.length === 0) return [];
+    const sorted = [...events].sort((a, b) => a.top - b.top);
+    const columns = [];
+    for (const evt of sorted) {
+      let placed = false;
+      for (let c = 0; c < columns.length; c++) {
+        const last = columns[c][columns[c].length - 1];
+        if (last.top + last.height <= evt.top) {
+          columns[c].push(evt);
+          evt.col = c;
+          placed = true;
+          break;
         }
+      }
+      if (!placed) {
+        evt.col = columns.length;
+        columns.push([evt]);
+      }
+    }
+    const totalCols = columns.length;
+    for (const evt of sorted) {
+      evt.totalCols = totalCols;
+    }
+    return sorted;
+  }
+  var HOUR_HEIGHT, GRID_START_HOUR, GRID_END_HOUR, DEFAULT_SCROLL_HOUR, HOURS;
+  var init_timeGrid = __esm({
+    "frontend/utils/timeGrid.js"() {
+      init_dates();
+      HOUR_HEIGHT = 60;
+      GRID_START_HOUR = 0;
+      GRID_END_HOUR = 24;
+      DEFAULT_SCROLL_HOUR = 8;
+      HOURS = Array.from(
+        { length: GRID_END_HOUR - GRID_START_HOUR + 1 },
+        (_, i) => GRID_START_HOUR + i
       );
     }
   });
 
-  // frontend/utils/format.js
-  var fmtCurrency;
-  var init_format = __esm({
-    "frontend/utils/format.js"() {
-      fmtCurrency = (v) => {
-        const parsed = typeof v === "number" ? v : Number(v);
-        const n = v == null || isNaN(parsed) ? 0 : parsed;
-        const formatted = n.toLocaleString("fr-FR", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2
-        });
-        return `$${formatted}`;
+  // frontend/utils/colors.js
+  function getFieldChoices(field, base) {
+    if (!field) return null;
+    try {
+      const { type, options } = field.config;
+      if (type === FieldType.SINGLE_SELECT || type === FieldType.MULTIPLE_SELECTS) {
+        return options?.choices || null;
+      }
+      if (type === FieldType.MULTIPLE_LOOKUP_VALUES) {
+        const direct = options?.result?.options?.choices;
+        if (direct) return direct;
+        if (base && options?.recordLinkFieldId && options?.fieldIdInLinkedTable) {
+          for (const table of base.tables) {
+            const linkField = table.fields?.find((f) => f.id === options.recordLinkFieldId);
+            const linkedTableId = linkField?.config?.options?.linkedTableId;
+            if (linkedTableId) {
+              const linkedTable = base.tables.find((t) => t.id === linkedTableId);
+              const sourceField = linkedTable?.fields?.find((f) => f.id === options.fieldIdInLinkedTable);
+              const choices = sourceField?.config?.options?.choices;
+              if (choices) return choices;
+            }
+          }
+        }
+      }
+    } catch {
+    }
+    return null;
+  }
+  function getEventColor(record, colorField, base) {
+    const DEFAULT = { bg: "#e5e9f0", text: "#333" };
+    if (!colorField) return DEFAULT;
+    const raw = record.getCellValue(colorField);
+    if (!raw) return DEFAULT;
+    if (raw && typeof raw === "object" && !Array.isArray(raw) && raw.name) {
+      return AIRTABLE_COLORS[raw.color] || DEFAULT;
+    }
+    if (Array.isArray(raw) && raw.length > 0 && raw[0]?.name) {
+      return AIRTABLE_COLORS[raw[0].color] || DEFAULT;
+    }
+    const text = record.getCellValueAsString(colorField);
+    if (text) {
+      const choices = getFieldChoices(colorField, base);
+      if (choices) {
+        const match = choices.find((c) => c.name === text);
+        if (match?.color) return AIRTABLE_COLORS[match.color] || DEFAULT;
+      }
+    }
+    return DEFAULT;
+  }
+  var AIRTABLE_COLORS;
+  var init_colors2 = __esm({
+    "frontend/utils/colors.js"() {
+      init_models();
+      AIRTABLE_COLORS = {
+        blueBright: { bg: "#2d7ff9", text: "#fff" },
+        blueLight1: { bg: "#9cc7ff", text: "#333" },
+        blueLight2: { bg: "#cfdfff", text: "#333" },
+        cyanBright: { bg: "#18bfff", text: "#fff" },
+        cyanLight1: { bg: "#77d1f3", text: "#333" },
+        cyanLight2: { bg: "#d0f0fd", text: "#333" },
+        tealBright: { bg: "#20d9d2", text: "#fff" },
+        tealLight1: { bg: "#72ddc3", text: "#333" },
+        tealLight2: { bg: "#c2f5e9", text: "#333" },
+        greenBright: { bg: "#20c933", text: "#fff" },
+        greenLight1: { bg: "#93e088", text: "#333" },
+        greenLight2: { bg: "#d1f7c4", text: "#333" },
+        yellowBright: { bg: "#fcb400", text: "#333" },
+        yellowLight1: { bg: "#ffd66e", text: "#333" },
+        yellowLight2: { bg: "#ffeab6", text: "#333" },
+        orangeBright: { bg: "#ff6f2c", text: "#fff" },
+        orangeLight1: { bg: "#ffaa57", text: "#333" },
+        orangeLight2: { bg: "#fee2d5", text: "#333" },
+        redBright: { bg: "#f82b60", text: "#fff" },
+        redLight1: { bg: "#ff9eb7", text: "#333" },
+        redLight2: { bg: "#ffdce5", text: "#333" },
+        pinkBright: { bg: "#ff08c2", text: "#fff" },
+        pinkLight1: { bg: "#f99de2", text: "#333" },
+        pinkLight2: { bg: "#ffdaf6", text: "#333" },
+        purpleBright: { bg: "#8b46ff", text: "#fff" },
+        purpleLight1: { bg: "#cdb0ff", text: "#333" },
+        purpleLight2: { bg: "#ede2fe", text: "#333" },
+        grayBright: { bg: "#666666", text: "#fff" },
+        gray: { bg: "#aaaaaa", text: "#fff" }
       };
     }
   });
 
-  // frontend/components/AnnualBudget.js
-  function AnnualBudget({
-    sumOfSpent,
-    sumProbable,
-    annualBudget,
-    sumOfRevise,
-    sumOfBudgets
+  // frontend/utils/fields.js
+  function readFieldLabel(record, field) {
+    if (!field) return null;
+    const raw = record.getCellValue(field);
+    if (raw == null) return null;
+    if (typeof raw === "string") return raw;
+    if (Array.isArray(raw) && raw.length > 0) return raw.map((r) => r.name || r).join(", ");
+    if (raw.name) return raw.name;
+    return String(raw);
+  }
+  var init_fields = __esm({
+    "frontend/utils/fields.js"() {
+    }
+  });
+
+  // frontend/components/ThreeDaysEventBlock.js
+  function ThreeDaysEventBlock({
+    evt,
+    nameField1,
+    nameField2,
+    colorField,
+    base,
+    onEventClick
   }) {
-    const annual = annualBudget ?? 0;
-    const revise = sumOfRevise ?? 0;
-    const denominator = annual + revise;
-    const spentPct = denominator > 0 && sumOfSpent != null ? Math.max(0, sumOfSpent / denominator) * 100 : 0;
-    const probablePct = denominator > 0 && sumProbable != null ? Math.max(0, sumProbable / denominator) * 100 : 0;
-    const visibleProbablePct = Math.min(
-      probablePct,
-      Math.max(0, 100 - spentPct)
-    );
-    const totalCommitted = (sumOfSpent ?? 0) + (sumProbable ?? 0);
-    const overBudget = denominator > 0 && totalCommitted > denominator;
-    const remaining = denominator > 0 ? denominator - (sumOfSpent ?? 0) : null;
-    const allocatedPercent = annual && sumOfBudgets != null ? Math.max(0, sumOfBudgets / annual) * 100 : 0;
+    const color = getEventColor(evt.record, colorField, base);
+    const part1 = readFieldLabel(evt.record, nameField1);
+    const part2 = readFieldLabel(evt.record, nameField2);
+    const label = [part1, part2].filter(Boolean).join(" - ") || evt.record.name;
+    const widthPct = 100 / evt.totalCols;
+    const leftPct = evt.col * widthPct;
     return /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
-      "div",
+      "button",
       {
-        className: `bn-annual-budget ${overBudget ? "bn-annual-budget--over" : ""} px-1 py-2`,
+        onClick: (e) => {
+          e.stopPropagation();
+          onEventClick(evt.record);
+        },
+        className: "absolute rounded px-1.5 py-1 text-[11px] leading-tight cursor-pointer hover:opacity-80 transition-opacity border-l-[3px]",
+        style: {
+          top: evt.top,
+          height: evt.height,
+          left: `${leftPct}%`,
+          width: `calc(${widthPct}% - 2px)`,
+          backgroundColor: color.bg + "22",
+          borderLeftColor: color.bg,
+          color: color.text === "#fff" ? color.bg : color.text
+        },
+        title: `${label}
+${evt.startLabel} - ${evt.endLabel}`,
         children: [
-          /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-title text-xs uppercase tracking-wider text-gray-gray500 dark:text-gray-gray400 mb-1", children: "D\xC9PENS\xC9 / ANNUEL + R\xC9VIS\xC9" }, void 0, false, {
-            fileName: "frontend/components/AnnualBudget.js",
-            lineNumber: 64,
+          /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "three-days-event-block__label font-medium", children: label }, void 0, false, {
+            fileName: "frontend/components/ThreeDaysEventBlock.js",
+            lineNumber: 33,
             columnNumber: 7
           }, this),
-          /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-infos flex items-end justify-between", children: [
-            /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "flex-1 min-w-0", children: [
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-amounts text-2xl font-semibold text-gray-gray900 dark:text-gray-gray100 tabular-nums", children: [
-                /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "bn-annual-budget-numerator", children: sumOfSpent != null ? fmtCurrency(sumOfSpent) : "\u2014" }, void 0, false, {
-                  fileName: "frontend/components/AnnualBudget.js",
-                  lineNumber: 70,
-                  columnNumber: 13
-                }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "bn-annual-budget-sep text-gray-gray500 dark:text-gray-gray400 mx-2", children: "/" }, void 0, false, {
-                  fileName: "frontend/components/AnnualBudget.js",
-                  lineNumber: 73,
-                  columnNumber: 13
-                }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "bn-annual-budget-denominator text-gray-gray500 dark:text-gray-gray400", children: [
-                  fmtCurrency(annual),
-                  /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("span", { className: "mx-2", children: "+" }, void 0, false, {
-                    fileName: "frontend/components/AnnualBudget.js",
-                    lineNumber: 76,
-                    columnNumber: 15
-                  }, this),
-                  fmtCurrency(revise)
-                ] }, void 0, true, {
-                  fileName: "frontend/components/AnnualBudget.js",
-                  lineNumber: 74,
-                  columnNumber: 13
-                }, this)
-              ] }, void 0, true, {
-                fileName: "frontend/components/AnnualBudget.js",
-                lineNumber: 69,
-                columnNumber: 11
-              }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-progress mt-2 h-2 w-full rounded-full bg-gray-gray100 dark:bg-gray-gray700 overflow-hidden flex", children: overBudget ? /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
-                "div",
-                {
-                  className: "bn-annual-budget-progress-fill h-full bg-red-red transition-all",
-                  style: { width: "100%" }
-                },
-                void 0,
-                false,
-                {
-                  fileName: "frontend/components/AnnualBudget.js",
-                  lineNumber: 82,
-                  columnNumber: 15
-                },
-                this
-              ) : /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(import_jsx_dev_runtime2.Fragment, { children: [
-                /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
-                  "div",
-                  {
-                    className: "bn-annual-budget-progress-spent h-full transition-all",
-                    style: { width: `${spentPct}%` }
-                  },
-                  void 0,
-                  false,
-                  {
-                    fileName: "frontend/components/AnnualBudget.js",
-                    lineNumber: 88,
-                    columnNumber: 17
-                  },
-                  this
-                ),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
-                  "div",
-                  {
-                    className: "bn-annual-budget-progress-probable h-full transition-all",
-                    style: { width: `${visibleProbablePct}%` }
-                  },
-                  void 0,
-                  false,
-                  {
-                    fileName: "frontend/components/AnnualBudget.js",
-                    lineNumber: 92,
-                    columnNumber: 17
-                  },
-                  this
-                )
-              ] }, void 0, true, {
-                fileName: "frontend/components/AnnualBudget.js",
-                lineNumber: 87,
-                columnNumber: 15
-              }, this) }, void 0, false, {
-                fileName: "frontend/components/AnnualBudget.js",
-                lineNumber: 80,
-                columnNumber: 11
-              }, this)
-            ] }, void 0, true, {
-              fileName: "frontend/components/AnnualBudget.js",
-              lineNumber: 68,
-              columnNumber: 9
-            }, this),
-            /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-info text-right tabular-nums whitespace-nowrap leading-tight", children: [
-              remaining != null && /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-solde-total", children: [
-                /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
-                  "span",
-                  {
-                    className: `text-[16px] uppercase tracking-wider mr-1 ${remaining < 0 ? "text-red-red" : "text-gray-gray500 dark:text-gray-gray400"}`,
-                    children: "Solde:"
-                  },
-                  void 0,
-                  false,
-                  {
-                    fileName: "frontend/components/AnnualBudget.js",
-                    lineNumber: 103,
-                    columnNumber: 15
-                  },
-                  this
-                ),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
-                  "span",
-                  {
-                    className: `font-medium ${remaining < 0 ? "text-red-red" : "text-gray-gray900 dark:text-gray-gray100"}`,
-                    children: fmtCurrency(remaining)
-                  },
-                  void 0,
-                  false,
-                  {
-                    fileName: "frontend/components/AnnualBudget.js",
-                    lineNumber: 108,
-                    columnNumber: 15
-                  },
-                  this
-                )
-              ] }, void 0, true, {
-                fileName: "frontend/components/AnnualBudget.js",
-                lineNumber: 102,
-                columnNumber: 13
-              }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "bn-annual-budget-caption mt-0.5", children: [
-                /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
-                  "span",
-                  {
-                    className: `text-[16px] uppercase tracking-wider mr-1 ${allocatedPercent > 100 ? "text-red-red" : "text-gray-gray500 dark:text-gray-gray400"}`,
-                    children: "Budget annuel allou\xE9:"
-                  },
-                  void 0,
-                  false,
-                  {
-                    fileName: "frontend/components/AnnualBudget.js",
-                    lineNumber: 116,
-                    columnNumber: 13
-                  },
-                  this
-                ),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)(
-                  "span",
-                  {
-                    className: `font-medium ${allocatedPercent > 100 ? "text-red-red" : "text-gray-gray900 dark:text-gray-gray100"}`,
-                    children: [
-                      allocatedPercent.toLocaleString("fr-FR", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
-                      }),
-                      " %"
-                    ]
-                  },
-                  void 0,
-                  true,
-                  {
-                    fileName: "frontend/components/AnnualBudget.js",
-                    lineNumber: 121,
-                    columnNumber: 13
-                  },
-                  this
-                )
-              ] }, void 0, true, {
-                fileName: "frontend/components/AnnualBudget.js",
-                lineNumber: 115,
-                columnNumber: 11
-              }, this)
-            ] }, void 0, true, {
-              fileName: "frontend/components/AnnualBudget.js",
-              lineNumber: 100,
-              columnNumber: 9
-            }, this)
+          /* @__PURE__ */ (0, import_jsx_dev_runtime2.jsxDEV)("div", { className: "text-[10px] opacity-70", children: [
+            evt.startLabel,
+            " - ",
+            evt.endLabel
           ] }, void 0, true, {
-            fileName: "frontend/components/AnnualBudget.js",
-            lineNumber: 67,
+            fileName: "frontend/components/ThreeDaysEventBlock.js",
+            lineNumber: 34,
             columnNumber: 7
           }, this)
         ]
@@ -41541,758 +42041,432 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
       void 0,
       true,
       {
-        fileName: "frontend/components/AnnualBudget.js",
-        lineNumber: 61,
+        fileName: "frontend/components/ThreeDaysEventBlock.js",
+        lineNumber: 19,
         columnNumber: 5
       },
       this
     );
   }
   var import_jsx_dev_runtime2;
-  var init_AnnualBudget = __esm({
-    "frontend/components/AnnualBudget.js"() {
-      init_format();
+  var init_ThreeDaysEventBlock = __esm({
+    "frontend/components/ThreeDaysEventBlock.js"() {
+      init_colors2();
+      init_fields();
       import_jsx_dev_runtime2 = __toESM(require_jsx_dev_runtime());
     }
   });
 
-  // frontend/components/listColumns.js
-  var LIST_COLS, GRID_TEMPLATE;
-  var init_listColumns = __esm({
-    "frontend/components/listColumns.js"() {
-      LIST_COLS = [
-        { key: "chevron", label: "", size: "32px", align: "center" },
-        { key: "name", label: "Campagne META", size: "260px", align: "left" },
-        { key: "spend_budget", label: "D\xE9pens\xE9 \xE0 ce jour", size: "260px", align: "left" },
-        { key: "probable", label: "Probable", size: "140px", align: "right" },
-        { key: "budget_revise", label: "R\xE9vis\xE9", size: "140px", align: "right" },
-        { key: "budget", label: "Annuel allou\xE9", size: "140px", align: "right" },
-        { key: "percent", label: "% allou\xE9", size: "100px", align: "right" },
-        { key: "spend_media", label: "M\xE9dia d\xE9pens\xE9", size: "140px", align: "right" },
-        { key: "spend_prod", label: "Prod d\xE9pens\xE9", size: "140px", align: "right" }
-      ];
-      GRID_TEMPLATE = LIST_COLS.map((c) => c.size).join(" ");
+  // frontend/components/TimeGridColumn.js
+  function TimeGridColumn({
+    cell,
+    events,
+    nameField1,
+    nameField2,
+    colorField,
+    dateField,
+    endDateField,
+    base,
+    onEventClick,
+    EventComponent
+  }) {
+    const positioned = (0, import_react7.useMemo)(() => {
+      const items = events.map((record) => {
+        const pos = getTimePosition(record, dateField, endDateField);
+        return __spreadValues({ record }, pos);
+      });
+      return layoutOverlapping(items);
+    }, [events, dateField, endDateField]);
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+      "div",
+      {
+        className: `relative ${cell.isToday ? "bg-blue-blueLight2/30 dark:bg-[#1a2a4a]/30" : ""}`,
+        style: { height: (GRID_END_HOUR - GRID_START_HOUR + 1) * HOUR_HEIGHT },
+        children: positioned.map((evt) => /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+          EventComponent,
+          {
+            evt,
+            nameField1,
+            nameField2,
+            colorField,
+            base,
+            onEventClick
+          },
+          evt.record.id,
+          false,
+          {
+            fileName: "frontend/components/TimeGridColumn.js",
+            lineNumber: 36,
+            columnNumber: 9
+          },
+          this
+        ))
+      },
+      void 0,
+      false,
+      {
+        fileName: "frontend/components/TimeGridColumn.js",
+        lineNumber: 31,
+        columnNumber: 5
+      },
+      this
+    );
+  }
+  var import_react7, import_jsx_dev_runtime3;
+  var init_TimeGridColumn = __esm({
+    "frontend/components/TimeGridColumn.js"() {
+      import_react7 = __toESM(require_react());
+      init_timeGrid();
+      import_jsx_dev_runtime3 = __toESM(require_jsx_dev_runtime());
     }
   });
 
-  // frontend/components/CampagnesSubList.js
-  function CampagnesSubList({ budgets, nameField, spendTotalField, spendMediaField, spendProdField }) {
-    if (!budgets || budgets.length === 0) {
-      return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-empty py-2 pl-10 text-xs italic text-gray-gray400", children: "Aucune campagne li\xE9e." }, void 0, false, {
-        fileName: "frontend/components/CampagnesSubList.js",
-        lineNumber: 33,
-        columnNumber: 7
-      }, this);
-    }
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist bg-gray-gray25 dark:bg-gray-gray900 border-b border-gray-gray100 dark:border-gray-gray600", children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
-        "div",
-        {
-          className: "bn-sublist-head grid items-center h-7 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray700",
-          style: { gridTemplateColumns: GRID_TEMPLATE },
-          children: LIST_COLS.map((col) => /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
+  // frontend/components/ThreeDaysView.js
+  function ThreeDaysView({
+    days,
+    refDate,
+    eventsByDate,
+    nameField1,
+    nameField2,
+    colorField,
+    dateField,
+    endDateField,
+    base,
+    onEventClick
+  }) {
+    const timeGridRef = (0, import_react8.useRef)(null);
+    (0, import_react8.useEffect)(() => {
+      if (timeGridRef.current) {
+        timeGridRef.current.scrollTop = DEFAULT_SCROLL_HOUR * HOUR_HEIGHT;
+      }
+    }, [refDate]);
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(import_jsx_dev_runtime4.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "flex border-b border-gray-gray200 dark:border-gray-gray700", children: [
+        /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "w-14 shrink-0" }, void 0, false, {
+          fileName: "frontend/components/ThreeDaysView.js",
+          lineNumber: 35,
+          columnNumber: 9
+        }, this),
+        /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "grid grid-cols-3 flex-1", children: days.map((cell) => {
+          const jsDate = new Date(cell.year, cell.month - 1, cell.day);
+          const dayOfWeek = (jsDate.getDay() + 6) % 7;
+          return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
             "div",
             {
-              className: `bn-sublist-head-cell bn-sublist-head-cell-${col.key} px-3 min-w-0 truncate`,
-              style: { textAlign: SUB_ALIGNS[col.key] || col.align },
-              children: SUB_LABELS[col.key] || ""
+              className: `text-center text-xs font-medium py-2 ${cell.isToday ? "text-blue-blueBright" : "text-gray-gray400 dark:text-gray-gray500"}`,
+              children: [
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { children: [
+                  DAYS_SHORT[dayOfWeek],
+                  "."
+                ] }, void 0, true, {
+                  fileName: "frontend/components/ThreeDaysView.js",
+                  lineNumber: 47,
+                  columnNumber: 17
+                }, this),
+                /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+                  "div",
+                  {
+                    className: `text-lg font-semibold ${cell.isToday ? "text-blue-blueBright" : "text-gray-gray700 dark:text-gray-gray200"}`,
+                    children: cell.day
+                  },
+                  void 0,
+                  false,
+                  {
+                    fileName: "frontend/components/ThreeDaysView.js",
+                    lineNumber: 48,
+                    columnNumber: 17
+                  },
+                  this
+                )
+              ]
             },
-            col.key,
-            false,
+            cell.dateKey,
+            true,
             {
-              fileName: "frontend/components/CampagnesSubList.js",
-              lineNumber: 46,
-              columnNumber: 11
+              fileName: "frontend/components/ThreeDaysView.js",
+              lineNumber: 41,
+              columnNumber: 15
             },
             this
-          ))
+          );
+        }) }, void 0, false, {
+          fileName: "frontend/components/ThreeDaysView.js",
+          lineNumber: 36,
+          columnNumber: 9
+        }, this)
+      ] }, void 0, true, {
+        fileName: "frontend/components/ThreeDaysView.js",
+        lineNumber: 34,
+        columnNumber: 7
+      }, this),
+      /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+        "div",
+        {
+          ref: timeGridRef,
+          className: "border border-gray-gray200 dark:border-gray-gray700 rounded-b-md overflow-auto",
+          style: { maxHeight: "calc(100vh - 140px)" },
+          children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "flex", children: [
+            /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "w-14 shrink-0", children: HOURS.map((h) => /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+              "div",
+              {
+                className: "text-right pr-2 text-[11px] text-gray-gray400 dark:text-gray-gray500",
+                style: { height: HOUR_HEIGHT },
+                children: fmtTime(h, 0)
+              },
+              h,
+              false,
+              {
+                fileName: "frontend/components/ThreeDaysView.js",
+                lineNumber: 70,
+                columnNumber: 15
+              },
+              this
+            )) }, void 0, false, {
+              fileName: "frontend/components/ThreeDaysView.js",
+              lineNumber: 68,
+              columnNumber: 11
+            }, this),
+            /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "grid grid-cols-3 flex-1 divide-x divide-gray-gray100 dark:divide-gray-gray700", children: days.map((cell) => /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "relative", children: [
+              HOURS.map((h) => /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+                "div",
+                {
+                  className: "border-t border-gray-gray100 dark:border-gray-gray700",
+                  style: { height: HOUR_HEIGHT }
+                },
+                h,
+                false,
+                {
+                  fileName: "frontend/components/ThreeDaysView.js",
+                  lineNumber: 85,
+                  columnNumber: 19
+                },
+                this
+              )),
+              /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "absolute inset-0", children: /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
+                TimeGridColumn,
+                {
+                  cell,
+                  events: cell.dateKey ? eventsByDate.get(cell.dateKey) || [] : [],
+                  nameField1,
+                  nameField2,
+                  colorField,
+                  dateField,
+                  endDateField,
+                  base,
+                  onEventClick,
+                  EventComponent: ThreeDaysEventBlock
+                },
+                void 0,
+                false,
+                {
+                  fileName: "frontend/components/ThreeDaysView.js",
+                  lineNumber: 93,
+                  columnNumber: 19
+                },
+                this
+              ) }, void 0, false, {
+                fileName: "frontend/components/ThreeDaysView.js",
+                lineNumber: 92,
+                columnNumber: 17
+              }, this)
+            ] }, cell.dateKey, true, {
+              fileName: "frontend/components/ThreeDaysView.js",
+              lineNumber: 82,
+              columnNumber: 15
+            }, this)) }, void 0, false, {
+              fileName: "frontend/components/ThreeDaysView.js",
+              lineNumber: 80,
+              columnNumber: 11
+            }, this)
+          ] }, void 0, true, {
+            fileName: "frontend/components/ThreeDaysView.js",
+            lineNumber: 66,
+            columnNumber: 9
+          }, this)
         },
         void 0,
         false,
         {
-          fileName: "frontend/components/CampagnesSubList.js",
-          lineNumber: 41,
+          fileName: "frontend/components/ThreeDaysView.js",
+          lineNumber: 61,
           columnNumber: 7
         },
         this
-      ),
-      /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-body", children: budgets.map((b) => {
-        const linked = nameField ? b.getCellValue(nameField) : null;
-        const name = Array.isArray(linked) ? linked.map((l) => l.name).join(", ") : "";
-        const spendTotal = spendTotalField ? b.getCellValue(spendTotalField) : null;
-        const spendMedia = spendMediaField ? b.getCellValue(spendMediaField) : null;
-        const spendProd = spendProdField ? b.getCellValue(spendProdField) : null;
-        return /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)(
-          "div",
-          {
-            className: "bn-sublist-row grid items-center min-h-[32px] text-sm text-gray-gray800 dark:text-gray-gray100 border-b border-gray-gray100 dark:border-gray-gray700 hover:bg-gray-gray50 dark:hover:bg-gray-gray800 transition-colors",
-            style: { gridTemplateColumns: GRID_TEMPLATE },
-            children: [
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spacer" }, void 0, false, {
-                fileName: "frontend/components/CampagnesSubList.js",
-                lineNumber: 69,
-                columnNumber: 15
-              }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-name px-3 min-w-0 truncate", title: name || "\u2014", children: name || "\u2014" }, void 0, false, {
-                fileName: "frontend/components/CampagnesSubList.js",
-                lineNumber: 70,
-                columnNumber: 15
-              }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-total px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendTotal) }, void 0, false, {
-                fileName: "frontend/components/CampagnesSubList.js",
-                lineNumber: 73,
-                columnNumber: 15
-              }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-probable" }, void 0, false, {
-                fileName: "frontend/components/CampagnesSubList.js",
-                lineNumber: 76,
-                columnNumber: 15
-              }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-budget-revise" }, void 0, false, {
-                fileName: "frontend/components/CampagnesSubList.js",
-                lineNumber: 77,
-                columnNumber: 15
-              }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-budget" }, void 0, false, {
-                fileName: "frontend/components/CampagnesSubList.js",
-                lineNumber: 78,
-                columnNumber: 15
-              }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-percent" }, void 0, false, {
-                fileName: "frontend/components/CampagnesSubList.js",
-                lineNumber: 79,
-                columnNumber: 15
-              }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-media px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendMedia) }, void 0, false, {
-                fileName: "frontend/components/CampagnesSubList.js",
-                lineNumber: 80,
-                columnNumber: 15
-              }, this),
-              /* @__PURE__ */ (0, import_jsx_dev_runtime3.jsxDEV)("div", { className: "bn-sublist-cell bn-sublist-cell-spend-prod px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendProd) }, void 0, false, {
-                fileName: "frontend/components/CampagnesSubList.js",
-                lineNumber: 83,
-                columnNumber: 15
-              }, this)
-            ]
-          },
-          b.id,
-          true,
-          {
-            fileName: "frontend/components/CampagnesSubList.js",
-            lineNumber: 64,
-            columnNumber: 13
-          },
-          this
-        );
-      }) }, void 0, false, {
-        fileName: "frontend/components/CampagnesSubList.js",
-        lineNumber: 56,
-        columnNumber: 7
-      }, this)
+      )
     ] }, void 0, true, {
-      fileName: "frontend/components/CampagnesSubList.js",
-      lineNumber: 40,
+      fileName: "frontend/components/ThreeDaysView.js",
+      lineNumber: 32,
       columnNumber: 5
     }, this);
   }
-  var import_jsx_dev_runtime3, SUB_LABELS, SUB_ALIGNS;
-  var init_CampagnesSubList = __esm({
-    "frontend/components/CampagnesSubList.js"() {
-      init_format();
-      init_listColumns();
-      import_jsx_dev_runtime3 = __toESM(require_jsx_dev_runtime());
-      SUB_LABELS = {
-        name: "Campagne",
-        spend_budget: "Total d\xE9pens\xE9",
-        spend_media: "M\xE9dia",
-        spend_prod: "Prod"
-      };
-      SUB_ALIGNS = {
-        spend_budget: "right"
-      };
-    }
-  });
-
-  // frontend/components/CampaignBudget.js
-  function CampaignBudget({ spent, probable, budget, revise, solde }) {
-    const spentVal = spent ?? 0;
-    const probableVal = probable ?? 0;
-    const denom = (budget ?? 0) + (revise ?? 0);
-    const spentPct = denom > 0 ? Math.max(0, spentVal / denom) * 100 : 0;
-    const probablePct = denom > 0 ? Math.max(0, probableVal / denom) * 100 : 0;
-    const visibleProbablePct = Math.min(
-      probablePct,
-      Math.max(0, 100 - spentPct)
-    );
-    const overBudget = denom > 0 && spentVal + probableVal > denom;
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-campaign-budget tabular-nums flex items-center gap-3", children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "flex-1 min-w-0", children: [
-        /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-campaign-budget-amounts", children: [
-          /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("span", { className: "bn-campaign-budget-spent", children: fmtCurrency(spentVal) }, void 0, false, {
-            fileName: "frontend/components/CampaignBudget.js",
-            lineNumber: 27,
-            columnNumber: 11
-          }, this),
-          /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("span", { className: "bn-campaign-budget-sep text-gray-gray500 dark:text-gray-gray400 mx-1", children: "/" }, void 0, false, {
-            fileName: "frontend/components/CampaignBudget.js",
-            lineNumber: 30,
-            columnNumber: 11
-          }, this),
-          /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("span", { className: "bn-campaign-budget-denom text-gray-gray500 dark:text-gray-gray400", children: fmtCurrency(denom) }, void 0, false, {
-            fileName: "frontend/components/CampaignBudget.js",
-            lineNumber: 33,
-            columnNumber: 11
-          }, this)
-        ] }, void 0, true, {
-          fileName: "frontend/components/CampaignBudget.js",
-          lineNumber: 26,
-          columnNumber: 9
-        }, this),
-        /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("div", { className: "bn-campaign-budget-progress mt-1 h-1.5 w-full rounded-full bg-gray-gray100 dark:bg-gray-gray700 overflow-hidden flex", children: overBudget ? /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
-          "div",
-          {
-            className: "bn-campaign-budget-progress-fill h-full bg-red-red transition-all",
-            style: { width: "100%" }
-          },
-          void 0,
-          false,
-          {
-            fileName: "frontend/components/CampaignBudget.js",
-            lineNumber: 39,
-            columnNumber: 13
-          },
-          this
-        ) : /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(import_jsx_dev_runtime4.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
-            "div",
-            {
-              className: "bn-campaign-budget-progress-spent h-full transition-all",
-              style: { width: `${spentPct}%` }
-            },
-            void 0,
-            false,
-            {
-              fileName: "frontend/components/CampaignBudget.js",
-              lineNumber: 45,
-              columnNumber: 15
-            },
-            this
-          ),
-          /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)(
-            "div",
-            {
-              className: "bn-campaign-budget-progress-probable h-full transition-all",
-              style: { width: `${visibleProbablePct}%` }
-            },
-            void 0,
-            false,
-            {
-              fileName: "frontend/components/CampaignBudget.js",
-              lineNumber: 49,
-              columnNumber: 15
-            },
-            this
-          )
-        ] }, void 0, true, {
-          fileName: "frontend/components/CampaignBudget.js",
-          lineNumber: 44,
-          columnNumber: 13
-        }, this) }, void 0, false, {
-          fileName: "frontend/components/CampaignBudget.js",
-          lineNumber: 37,
-          columnNumber: 9
-        }, this)
-      ] }, void 0, true, {
-        fileName: "frontend/components/CampaignBudget.js",
-        lineNumber: 25,
-        columnNumber: 7
-      }, this),
-      solde != null && /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("span", { className: "bn-campaign-budget-solde inline-flex items-baseline px-1.5 py-0 rounded bg-blue-blueLight3 dark:bg-gray-gray700 text-xs tabular-nums whitespace-nowrap", children: [
-        /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("span", { className: "text-[9px] uppercase tracking-wider dark:text-gray-gray400 mr-1", children: "Solde:" }, void 0, false, {
-          fileName: "frontend/components/CampaignBudget.js",
-          lineNumber: 59,
-          columnNumber: 11
-        }, this),
-        /* @__PURE__ */ (0, import_jsx_dev_runtime4.jsxDEV)("span", { className: "dark:text-gray-gray100 font-medium", children: fmtCurrency(solde) }, void 0, false, {
-          fileName: "frontend/components/CampaignBudget.js",
-          lineNumber: 62,
-          columnNumber: 11
-        }, this)
-      ] }, void 0, true, {
-        fileName: "frontend/components/CampaignBudget.js",
-        lineNumber: 58,
-        columnNumber: 9
-      }, this)
-    ] }, void 0, true, {
-      fileName: "frontend/components/CampaignBudget.js",
-      lineNumber: 24,
-      columnNumber: 5
-    }, this);
-  }
-  var import_jsx_dev_runtime4;
-  var init_CampaignBudget = __esm({
-    "frontend/components/CampaignBudget.js"() {
-      init_format();
+  var import_react8, import_jsx_dev_runtime4;
+  var init_ThreeDaysView = __esm({
+    "frontend/components/ThreeDaysView.js"() {
+      import_react8 = __toESM(require_react());
+      init_dates();
+      init_timeGrid();
+      init_ThreeDaysEventBlock();
+      init_TimeGridColumn();
       import_jsx_dev_runtime4 = __toESM(require_jsx_dev_runtime());
     }
   });
 
-  // frontend/components/CampagnesMetaList.js
-  function EditableCurrencyCell({ record, table, field, extraUpdates }) {
-    const current = field ? record.getCellValue(field) : null;
-    const rawString = current == null ? "" : String(current).replace(".", ",");
-    const [draft, setDraft] = (0, import_react7.useState)(rawString);
-    const [focused, setFocused] = (0, import_react7.useState)(false);
-    (0, import_react7.useEffect)(() => {
-      if (!focused) setDraft(rawString);
-    }, [rawString, focused]);
-    if (!field || !table) {
-      return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("span", { className: "text-gray-gray400", children: "\u2014" }, void 0, false, {
-        fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 57,
-        columnNumber: 12
-      }, this);
-    }
-    const revert = () => setDraft(rawString);
-    const save = async () => {
-      const trimmed = draft.trim().replace(",", ".");
-      const parsed = trimmed === "" ? null : Number(trimmed);
-      if (trimmed !== "" && isNaN(parsed)) {
-        revert();
-        return;
-      }
-      if (parsed === current) return;
-      const updates = { [field.id]: parsed };
-      if (extraUpdates) Object.assign(updates, extraUpdates(parsed));
-      try {
-        await table.updateRecordAsync(record, updates);
-      } catch (e) {
-        console.error(`Failed to update ${field.name}:`, e);
-        revert();
-      }
-    };
-    const displayValue = focused ? draft : current == null || current === "" ? "" : fmtCurrency(current);
+  // frontend/components/EventPill.js
+  function EventPill({ record, nameField1, nameField2, colorField, base, onClick }) {
+    const color = getEventColor(record, colorField, base);
+    const part1 = readFieldLabel(record, nameField1);
+    const part2 = readFieldLabel(record, nameField2);
+    const label = [part1, part2].filter(Boolean).join(" - ") || record.name;
     return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-      "input",
+      "button",
       {
-        type: "text",
-        inputMode: "decimal",
-        value: displayValue,
-        onChange: (e) => setDraft(e.target.value),
-        onFocus: () => setFocused(true),
-        onBlur: () => {
-          setFocused(false);
-          save();
+        onClick: (e) => {
+          e.stopPropagation();
+          onClick(record);
         },
-        onKeyDown: (e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-          if (e.key === "Escape") {
-            revert();
-            e.currentTarget.blur();
-          }
-        },
-        placeholder: "-",
-        className: "editable w-full text-right px-2 py-0.5 rounded border border-transparent hover:border-gray-gray200 dark:hover:border-gray-gray600 focus:border-blue-blue focus:bg-white dark:focus:bg-gray-gray700 bg-transparent text-sm tabular-nums outline-none"
+        className: "w-full text-left text-[11px] leading-tight truncate rounded px-1.5 py-0.5 cursor-pointer hover:opacity-80 transition-opacity",
+        style: { backgroundColor: color.bg, color: color.text },
+        title: label,
+        children: label
       },
       void 0,
       false,
       {
-        fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 87,
+        fileName: "frontend/components/EventPill.js",
+        lineNumber: 11,
         columnNumber: 5
       },
       this
     );
   }
-  function EditablePercentageCell({ record, table, field, sourceField, factor }) {
-    const sourceValue = sourceField ? record.getCellValue(sourceField) : null;
-    const current = sourceValue != null && factor ? sourceValue / factor : null;
-    const draftFromCurrent = current == null ? "" : String(current * 100).replace(".", ",");
-    const [draft, setDraft] = (0, import_react7.useState)(draftFromCurrent);
-    const [focused, setFocused] = (0, import_react7.useState)(false);
-    (0, import_react7.useEffect)(() => {
-      if (!focused) setDraft(draftFromCurrent);
-    }, [draftFromCurrent, focused]);
-    if (!field || !table || !sourceField || !factor) {
-      return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("span", { className: "text-gray-gray400", children: "\u2014" }, void 0, false, {
-        fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 129,
+  var import_jsx_dev_runtime5;
+  var init_EventPill = __esm({
+    "frontend/components/EventPill.js"() {
+      init_colors2();
+      init_fields();
+      import_jsx_dev_runtime5 = __toESM(require_jsx_dev_runtime());
+    }
+  });
+
+  // frontend/components/DayCell.js
+  function DayCell({ cell, events, nameField1, nameField2, colorField, base, onEventClick }) {
+    if (!cell.day) {
+      return /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)("div", { className: "bg-gray-gray50 dark:bg-gray-gray900" }, void 0, false, {
+        fileName: "frontend/components/DayCell.js",
+        lineNumber: 5,
         columnNumber: 12
       }, this);
     }
-    const revert = () => setDraft(draftFromCurrent);
-    const save = async () => {
-      const trimmed = draft.trim().replace("%", "").replace(",", ".");
-      let decimal;
-      if (trimmed === "") {
-        decimal = null;
-      } else {
-        const parsed = Number(trimmed);
-        if (isNaN(parsed)) {
-          revert();
-          return;
-        }
-        decimal = parsed / 100;
-      }
-      if (decimal === current) return;
-      const updates = {
-        [field.id]: decimal,
-        [sourceField.id]: decimal == null ? null : decimal * factor
-      };
-      try {
-        await table.updateRecordAsync(record, updates);
-      } catch (e) {
-        console.error(`Failed to update ${field.name}:`, e);
-        revert();
-      }
-    };
-    const displayValue = focused ? draft : current == null ? "" : `${(current * 100).toLocaleString("fr-FR", {
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2
-    })} %`;
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-      "input",
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(
+      "div",
       {
-        type: "text",
-        inputMode: "decimal",
-        value: displayValue,
-        onChange: (e) => setDraft(e.target.value),
-        onFocus: () => setFocused(true),
-        onBlur: () => {
-          setFocused(false);
-          save();
-        },
-        onKeyDown: (e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-          if (e.key === "Escape") {
-            revert();
-            e.currentTarget.blur();
-          }
-        },
-        placeholder: "-",
-        className: "editable w-full text-right px-2 py-0.5 rounded border border-transparent hover:border-gray-gray200 dark:hover:border-gray-gray600 focus:border-blue-blue focus:bg-white dark:focus:bg-gray-gray700 bg-transparent text-sm tabular-nums outline-none"
-      },
-      void 0,
-      false,
-      {
-        fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 170,
-        columnNumber: 5
-      },
-      this
-    );
-  }
-  function CampagnesMetaList({
-    records,
-    campagnesTable,
-    nameField,
-    spendBudgetField,
-    budgetField,
-    percentField,
-    budgetReviseField,
-    soldeField,
-    probableField,
-    spendMediaField,
-    spendProdField,
-    budgetsByCampagneMetaId,
-    budgetNameField,
-    budgetSpendTotalField,
-    budgetSpendMediaField,
-    budgetSpendProdField,
-    annualBudget
-  }) {
-    const [expandedIds, setExpandedIds] = (0, import_react7.useState)(() => /* @__PURE__ */ new Set());
-    const toggleExpanded = (id) => {
-      setExpandedIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      });
-    };
-    if (!records || records.length === 0) {
-      return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-list-empty py-10 text-center text-sm text-gray-gray400", children: "Aucune campagne." }, void 0, false, {
-        fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 225,
-        columnNumber: 7
-      }, this);
-    }
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-list overflow-x-auto", children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-        "div",
-        {
-          className: "bn-list-head grid items-center h-8 text-xs font-medium text-gray-gray500 dark:text-gray-gray400 border-b border-gray-gray100 dark:border-gray-gray600",
-          style: { gridTemplateColumns: GRID_TEMPLATE },
-          children: LIST_COLS.map((col) => /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-            "div",
+        className: `p-1 border-t border-gray-gray100 dark:border-gray-gray700 ${cell.isToday ? "bg-blue-blueLight2 dark:bg-[#1a2a4a]" : "bg-white dark:bg-gray-gray800"}`,
+        children: [
+          /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(
+            "span",
             {
-              className: `bn-list-head-cell bn-list-head-cell-${col.key} px-3 min-w-0 truncate`,
-              style: { textAlign: col.align },
-              children: col.label
-            },
-            col.key,
-            false,
-            {
-              fileName: "frontend/components/CampagnesMetaList.js",
-              lineNumber: 238,
-              columnNumber: 11
-            },
-            this
-          ))
-        },
-        void 0,
-        false,
-        {
-          fileName: "frontend/components/CampagnesMetaList.js",
-          lineNumber: 233,
-          columnNumber: 7
-        },
-        this
-      ),
-      /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-list-body", children: records.map((r) => {
-        const name = nameField ? r.getCellValueAsString(nameField) : "";
-        const spendBudget = spendBudgetField ? r.getCellValue(spendBudgetField) : null;
-        const budget = budgetField ? r.getCellValue(budgetField) : null;
-        const budgetRevise = budgetReviseField ? r.getCellValue(budgetReviseField) : null;
-        const probable = probableField ? r.getCellValue(probableField) : null;
-        const solde = soldeField ? r.getCellValue(soldeField) : null;
-        const spendMedia = spendMediaField ? r.getCellValue(spendMediaField) : null;
-        const spendProd = spendProdField ? r.getCellValue(spendProdField) : null;
-        const expanded = expandedIds.has(r.id);
-        const childBudgets = budgetsByCampagneMetaId?.get(r.id) || [];
-        return /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-list-group", children: [
-          /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-            "div",
-            {
-              className: "bn-list-row grid items-center min-h-[36px] text-sm text-gray-gray800 dark:text-gray-gray100 border-b border-gray-gray100 dark:border-gray-gray600 hover:bg-gray-gray25 dark:hover:bg-gray-gray800 transition-colors",
-              style: { gridTemplateColumns: GRID_TEMPLATE },
-              children: [
-                /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-                  "button",
-                  {
-                    type: "button",
-                    onClick: () => toggleExpanded(r.id),
-                    className: "bn-list-cell bn-list-cell-chevron flex items-center justify-center p-0 bg-transparent border-none cursor-pointer text-gray-gray500 hover:text-gray-gray800 dark:text-gray-gray400 dark:hover:text-gray-gray100",
-                    "aria-label": expanded ? "Replier la campagne" : "D\xE9plier la campagne",
-                    "aria-expanded": expanded,
-                    children: /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(ChevronRight, { className: `transition-transform ${expanded ? "rotate-90" : ""}` }, void 0, false, {
-                      fileName: "frontend/components/CampagnesMetaList.js",
-                      lineNumber: 274,
-                      columnNumber: 17
-                    }, this)
-                  },
-                  void 0,
-                  false,
-                  {
-                    fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 267,
-                    columnNumber: 15
-                  },
-                  this
-                ),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-                  "button",
-                  {
-                    type: "button",
-                    onClick: () => expandRecord(r),
-                    className: "bn-list-cell bn-list-cell-name px-3 min-w-0 text-left truncate font-medium text-blue-blue hover:text-blue-blueDark1 hover:underline bg-transparent border-none cursor-pointer",
-                    title: name || "\u2014",
-                    children: name || "\u2014"
-                  },
-                  void 0,
-                  false,
-                  {
-                    fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 278,
-                    columnNumber: 15
-                  },
-                  this
-                ),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-budget px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(CampaignBudget, { spent: spendBudget, probable, budget, revise: budgetRevise, solde }, void 0, false, {
-                  fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 287,
-                  columnNumber: 17
-                }, this) }, void 0, false, {
-                  fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 286,
-                  columnNumber: 15
-                }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-probable px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(EditableCurrencyCell, { record: r, table: campagnesTable, field: probableField }, void 0, false, {
-                  fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 290,
-                  columnNumber: 17
-                }, this) }, void 0, false, {
-                  fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 289,
-                  columnNumber: 15
-                }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-budget-revise px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-                  EditableCurrencyCell,
-                  {
-                    record: r,
-                    table: campagnesTable,
-                    field: budgetReviseField
-                  },
-                  void 0,
-                  false,
-                  {
-                    fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 293,
-                    columnNumber: 17
-                  },
-                  this
-                ) }, void 0, false, {
-                  fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 292,
-                  columnNumber: 15
-                }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-budget px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-                  EditableCurrencyCell,
-                  {
-                    record: r,
-                    table: campagnesTable,
-                    field: budgetField,
-                    extraUpdates: percentField && annualBudget ? (b) => ({
-                      [percentField.id]: b == null ? null : b / annualBudget
-                    }) : void 0
-                  },
-                  void 0,
-                  false,
-                  {
-                    fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 300,
-                    columnNumber: 17
-                  },
-                  this
-                ) }, void 0, false, {
-                  fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 299,
-                  columnNumber: 15
-                }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-percent px-3 min-w-0 tabular-nums text-right", children: /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-                  EditablePercentageCell,
-                  {
-                    record: r,
-                    table: campagnesTable,
-                    field: percentField,
-                    sourceField: budgetField,
-                    factor: annualBudget
-                  },
-                  void 0,
-                  false,
-                  {
-                    fileName: "frontend/components/CampagnesMetaList.js",
-                    lineNumber: 314,
-                    columnNumber: 17
-                  },
-                  this
-                ) }, void 0, false, {
-                  fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 313,
-                  columnNumber: 15
-                }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-media px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendMedia) }, void 0, false, {
-                  fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 322,
-                  columnNumber: 15
-                }, this),
-                /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)("div", { className: "bn-list-cell bn-list-cell-spend-prod px-3 min-w-0 tabular-nums text-right", children: fmtCurrency(spendProd) }, void 0, false, {
-                  fileName: "frontend/components/CampagnesMetaList.js",
-                  lineNumber: 325,
-                  columnNumber: 15
-                }, this)
-              ]
+              className: `text-xs font-medium inline-block mb-0.5 ${cell.isToday ? "bg-blue-blueBright text-white rounded-full w-5 h-5 flex items-center justify-center" : "text-gray-gray500 dark:text-gray-gray300"}`,
+              children: cell.day
             },
             void 0,
-            true,
+            false,
             {
-              fileName: "frontend/components/CampagnesMetaList.js",
-              lineNumber: 262,
-              columnNumber: 13
+              fileName: "frontend/components/DayCell.js",
+              lineNumber: 14,
+              columnNumber: 7
             },
             this
           ),
-          expanded && /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-            CampagnesSubList,
+          /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)("div", { className: "space-y-0.5", children: events.map((record) => /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(
+            EventPill,
             {
-              budgets: childBudgets,
-              nameField: budgetNameField,
-              spendTotalField: budgetSpendTotalField,
-              spendMediaField: budgetSpendMediaField,
-              spendProdField: budgetSpendProdField
+              record,
+              nameField1,
+              nameField2,
+              colorField,
+              base,
+              onClick: onEventClick
             },
-            void 0,
+            record.id,
             false,
             {
-              fileName: "frontend/components/CampagnesMetaList.js",
-              lineNumber: 330,
-              columnNumber: 15
+              fileName: "frontend/components/DayCell.js",
+              lineNumber: 25,
+              columnNumber: 11
             },
             this
-          )
-        ] }, r.id, true, {
-          fileName: "frontend/components/CampagnesMetaList.js",
-          lineNumber: 261,
-          columnNumber: 13
-        }, this);
-      }) }, void 0, false, {
-        fileName: "frontend/components/CampagnesMetaList.js",
-        lineNumber: 248,
+          )) }, void 0, false, {
+            fileName: "frontend/components/DayCell.js",
+            lineNumber: 23,
+            columnNumber: 7
+          }, this)
+        ]
+      },
+      void 0,
+      true,
+      {
+        fileName: "frontend/components/DayCell.js",
+        lineNumber: 9,
+        columnNumber: 5
+      },
+      this
+    );
+  }
+  var import_jsx_dev_runtime6;
+  var init_DayCell = __esm({
+    "frontend/components/DayCell.js"() {
+      init_EventPill();
+      import_jsx_dev_runtime6 = __toESM(require_jsx_dev_runtime());
+    }
+  });
+
+  // frontend/components/WeeksGridView.js
+  function WeeksGridView({ weeks, eventsByDate, cellProps }) {
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)(import_jsx_dev_runtime7.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)("div", { className: "grid grid-cols-7 border-b border-gray-gray200 dark:border-gray-gray700 mb-0", children: DAYS_SHORT.map((d) => /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)("div", { className: "text-center text-xs font-medium text-gray-gray400 dark:text-gray-gray500 py-1.5", children: d }, d, false, {
+        fileName: "frontend/components/WeeksGridView.js",
+        lineNumber: 10,
+        columnNumber: 11
+      }, this)) }, void 0, false, {
+        fileName: "frontend/components/WeeksGridView.js",
+        lineNumber: 8,
+        columnNumber: 7
+      }, this),
+      /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)("div", { className: "border border-gray-gray200 dark:border-gray-gray700 rounded-b-md overflow-hidden", children: weeks.map((week, wi) => /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)("div", { className: "grid grid-cols-7 divide-x divide-gray-gray100 dark:divide-gray-gray700", children: week.map((cell, ci) => /* @__PURE__ */ (0, import_jsx_dev_runtime7.jsxDEV)(
+        DayCell,
+        __spreadValues({
+          cell,
+          events: cell.dateKey ? eventsByDate.get(cell.dateKey) || [] : []
+        }, cellProps),
+        ci,
+        false,
+        {
+          fileName: "frontend/components/WeeksGridView.js",
+          lineNumber: 19,
+          columnNumber: 15
+        },
+        this
+      )) }, wi, false, {
+        fileName: "frontend/components/WeeksGridView.js",
+        lineNumber: 17,
+        columnNumber: 11
+      }, this)) }, void 0, false, {
+        fileName: "frontend/components/WeeksGridView.js",
+        lineNumber: 15,
         columnNumber: 7
       }, this)
     ] }, void 0, true, {
-      fileName: "frontend/components/CampagnesMetaList.js",
-      lineNumber: 232,
+      fileName: "frontend/components/WeeksGridView.js",
+      lineNumber: 7,
       columnNumber: 5
     }, this);
   }
-  var import_react7, import_jsx_dev_runtime5, ChevronRight;
-  var init_CampagnesMetaList = __esm({
-    "frontend/components/CampagnesMetaList.js"() {
-      import_react7 = __toESM(require_react());
-      init_ui();
-      init_format();
-      init_CampagnesSubList();
-      init_CampaignBudget();
-      init_listColumns();
-      import_jsx_dev_runtime5 = __toESM(require_jsx_dev_runtime());
-      {
-      }
-      ChevronRight = ({ className = "" }) => /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-        "svg",
-        {
-          className,
-          width: "14",
-          height: "14",
-          viewBox: "0 0 16 16",
-          fill: "none",
-          "aria-hidden": "true",
-          children: /* @__PURE__ */ (0, import_jsx_dev_runtime5.jsxDEV)(
-            "path",
-            {
-              d: "M6 4l4 4-4 4",
-              stroke: "currentColor",
-              strokeWidth: "1.75",
-              strokeLinecap: "round",
-              strokeLinejoin: "round"
-            },
-            void 0,
-            false,
-            {
-              fileName: "frontend/components/CampagnesMetaList.js",
-              lineNumber: 19,
-              columnNumber: 5
-            }
-          )
-        },
-        void 0,
-        false,
-        {
-          fileName: "frontend/components/CampagnesMetaList.js",
-          lineNumber: 11,
-          columnNumber: 3
-        }
-      );
+  var import_jsx_dev_runtime7;
+  var init_WeeksGridView = __esm({
+    "frontend/components/WeeksGridView.js"() {
+      init_dates();
+      init_DayCell();
+      import_jsx_dev_runtime7 = __toESM(require_jsx_dev_runtime());
     }
   });
 
@@ -42301,295 +42475,180 @@ performance.now();setTimeout(w,2300>q&&2E3<q?2300-q:500)})])},types:[]});z.ready
   var init_style = __esm({
     "frontend/style.css"() {
       style = document.createElement("style");
-      style.textContent = '*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }/*! tailwindcss v3.4.19 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Courier,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.visible{visibility:visible}.absolute{position:absolute}.relative{position:relative}.left-0{left:0}.top-full{top:100%}.z-20{z-index:20}.mx-1{margin-left:.25rem;margin-right:.25rem}.mx-2{margin-left:.5rem;margin-right:.5rem}.mb-1{margin-bottom:.25rem}.mr-1{margin-right:.25rem}.mt-0\\.5{margin-top:.125rem}.mt-1{margin-top:.25rem}.mt-2{margin-top:.5rem}.block{display:block}.inline-block{display:inline-block}.flex{display:flex}.inline-flex{display:inline-flex}.\\!table{display:table!important}.table{display:table}.grid{display:grid}.h-1\\.5{height:.375rem}.h-2{height:.5rem}.h-7{height:1.75rem}.h-8{height:2rem}.h-full{height:100%}.min-h-\\[32px\\]{min-height:32px}.min-h-\\[36px\\]{min-height:36px}.min-h-screen{min-height:100vh}.w-full{width:100%}.min-w-0{min-width:0}.min-w-\\[160px\\]{min-width:160px}.flex-1{flex:1 1 0%}.rotate-90{--tw-rotate:90deg;transform:translate(var(--tw-translate-x),var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y))}.cursor-pointer{cursor:pointer}.items-start{align-items:flex-start}.items-end{align-items:flex-end}.items-center{align-items:center}.items-baseline{align-items:baseline}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-1\\.5{gap:.375rem}.gap-3{gap:.75rem}.gap-4{gap:1rem}.space-y-4>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(1rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(1rem*var(--tw-space-y-reverse))}.overflow-hidden{overflow:hidden}.overflow-x-auto{overflow-x:auto}.truncate{overflow:hidden;text-overflow:ellipsis}.truncate,.whitespace-nowrap{white-space:nowrap}.rounded{border-radius:.25rem}.rounded-full{border-radius:9999px}.rounded-md{border-radius:.375rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-none{border-style:none}.border-gray-gray100{--tw-border-opacity:1;border-color:rgb(229 233 240/var(--tw-border-opacity,1))}.border-gray-gray200{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.border-transparent{border-color:transparent}.bg-blue-blueLight3{--tw-bg-opacity:1;background-color:rgb(241 245 255/var(--tw-bg-opacity,1))}.bg-gray-gray100{--tw-bg-opacity:1;background-color:rgb(229 233 240/var(--tw-bg-opacity,1))}.bg-gray-gray25{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.bg-red-red{--tw-bg-opacity:1;background-color:rgb(220 4 59/var(--tw-bg-opacity,1))}.bg-transparent{background-color:transparent}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.p-0{padding:0}.p-4{padding:1rem}.px-1{padding-left:.25rem;padding-right:.25rem}.px-1\\.5{padding-left:.375rem;padding-right:.375rem}.px-2{padding-left:.5rem;padding-right:.5rem}.px-2\\.5{padding-left:.625rem;padding-right:.625rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-0{padding-top:0;padding-bottom:0}.py-0\\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\\.5{padding-top:.375rem;padding-bottom:.375rem}.py-10{padding-top:2.5rem;padding-bottom:2.5rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.pl-10{padding-left:2.5rem}.text-left{text-align:left}.text-center{text-align:center}.text-right{text-align:right}.text-2xl{font-size:1.3125rem;line-height:1.625rem}.text-\\[16px\\]{font-size:16px}.text-\\[9px\\]{font-size:9px}.text-sm{font-size:.6875rem;line-height:1rem}.text-xs{font-size:.5625rem;line-height:.875rem}.font-medium{font-weight:500}.font-semibold{font-weight:600}.uppercase{text-transform:uppercase}.italic{font-style:italic}.tabular-nums{--tw-numeric-spacing:tabular-nums;font-variant-numeric:var(--tw-ordinal) var(--tw-slashed-zero) var(--tw-numeric-figure) var(--tw-numeric-spacing) var(--tw-numeric-fraction)}.leading-tight{line-height:1.25}.tracking-wider{letter-spacing:.05em}.text-blue-blue{--tw-text-opacity:1;color:rgb(22 110 225/var(--tw-text-opacity,1))}.text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.text-gray-gray700{--tw-text-opacity:1;color:rgb(49 53 62/var(--tw-text-opacity,1))}.text-gray-gray800{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.text-gray-gray900{--tw-text-opacity:1;color:rgb(17 18 21/var(--tw-text-opacity,1))}.text-red-red{--tw-text-opacity:1;color:rgb(220 4 59/var(--tw-text-opacity,1))}.shadow-lg{--tw-shadow:0px 0px 1px 0px rgba(0,0,0,.48),0px 0px 2px 0px rgba(0,0,0,.08),0px 2px 4px 0px rgba(0,0,0,.12),0px 2px 8px 0px rgba(0,0,0,.08);--tw-shadow-colored:0px 0px 1px 0px var(--tw-shadow-color),0px 0px 2px 0px var(--tw-shadow-color),0px 2px 4px 0px var(--tw-shadow-color),0px 2px 8px 0px var(--tw-shadow-color);box-shadow:var(--tw-ring-offset-shadow,0 0 #0000),var(--tw-ring-shadow,0 0 #0000),var(--tw-shadow)}.outline-none{outline:2px solid transparent;outline-offset:2px}.blur{--tw-blur:blur(8px)}.blur,.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition-all{transition-property:all;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-transform{transition-property:transform;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.bn-app{width:-moz-fit-content;width:fit-content}.bn-year-dropdown::hover{cursor:pointer}.bn-year-dropdown-button{padding:5px 7px;font-size:14px}.bn-list-cell,.editable{color:#1f1f1f;font-size:14px}.bn-list-cell-name{font-size:16px}.bn-list-cell-name:hover{text-decoration:none!important}.grid{gap:5px}.bn-list-head,.bn-list-row,.bn-sublist{width:-moz-fit-content;width:fit-content}.bn-list-row:hover,.bn-sublist-row:hover{background-color:#e0e8f5a9!important}.bn-sublist-cell-name{cursor:default}.bn-annual-budget{margin-left:40px}.bn-annual-budget-numerator{font-size:32px}.bn-annual-budget-remaining,.bn-campaign-budget-solde{background-color:rgba(208,255,208,.846);color:#3e613e;border:1px solid rgba(62,97,62,.267)}.bn-campaign-budget-solde{border-radius:10px}.bn-annual-budget-remaining{font-size:13px}.bn-annual-budget-remaining--over{background-color:#ffd7d7;color:#7b3434;border:1px solid rgba(164,41,41,.348)}.bn-annual-budget-title{letter-spacing:.06em}.bn-annual-budget-info{margin-left:150px}.bn-annual-budget-info,bn-annual-budget-caption{font-size:15px}.leading-tight{line-height:1.6}.bn-campaign-budget-denom,.bn-campaign-budget-sep{font-size:11px}.bn-campaign-budget-spent{font-weight:500}.bn-year-dropdown-button{margin-top:10px}.bn-annual-budget-progress-probable,.bn-campaign-budget-progress-probable{background-color:#0d1285}.bn-annual-budget-progress-spent,.bn-campaign-budget-progress-spent{background-color:#0177e4}.hover\\:border-gray-gray200:hover{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.hover\\:bg-gray-gray25:hover{--tw-bg-opacity:1;background-color:rgb(249 250 251/var(--tw-bg-opacity,1))}.hover\\:bg-gray-gray50:hover{--tw-bg-opacity:1;background-color:rgb(246 248 252/var(--tw-bg-opacity,1))}.hover\\:text-blue-blueDark1:hover{--tw-text-opacity:1;color:rgb(13 82 172/var(--tw-text-opacity,1))}.hover\\:text-gray-gray800:hover{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.hover\\:underline:hover{text-decoration-line:underline}.focus\\:border-blue-blue:focus{--tw-border-opacity:1;border-color:rgb(22 110 225/var(--tw-border-opacity,1))}.focus\\:bg-white:focus{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}@media (prefers-color-scheme:dark){.dark\\:border-gray-gray600{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:border-gray-gray700{--tw-border-opacity:1;border-color:rgb(49 53 62/var(--tw-border-opacity,1))}.dark\\:bg-gray-gray700{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray800{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray900{--tw-bg-opacity:1;background-color:rgb(17 18 21/var(--tw-bg-opacity,1))}.dark\\:text-gray-gray100{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:text-gray-gray200{--tw-text-opacity:1;color:rgb(218 222 230/var(--tw-text-opacity,1))}.dark\\:text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.dark\\:hover\\:border-gray-gray600:hover{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:hover\\:bg-gray-gray800:hover{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:hover\\:text-gray-gray100:hover{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:focus\\:bg-gray-gray700:focus{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}}';
+      style.textContent = '*,:after,:before{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }::backdrop{--tw-border-spacing-x:0;--tw-border-spacing-y:0;--tw-translate-x:0;--tw-translate-y:0;--tw-rotate:0;--tw-skew-x:0;--tw-skew-y:0;--tw-scale-x:1;--tw-scale-y:1;--tw-pan-x: ;--tw-pan-y: ;--tw-pinch-zoom: ;--tw-scroll-snap-strictness:proximity;--tw-gradient-from-position: ;--tw-gradient-via-position: ;--tw-gradient-to-position: ;--tw-ordinal: ;--tw-slashed-zero: ;--tw-numeric-figure: ;--tw-numeric-spacing: ;--tw-numeric-fraction: ;--tw-ring-inset: ;--tw-ring-offset-width:0px;--tw-ring-offset-color:#fff;--tw-ring-color:rgba(59,130,246,.5);--tw-ring-offset-shadow:0 0 #0000;--tw-ring-shadow:0 0 #0000;--tw-shadow:0 0 #0000;--tw-shadow-colored:0 0 #0000;--tw-blur: ;--tw-brightness: ;--tw-contrast: ;--tw-grayscale: ;--tw-hue-rotate: ;--tw-invert: ;--tw-saturate: ;--tw-sepia: ;--tw-drop-shadow: ;--tw-backdrop-blur: ;--tw-backdrop-brightness: ;--tw-backdrop-contrast: ;--tw-backdrop-grayscale: ;--tw-backdrop-hue-rotate: ;--tw-backdrop-invert: ;--tw-backdrop-opacity: ;--tw-backdrop-saturate: ;--tw-backdrop-sepia: ;--tw-contain-size: ;--tw-contain-layout: ;--tw-contain-paint: ;--tw-contain-style: }\r\n\r\n/*! tailwindcss v3.4.19 | MIT License | https://tailwindcss.com*/*,:after,:before{box-sizing:border-box;border:0 solid #e5e7eb}:after,:before{--tw-content:""}:host,html{line-height:1.5;-webkit-text-size-adjust:100%;-moz-tab-size:4;-o-tab-size:4;tab-size:4;font-family:ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;font-feature-settings:normal;font-variation-settings:normal;-webkit-tap-highlight-color:transparent}body{margin:0;line-height:inherit}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,pre,samp{font-family:ui-monospace,SFMono-Regular,Menlo,Courier,monospace;font-feature-settings:normal;font-variation-settings:normal;font-size:1em}small{font-size:80%}sub,sup{font-size:75%;line-height:0;position:relative;vertical-align:baseline}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}button,input,optgroup,select,textarea{font-family:inherit;font-feature-settings:inherit;font-variation-settings:inherit;font-size:100%;font-weight:inherit;line-height:inherit;letter-spacing:inherit;color:inherit;margin:0;padding:0}button,select{text-transform:none}button,input:where([type=button]),input:where([type=reset]),input:where([type=submit]){-webkit-appearance:button;background-color:transparent;background-image:none}:-moz-focusring{outline:auto}:-moz-ui-invalid{box-shadow:none}progress{vertical-align:baseline}::-webkit-inner-spin-button,::-webkit-outer-spin-button{height:auto}[type=search]{-webkit-appearance:textfield;outline-offset:-2px}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-file-upload-button{-webkit-appearance:button;font:inherit}summary{display:list-item}blockquote,dd,dl,figure,h1,h2,h3,h4,h5,h6,hr,p,pre{margin:0}fieldset{margin:0}fieldset,legend{padding:0}menu,ol,ul{list-style:none;margin:0;padding:0}dialog{padding:0}textarea{resize:vertical}input::-moz-placeholder,textarea::-moz-placeholder{opacity:1;color:#9ca3af}input::placeholder,textarea::placeholder{opacity:1;color:#9ca3af}[role=button],button{cursor:pointer}:disabled{cursor:default}audio,canvas,embed,iframe,img,object,svg,video{display:block;vertical-align:middle}img,video{max-width:100%;height:auto}[hidden]:where(:not([hidden=until-found])){display:none}.absolute{position:absolute}.relative{position:relative}.inset-0{inset:0}.mb-0{margin-bottom:0}.mb-0\\.5{margin-bottom:.125rem}.mb-3{margin-bottom:.75rem}.ml-1{margin-left:.25rem}.inline-block{display:inline-block}.flex{display:flex}.table{display:table}.grid{display:grid}.h-5{height:1.25rem}.h-8{height:2rem}.w-14{width:3.5rem}.w-5{width:1.25rem}.w-8{width:2rem}.w-full{width:100%}.flex-1{flex:1 1 0%}.shrink-0{flex-shrink:0}.cursor-pointer{cursor:pointer}.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}.grid-cols-7{grid-template-columns:repeat(7,minmax(0,1fr))}.items-center{align-items:center}.justify-center{justify-content:center}.justify-between{justify-content:space-between}.gap-1{gap:.25rem}.gap-2{gap:.5rem}.space-y-0\\.5>:not([hidden])~:not([hidden]){--tw-space-y-reverse:0;margin-top:calc(.125rem*(1 - var(--tw-space-y-reverse)));margin-bottom:calc(.125rem*var(--tw-space-y-reverse))}.divide-x>:not([hidden])~:not([hidden]){--tw-divide-x-reverse:0;border-right-width:calc(1px*var(--tw-divide-x-reverse));border-left-width:calc(1px*(1 - var(--tw-divide-x-reverse)))}.divide-gray-gray100>:not([hidden])~:not([hidden]){--tw-divide-opacity:1;border-color:rgb(229 233 240/var(--tw-divide-opacity,1))}.overflow-auto{overflow:auto}.overflow-hidden,.truncate{overflow:hidden}.truncate{text-overflow:ellipsis;white-space:nowrap}.rounded{border-radius:.25rem}.rounded-full{border-radius:9999px}.rounded-md{border-radius:.375rem}.rounded-b-md{border-bottom-right-radius:.375rem;border-bottom-left-radius:.375rem}.border{border-width:1px}.border-b{border-bottom-width:1px}.border-l-\\[3px\\]{border-left-width:3px}.border-t{border-top-width:1px}.border-gray-gray100{--tw-border-opacity:1;border-color:rgb(229 233 240/var(--tw-border-opacity,1))}.border-gray-gray200{--tw-border-opacity:1;border-color:rgb(218 222 230/var(--tw-border-opacity,1))}.bg-blue-blueLight2{--tw-bg-opacity:1;background-color:rgb(209 226 255/var(--tw-bg-opacity,1))}.bg-blue-blueLight2\\/30{background-color:rgba(209,226,255,.3)}.bg-gray-gray50{--tw-bg-opacity:1;background-color:rgb(246 248 252/var(--tw-bg-opacity,1))}.bg-white{--tw-bg-opacity:1;background-color:rgb(255 255 255/var(--tw-bg-opacity,1))}.p-1{padding:.25rem}.p-3{padding:.75rem}.px-1\\.5{padding-left:.375rem;padding-right:.375rem}.px-3{padding-left:.75rem;padding-right:.75rem}.py-0\\.5{padding-top:.125rem;padding-bottom:.125rem}.py-1{padding-top:.25rem;padding-bottom:.25rem}.py-1\\.5{padding-top:.375rem;padding-bottom:.375rem}.py-2{padding-top:.5rem;padding-bottom:.5rem}.pr-2{padding-right:.5rem}.text-left{text-align:left}.text-center{text-align:center}.text-right{text-align:right}.text-\\[10px\\]{font-size:10px}.text-\\[11px\\]{font-size:11px}.text-lg{font-size:.9375rem;line-height:1.375rem}.text-sm{font-size:.6875rem;line-height:1rem}.text-xs{font-size:.5625rem;line-height:.875rem}.font-medium{font-weight:500}.font-semibold{font-weight:600}.leading-tight{line-height:1.25}.text-gray-gray400{--tw-text-opacity:1;color:rgb(151 154 160/var(--tw-text-opacity,1))}.text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.text-gray-gray600{--tw-text-opacity:1;color:rgb(65 69 77/var(--tw-text-opacity,1))}.text-gray-gray700{--tw-text-opacity:1;color:rgb(49 53 62/var(--tw-text-opacity,1))}.text-gray-gray800{--tw-text-opacity:1;color:rgb(29 31 37/var(--tw-text-opacity,1))}.text-white{--tw-text-opacity:1;color:rgb(255 255 255/var(--tw-text-opacity,1))}.opacity-70{opacity:.7}.filter{filter:var(--tw-blur) var(--tw-brightness) var(--tw-contrast) var(--tw-grayscale) var(--tw-hue-rotate) var(--tw-invert) var(--tw-saturate) var(--tw-sepia) var(--tw-drop-shadow)}.transition-colors{transition-property:color,background-color,border-color,text-decoration-color,fill,stroke;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.transition-opacity{transition-property:opacity;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:.15s}.three-days-event-block__label{text-align:left;display:-webkit-box;-webkit-line-clamp:4;line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;word-break:break-word}.hover\\:bg-gray-gray100:hover{--tw-bg-opacity:1;background-color:rgb(229 233 240/var(--tw-bg-opacity,1))}.hover\\:opacity-80:hover{opacity:.8}@media (prefers-color-scheme:dark){.dark\\:divide-gray-gray700>:not([hidden])~:not([hidden]){--tw-divide-opacity:1;border-color:rgb(49 53 62/var(--tw-divide-opacity,1))}.dark\\:border-gray-gray600{--tw-border-opacity:1;border-color:rgb(65 69 77/var(--tw-border-opacity,1))}.dark\\:border-gray-gray700{--tw-border-opacity:1;border-color:rgb(49 53 62/var(--tw-border-opacity,1))}.dark\\:bg-\\[\\#1a2a4a\\]{--tw-bg-opacity:1;background-color:rgb(26 42 74/var(--tw-bg-opacity,1))}.dark\\:bg-\\[\\#1a2a4a\\]\\/30{background-color:rgba(26,42,74,.3)}.dark\\:bg-gray-gray800{--tw-bg-opacity:1;background-color:rgb(29 31 37/var(--tw-bg-opacity,1))}.dark\\:bg-gray-gray900{--tw-bg-opacity:1;background-color:rgb(17 18 21/var(--tw-bg-opacity,1))}.dark\\:text-gray-gray100{--tw-text-opacity:1;color:rgb(229 233 240/var(--tw-text-opacity,1))}.dark\\:text-gray-gray200{--tw-text-opacity:1;color:rgb(218 222 230/var(--tw-text-opacity,1))}.dark\\:text-gray-gray300{--tw-text-opacity:1;color:rgb(196 199 205/var(--tw-text-opacity,1))}.dark\\:text-gray-gray500{--tw-text-opacity:1;color:rgb(97 102 112/var(--tw-text-opacity,1))}.dark\\:hover\\:bg-gray-gray700:hover{--tw-bg-opacity:1;background-color:rgb(49 53 62/var(--tw-bg-opacity,1))}}';
       document.head.appendChild(style);
     }
   });
 
   // frontend/index.js
   var frontend_exports = {};
-  function App() {
+  function CalendarApp() {
     const base = useBase2();
-    const yearsTable = base?.tables?.find(
-      (t) => t?.name?.toLowerCase() === "budget annuel"
-    ) || null;
-    const campagnesMetaTable = base?.tables?.find(
-      (t) => t?.name?.toLowerCase() === "campagnes_meta"
-    ) || null;
-    const budgetTable = base?.tables?.find(
-      (t) => t?.name?.toLowerCase() === "budgets"
-    ) || null;
-    if (!yearsTable || !yearsTable.id) {
-      return /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)("div", { className: "bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800", children: /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(YearDropdown, { options: [], value: null, onChange: () => {
-      } }, void 0, false, {
-        fileName: "frontend/index.js",
-        lineNumber: 35,
-        columnNumber: 9
-      }, this) }, void 0, false, {
-        fileName: "frontend/index.js",
-        lineNumber: 34,
-        columnNumber: 7
-      }, this);
-    }
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(
-      AppInner,
-      {
-        yearsTable,
-        campagnesMetaTable,
-        budgetTable
-      },
-      void 0,
-      false,
-      {
-        fileName: "frontend/index.js",
-        lineNumber: 41,
-        columnNumber: 5
-      },
-      this
+    const { customPropertyValueByKey } = useCustomProperties(getCustomProperties);
+    const eventsTable = customPropertyValueByKey.eventsTable;
+    const projetsTable = customPropertyValueByKey.projetsTable;
+    const dateField = customPropertyValueByKey.dateField;
+    const endDateField = customPropertyValueByKey.endDateField;
+    const nameField1 = customPropertyValueByKey.nameField1;
+    const nameField2 = customPropertyValueByKey.nameField2;
+    const colorField = customPropertyValueByKey.colorField;
+    const projetLinkField = customPropertyValueByKey.projetLinkField;
+    const eventRecords = useRecords(eventsTable);
+    const projetRecords = useRecords(projetsTable);
+    const [viewMode, setViewMode] = (0, import_react9.useState)("month");
+    const [refDate, setRefDate] = (0, import_react9.useState)(() => /* @__PURE__ */ new Date());
+    const currentYear = refDate.getFullYear();
+    const currentMonth = refDate.getMonth() + 1;
+    const monthGrid = (0, import_react9.useMemo)(
+      () => buildCalendarGrid(currentYear, currentMonth),
+      [currentYear, currentMonth]
     );
-  }
-  function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
-    const [year, setYear] = (0, import_react8.useState)(null);
-    const yearRecords = useRecords(yearsTable);
-    const campagneRecordsRaw = useRecords(campagnesMetaTable || yearsTable);
-    const campagneRecords = campagnesMetaTable ? campagneRecordsRaw : null;
-    const budgetRecordsRaw = useRecords(budgetTable || yearsTable);
-    const budgetRecords = budgetTable ? budgetRecordsRaw : null;
-    const yearField = findField(yearsTable, "ann\xE9es") || findField(yearsTable, "annees");
-    const campagnesLinkField = findField(yearsTable, "campagnes_meta") || yearsTable.fields?.find(
-      (f) => f?.name?.toLowerCase().includes("campagne")
-    ) || null;
-    const budgetAnnualTotalField = findField(yearsTable, "Budget Annuel Total");
-    const budgetReviseTotalField = findField(yearsTable, "Budget R\xE9vis\xE9 Total");
-    const nameField = findField(campagnesMetaTable, "name");
-    const spendBudgetField = findField(campagnesMetaTable, "spend_budget");
-    const budgetField = findField(campagnesMetaTable, "budget");
-    const percentField = findField(campagnesMetaTable, "Ratio Budget");
-    const budgetReviseField = findField(campagnesMetaTable, "Budget R\xE9vis\xE9");
-    const soldeField = findField(campagnesMetaTable, "solde");
-    const probableField = findField(campagnesMetaTable, "Probable");
-    const spendMediaField = findField(campagnesMetaTable, "spend_media");
-    const spendProdField = findField(campagnesMetaTable, "spend_prod");
-    const budgetNameField = findField(budgetTable, "Campagne");
-    const budgetSpendTotalField = findField(budgetTable, "spend_total");
-    const budgetSpendMediaField = findField(budgetTable, "spend_media");
-    const budgetSpendProdField = findField(budgetTable, "spend_prod");
-    const budgetCampagneMetaLinkField = findField(budgetTable, "campagnes_meta") || budgetTable?.fields?.find(
-      (f) => f?.name?.toLowerCase().includes("campagnes_meta")
-    ) || null;
-    const options = (0, import_react8.useMemo)(() => {
-      if (!yearRecords || !yearField) return [];
-      const seen = /* @__PURE__ */ new Set();
-      const out = [];
-      for (const r of yearRecords) {
-        const name = r.getCellValueAsString(yearField);
-        if (name && !seen.has(name)) {
-          seen.add(name);
-          out.push(name);
-        }
-      }
-      return out.sort((a, b) => b.localeCompare(a));
-    }, [yearRecords, yearField]);
-    (0, import_react8.useEffect)(() => {
-      if (year == null && options.length > 0) {
-        setYear(options[0]);
-      }
-    }, [options, year]);
-    const yearByCampagneId = (0, import_react8.useMemo)(() => {
-      const map = /* @__PURE__ */ new Map();
-      if (!yearRecords || !yearField || !campagnesLinkField) return map;
-      for (const y of yearRecords) {
-        const yearName = y.getCellValueAsString(yearField);
-        if (!yearName) continue;
-        const links = y.getCellValue(campagnesLinkField);
-        if (!Array.isArray(links)) continue;
-        for (const l of links) {
-          if (l?.id && !map.has(l.id)) map.set(l.id, yearName);
-        }
-      }
-      return map;
-    }, [yearRecords, yearField, campagnesLinkField]);
-    const allowedIds = (0, import_react8.useMemo)(() => {
-      if (!year || !yearRecords || !yearField || !campagnesLinkField) return null;
-      const rec = yearRecords.find(
-        (r) => r.getCellValueAsString(yearField) === year
-      );
-      if (!rec) return /* @__PURE__ */ new Set();
-      const links = rec.getCellValue(campagnesLinkField);
-      if (!Array.isArray(links)) return /* @__PURE__ */ new Set();
-      return new Set(links.map((l) => l?.id).filter(Boolean));
-    }, [year, yearRecords, yearField, campagnesLinkField]);
-    const visibleCampagnes = (0, import_react8.useMemo)(() => {
-      if (!campagneRecords) return [];
-      if (!allowedIds) return campagneRecords;
-      return campagneRecords.filter((r) => allowedIds.has(r.id));
-    }, [campagneRecords, allowedIds]);
-    const annualBudgetForYear = (0, import_react8.useMemo)(() => {
-      if (!year || !yearRecords || !yearField || !budgetAnnualTotalField) return null;
-      const rec = yearRecords.find(
-        (r) => r.getCellValueAsString(yearField) === year
-      );
-      if (!rec) return null;
-      const v = rec.getCellValue(budgetAnnualTotalField);
-      return typeof v === "number" ? v : null;
-    }, [year, yearRecords, yearField, budgetAnnualTotalField]);
-    const sumOfBudgets = (0, import_react8.useMemo)(() => {
-      if (!visibleCampagnes || !budgetField) return 0;
-      let sum = 0;
-      for (const r of visibleCampagnes) {
-        const v = r.getCellValue(budgetField);
-        if (typeof v === "number") sum += v;
-      }
-      return sum;
-    }, [visibleCampagnes, budgetField]);
-    const sumOfSpent = (0, import_react8.useMemo)(() => {
-      if (!visibleCampagnes || !spendBudgetField) return 0;
-      let sum = 0;
-      for (const r of visibleCampagnes) {
-        const v = r.getCellValue(spendBudgetField);
-        if (typeof v === "number") sum += v;
-      }
-      return sum;
-    }, [visibleCampagnes, spendBudgetField]);
-    const sumProbable = (0, import_react8.useMemo)(() => {
-      if (!visibleCampagnes || !probableField) return 0;
-      let sum = 0;
-      for (const r of visibleCampagnes) {
-        const v = r.getCellValue(probableField);
-        if (typeof v === "number") sum += v;
-      }
-      return sum;
-    }, [visibleCampagnes, probableField]);
-    const sumOfRevise = (0, import_react8.useMemo)(() => {
-      if (!visibleCampagnes || !budgetReviseField) return 0;
-      let sum = 0;
-      for (const r of visibleCampagnes) {
-        const v = r.getCellValue(budgetReviseField);
-        if (typeof v === "number") sum += v;
-      }
-      return sum;
-    }, [visibleCampagnes, budgetReviseField]);
-    (0, import_react8.useEffect)(() => {
-      if (!year || !yearRecords || !yearField || !budgetReviseTotalField) return;
-      const rec = yearRecords.find(
-        (r) => r.getCellValueAsString(yearField) === year
-      );
-      if (!rec) return;
-      const current = rec.getCellValue(budgetReviseTotalField);
-      if (typeof current === "number" && current === sumOfRevise) return;
-      yearsTable.updateRecordAsync(rec, { [budgetReviseTotalField.id]: sumOfRevise }).catch((e) => {
-        console.error("Failed to sync Budget R\xE9vis\xE9 Total:", e);
+    const twoWeeksGrid = (0, import_react9.useMemo)(() => build2WeeksGrid(refDate), [refDate]);
+    const threeDaysGrid = (0, import_react9.useMemo)(() => build3DaysGrid(refDate), [refDate]);
+    const eventsByDate = (0, import_react9.useMemo)(
+      () => groupEventsByDate(eventRecords, dateField),
+      [eventRecords, dateField]
+    );
+    function goPrev() {
+      setRefDate((d) => {
+        const next = new Date(d);
+        if (viewMode === "month") next.setMonth(next.getMonth() - 1);
+        else if (viewMode === "2weeks") next.setDate(next.getDate() - 14);
+        else next.setDate(next.getDate() - 3);
+        return next;
       });
-    }, [
-      sumOfRevise,
-      year,
-      yearRecords,
-      yearField,
-      budgetReviseTotalField,
-      yearsTable
-    ]);
-    const budgetsByCampagneMetaId = (0, import_react8.useMemo)(() => {
-      const map = /* @__PURE__ */ new Map();
-      if (!budgetRecords || !budgetCampagneMetaLinkField) return map;
-      for (const b of budgetRecords) {
-        const links = b.getCellValue(budgetCampagneMetaLinkField);
-        if (!Array.isArray(links)) continue;
-        for (const l of links) {
-          if (!l?.id) continue;
-          const arr = map.get(l.id);
-          if (arr) arr.push(b);
-          else map.set(l.id, [b]);
+    }
+    function goNext() {
+      setRefDate((d) => {
+        const next = new Date(d);
+        if (viewMode === "month") next.setMonth(next.getMonth() + 1);
+        else if (viewMode === "2weeks") next.setDate(next.getDate() + 14);
+        else next.setDate(next.getDate() + 3);
+        return next;
+      });
+    }
+    function goToday() {
+      setRefDate(/* @__PURE__ */ new Date());
+    }
+    function getHeaderTitle() {
+      if (viewMode === "month") {
+        return `${MONTHS_FR[currentMonth - 1]} ${currentYear}`;
+      }
+      if (viewMode === "2weeks") {
+        const monday = getMonday(refDate);
+        const end2 = new Date(monday);
+        end2.setDate(end2.getDate() + 13);
+        const startDay2 = monday.getDate();
+        const startMonth2 = MONTHS_FR[monday.getMonth()];
+        const endDay2 = end2.getDate();
+        const endMonth2 = MONTHS_FR[end2.getMonth()];
+        const endYear2 = end2.getFullYear();
+        if (monday.getMonth() === end2.getMonth()) {
+          return `${startDay2} - ${endDay2} ${endMonth2} ${endYear2}`;
+        }
+        return `${startDay2} ${startMonth2} - ${endDay2} ${endMonth2} ${endYear2}`;
+      }
+      const start = refDate;
+      const end = new Date(refDate);
+      end.setDate(end.getDate() + 2);
+      const startDay = start.getDate();
+      const startMonth = MONTHS_FR[start.getMonth()];
+      const endDay = end.getDate();
+      const endMonth = MONTHS_FR[end.getMonth()];
+      const endYear = end.getFullYear();
+      if (start.getMonth() === end.getMonth()) {
+        return `${startDay} - ${endDay} ${endMonth} ${endYear}`;
+      }
+      return `${startDay} ${startMonth} - ${endDay} ${endMonth} ${endYear}`;
+    }
+    function handleEventClick(eventRecord) {
+      if (projetLinkField) {
+        const linkValue = eventRecord.getCellValue(projetLinkField);
+        if (Array.isArray(linkValue) && linkValue.length > 0) {
+          const projetRecord = projetRecords?.find((r) => r.id === linkValue[0].id);
+          if (projetRecord) {
+            expandRecord(projetRecord);
+            return;
+          }
         }
       }
-      return map;
-    }, [budgetRecords, budgetCampagneMetaLinkField]);
-    return /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)("div", { className: "bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800 space-y-4", children: [
-      /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)("div", { className: "bn-budget-card-container", children: /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)("div", { className: "bn-budget-cards flex items-start gap-4 py-2", children: [
-        /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(YearDropdown, { options, value: year, onChange: setYear }, void 0, false, {
-          fileName: "frontend/index.js",
-          lineNumber: 258,
-          columnNumber: 11
-        }, this),
-        /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(
-          AnnualBudget,
-          {
-            sumOfSpent,
-            sumProbable,
-            annualBudget: annualBudgetForYear,
-            sumOfRevise,
-            sumOfBudgets
-          },
-          void 0,
-          false,
-          {
-            fileName: "frontend/index.js",
-            lineNumber: 259,
-            columnNumber: 11
-          },
-          this
-        )
-      ] }, void 0, true, {
-        fileName: "frontend/index.js",
-        lineNumber: 257,
-        columnNumber: 9
-      }, this) }, void 0, false, {
-        fileName: "frontend/index.js",
-        lineNumber: 256,
-        columnNumber: 7
-      }, this),
-      /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(
-        CampagnesMetaList,
+      expandRecord(eventRecord);
+    }
+    const cellProps = { nameField1, nameField2, colorField, base, onEventClick: handleEventClick };
+    return /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)("div", { className: "p-3 bg-white dark:bg-gray-gray900 text-gray-gray800 dark:text-gray-gray100", children: [
+      /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(
+        CalendarHeader,
         {
-          records: visibleCampagnes,
-          campagnesTable: campagnesMetaTable,
-          nameField,
-          spendBudgetField,
-          budgetField,
-          percentField,
-          budgetReviseField,
-          soldeField,
-          probableField,
-          spendMediaField,
-          spendProdField,
-          yearByCampagneId,
-          budgetsByCampagneMetaId,
-          budgetNameField,
-          budgetSpendTotalField,
-          budgetSpendMediaField,
-          budgetSpendProdField,
-          annualBudget: annualBudgetForYear
+          title: getHeaderTitle(),
+          viewMode,
+          onPrev: goPrev,
+          onNext: goNext,
+          onToday: goToday,
+          onChangeView: setViewMode
         },
         void 0,
         false,
         {
           fileName: "frontend/index.js",
-          lineNumber: 268,
+          lineNumber: 131,
           columnNumber: 7
+        },
+        this
+      ),
+      viewMode === "month" && /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(WeeksGridView, { weeks: monthGrid, eventsByDate, cellProps }, void 0, false, {
+        fileName: "frontend/index.js",
+        lineNumber: 141,
+        columnNumber: 9
+      }, this),
+      viewMode === "2weeks" && /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(WeeksGridView, { weeks: twoWeeksGrid, eventsByDate, cellProps }, void 0, false, {
+        fileName: "frontend/index.js",
+        lineNumber: 145,
+        columnNumber: 9
+      }, this),
+      viewMode === "3days" && /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(
+        ThreeDaysView,
+        {
+          days: threeDaysGrid,
+          refDate,
+          eventsByDate,
+          nameField1,
+          nameField2,
+          colorField,
+          dateField,
+          endDateField,
+          base,
+          onEventClick: handleEventClick
+        },
+        void 0,
+        false,
+        {
+          fileName: "frontend/index.js",
+          lineNumber: 149,
+          columnNumber: 9
         },
         this
       )
     ] }, void 0, true, {
       fileName: "frontend/index.js",
-      lineNumber: 255,
+      lineNumber: 130,
       columnNumber: 5
     }, this);
   }
-  var import_react8, import_jsx_dev_runtime6, findField;
+  var import_react9, import_jsx_dev_runtime8;
   var init_frontend = __esm({
     "frontend/index.js"() {
-      import_react8 = __toESM(require_react());
+      import_react9 = __toESM(require_react());
       init_ui();
-      init_YearDropdown();
-      init_AnnualBudget();
-      init_CampagnesMetaList();
+      init_dates();
+      init_customProperties();
+      init_CalendarHeader();
+      init_ThreeDaysView();
+      init_WeeksGridView();
       init_style();
-      import_jsx_dev_runtime6 = __toESM(require_jsx_dev_runtime());
-      findField = (table, name) => table?.fields?.find(
-        (f) => f?.name?.toLowerCase() === name.toLowerCase()
-      ) || null;
-      initializeBlock({ interface: () => /* @__PURE__ */ (0, import_jsx_dev_runtime6.jsxDEV)(App, {}, void 0, false, {
+      import_jsx_dev_runtime8 = __toESM(require_jsx_dev_runtime());
+      initializeBlock({ interface: () => /* @__PURE__ */ (0, import_jsx_dev_runtime8.jsxDEV)(CalendarApp, {}, void 0, false, {
         fileName: "frontend/index.js",
-        lineNumber: 292,
+        lineNumber: 166,
         columnNumber: 36
       }) });
     }

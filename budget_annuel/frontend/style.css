@@ -70,6 +70,12 @@
     border-radius:10px;
 }
 
+.bn-campaign-budget-solde--negative{
+    background-color:rgb(255, 215, 215);
+    color:rgb(123, 52, 52);
+    border-color:rgba(164, 41, 41, 0.348);
+}
+
 .bn-annual-budget-remaining{
     font-size:13px;
 }

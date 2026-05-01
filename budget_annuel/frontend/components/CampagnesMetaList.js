@@ -252,7 +252,6 @@ export function CampagnesMetaList({
           const budget = budgetField ? r.getCellValue(budgetField) : null;
           const budgetRevise = budgetReviseField ? r.getCellValue(budgetReviseField) : null;
           const probable = probableField ? r.getCellValue(probableField) : null;
-          const solde = soldeField ? r.getCellValue(soldeField) : null;
           const spendMedia = spendMediaField ? r.getCellValue(spendMediaField) : null;
           const spendProd = spendProdField ? r.getCellValue(spendProdField) : null;
           const expanded = expandedIds.has(r.id);
@@ -284,7 +283,7 @@ export function CampagnesMetaList({
                 {name || "—"}
               </button>
               <div className="bn-list-cell bn-list-cell-spend-budget px-3 min-w-0 tabular-nums text-right">
-                <CampaignBudget spent={spendBudget} probable={probable} budget={budget} revise={budgetRevise} solde={solde} />
+                <CampaignBudget spent={spendBudget} probable={probable} budget={budget} revise={budgetRevise} />
               </div>
               <div className="bn-list-cell bn-list-cell-probable px-3 min-w-0 tabular-nums text-right">
                 <EditableCurrencyCell record={r} table={campagnesTable} field={probableField} />

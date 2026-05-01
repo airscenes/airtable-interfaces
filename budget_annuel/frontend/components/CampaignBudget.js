@@ -7,7 +7,7 @@ import { fmtCurrency } from "../utils/format";
 //   dark blue  = probable (committed but not yet spent)
 //   gray track = remaining
 //   full red   = spent + probable > denominator (over budget)
-export function CampaignBudget({ spent, probable, budget, revise, solde }) {
+export function CampaignBudget({ spent, probable, budget, revise }) {
   const spentVal = spent ?? 0;
   const probableVal = probable ?? 0;
   const denom = (budget ?? 0) + (revise ?? 0);
@@ -19,6 +19,13 @@ export function CampaignBudget({ spent, probable, budget, revise, solde }) {
     Math.max(0, 100 - spentPct),
   );
   const overBudget = denom > 0 && spentVal + probableVal > denom;
+
+  // Solde = (budget annuel + révisé) − dépensé. Computed locally so it always
+  // reflects the current props (the Airtable `solde` field can lag behind
+  // edits because of formula recomputation delays).
+  const solde = denom - spentVal;
+  console.log("denom: ", denom);
+  console.log("spentVal: ", spentVal);
 
   return (
     <div className="bn-campaign-budget tabular-nums flex items-center gap-3">
@@ -54,8 +61,10 @@ export function CampaignBudget({ spent, probable, budget, revise, solde }) {
           )}
         </div>
       </div>
-      {solde != null && (
-        <span className="bn-campaign-budget-solde inline-flex items-baseline px-1.5 py-0 rounded bg-blue-blueLight3 dark:bg-gray-gray700 text-xs tabular-nums whitespace-nowrap">
+      {denom > 0 && (
+        <span
+          className={`bn-campaign-budget-solde ${solde < 0 ? "bn-campaign-budget-solde--negative" : ""} inline-flex items-baseline px-1.5 py-0 text-xs tabular-nums whitespace-nowrap`}
+        >
           <span className="text-[9px] uppercase tracking-wider dark:text-gray-gray400 mr-1">
             Solde:
           </span>

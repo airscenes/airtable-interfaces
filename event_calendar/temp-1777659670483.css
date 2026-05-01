@@ -30,12 +30,7 @@
 @tailwind components;
 @tailwind utilities;
 
-.three-days-event-block__label {
-    text-align: left;
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    line-clamp: 4;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    word-break: break-word;
+.truncate {
+    text-overflow: ellipsis; */
+    white-space: nowrap; 
 }
