@@ -513,16 +513,17 @@ function RoutageApp() {
     }, [weekRecords, blocSaisonField, dateDebutField, effectiveBlocSaison, effectiveYear]);
 
     // Month headers spanning consecutive weeks. The "month" of a week is the
-    // month of its mid-point (Wednesday) so weeks straddling a boundary
-    // group with the month they sit mostly in.
+    // month of its Monday (dateDebut + 1 day), matching the BLOCS formula
+    // convention so weeks always group under the same month they were
+    // assigned to.
     const calendrierMonthHeaders = useMemo(() => {
         const headers = [];
         let current = null;
         for (const w of calendrierWeeks) {
-            const wed = new Date(w.dateDebut);
-            wed.setDate(wed.getDate() + 3);
-            const m = wed.getMonth();
-            const y = wed.getFullYear();
+            const mon = new Date(w.dateDebut);
+            mon.setDate(mon.getDate() + 1);
+            const m = mon.getMonth();
+            const y = mon.getFullYear();
             if (current && current.month === m && current.year === y) {
                 current.span++;
             } else {
