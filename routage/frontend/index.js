@@ -17,6 +17,11 @@ const DAY_LABELS = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 const TOTAL_COLS = 1 + BLOC_ORDER.length * DAY_CODES.length; // 1 name + 4 * 7 = 29
 const ALERT_THRESHOLD = 5;
 
+const MONTH_NAMES_FR = [
+    'JANVIER', 'FÉVRIER', 'MARS', 'AVRIL', 'MAI', 'JUIN',
+    'JUILLET', 'AOÛT', 'SEPTEMBRE', 'OCTOBRE', 'NOVEMBRE', 'DÉCEMBRE',
+];
+
 // === HELPERS ===
 
 function parseAirtableDate(dateStr) {
@@ -26,6 +31,18 @@ function parseAirtableDate(dateStr) {
     if (parts.length < 3) return null;
     const [year, month, day] = parts.map(Number);
     return new Date(year, month - 1, day);
+}
+
+// Read a "BLOCS" value from a Semaines record. Tolerates formula (string),
+// single-line text, or singleSelect ({name}). Returns trimmed string or null.
+function readBlocSaisonValue(record, field) {
+    if (!record || !field) return null;
+    const v = record.getCellValue(field);
+    if (v === null || v === undefined) return null;
+    if (typeof v === 'string') return v.trim() || null;
+    if (typeof v === 'number') return String(v).trim() || null;
+    if (typeof v === 'object' && typeof v.name === 'string') return v.name.trim() || null;
+    return null;
 }
 
 function computeDayNumbers(dateDebut) {
@@ -192,6 +209,22 @@ function getCustomProperties(base) {
                 (f) => isDateField(f) && (f.name.toLowerCase().includes('fin') || f.name.toLowerCase().includes('end')),
             ),
         },
+        {
+            key: 'blocSaisonField',
+            label: 'Bloc saisonnier (sur Semaines)',
+            type: 'field',
+            table: weeksTable,
+            shouldFieldBeAllowed: (field) =>
+                field.config.type === FieldType.FORMULA ||
+                field.config.type === FieldType.SINGLE_LINE_TEXT ||
+                field.config.type === FieldType.SINGLE_SELECT ||
+                field.config.type === FieldType.NUMBER,
+            defaultValue: weeksTable.fields.find(
+                (f) => f.name.toLowerCase() === 'blocs' || f.name.toLowerCase() === 'bloc',
+            ) || weeksTable.fields.find(
+                (f) => f.name.toLowerCase().includes('bloc'),
+            ),
+        },
     ];
 }
 
@@ -220,16 +253,23 @@ function RoutageApp() {
     const joursEvenementField = customPropertyValueByKey.joursEvenementField;
     const dateDebutField = customPropertyValueByKey.dateDebutField;
     const dateFinField = customPropertyValueByKey.dateFinField;
+    const blocSaisonField = customPropertyValueByKey.blocSaisonField;
 
+    const [view, setView] = useState('routage'); // 'routage' or 'calendrier'
     const [selectedSiteId, setSelectedSiteId] = useState('__all__');
     const [selectedWeekId, setSelectedWeekId] = useState(null);
     const [selectedCanalId, setSelectedCanalId] = useState('__all__');
+    const [selectedBlocSaison, setSelectedBlocSaison] = useState(null);
 
     const canExpand = eventsTable && eventsTable.hasPermissionToExpandRecords();
 
-    const allConfigured =
+    const routageConfigured =
         eventsTable && weeksTable && blocsTable && sitesTable && canalsTable &&
         weekLinkField && blocLinkField && siteLinkField && canalLinkField && joursField && dateDebutField;
+
+    const calendrierConfigured = routageConfigured && blocSaisonField;
+
+    const allConfigured = view === 'calendrier' ? calendrierConfigured : routageConfigured;
 
     // Auto-detect current week
     const currentWeekId = useMemo(() => {
@@ -388,6 +428,125 @@ function RoutageApp() {
         if (record) expandRecord(record);
     };
 
+    // === CALENDRIER VIEW DATA ===
+
+    // Distinct seasonal-bloc values found in the Semaines records
+    const blocSaisonOptions = useMemo(() => {
+        if (!blocSaisonField || !weekRecords) return [];
+        const set = new Set();
+        for (const wr of weekRecords) {
+            const v = readBlocSaisonValue(wr, blocSaisonField);
+            if (v) set.add(v);
+        }
+        return Array.from(set).sort();
+    }, [weekRecords, blocSaisonField]);
+
+    // Auto-detect the seasonal bloc that contains today
+    const currentBlocSaison = useMemo(() => {
+        if (!blocSaisonField || !dateDebutField || !weekRecords) return null;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        for (const wr of weekRecords) {
+            const start = parseAirtableDate(wr.getCellValue(dateDebutField));
+            const end = dateFinField ? parseAirtableDate(wr.getCellValue(dateFinField)) : null;
+            if (start) {
+                const endDate = end || new Date(start.getTime() + 6 * 86400000);
+                if (today >= start && today <= endDate) {
+                    return readBlocSaisonValue(wr, blocSaisonField);
+                }
+            }
+        }
+        return null;
+    }, [weekRecords, blocSaisonField, dateDebutField, dateFinField]);
+
+    const effectiveBlocSaison = selectedBlocSaison ?? currentBlocSaison ?? blocSaisonOptions[0] ?? null;
+
+    // Weeks of the selected seasonal bloc, sorted by start date
+    const calendrierWeeks = useMemo(() => {
+        if (!effectiveBlocSaison || !blocSaisonField || !dateDebutField || !weekRecords) return [];
+        const arr = [];
+        for (const wr of weekRecords) {
+            const v = readBlocSaisonValue(wr, blocSaisonField);
+            if (v !== effectiveBlocSaison) continue;
+            const dateDebut = parseAirtableDate(wr.getCellValue(dateDebutField));
+            if (!dateDebut) continue;
+            arr.push({id: wr.id, name: wr.name, dateDebut});
+        }
+        arr.sort((a, b) => a.dateDebut.getTime() - b.dateDebut.getTime());
+        return arr;
+    }, [weekRecords, blocSaisonField, dateDebutField, effectiveBlocSaison]);
+
+    // Month headers spanning consecutive weeks. The "month" of a week is the
+    // month of its mid-point (Wednesday) so weeks straddling a boundary
+    // group with the month they sit mostly in.
+    const calendrierMonthHeaders = useMemo(() => {
+        const headers = [];
+        let current = null;
+        for (const w of calendrierWeeks) {
+            const wed = new Date(w.dateDebut);
+            wed.setDate(wed.getDate() + 3);
+            const m = wed.getMonth();
+            const y = wed.getFullYear();
+            if (current && current.month === m && current.year === y) {
+                current.span++;
+            } else {
+                if (current) headers.push(current);
+                current = {month: m, year: y, span: 1};
+            }
+        }
+        if (current) headers.push(current);
+        return headers;
+    }, [calendrierWeeks]);
+
+    // Events grouped by canal. An event appears under each of its linked
+    // canaux (or "Sans canal" if none).
+    const calendrierByCanal = useMemo(() => {
+        const blocWeekIds = new Set(calendrierWeeks.map((w) => w.id));
+        if (blocWeekIds.size === 0) return [];
+
+        const canalsMap = new Map();
+
+        for (const event of eventRecords) {
+            if (selectedSiteId !== '__all__') {
+                const linkedSites = siteLinkField ? event.getCellValue(siteLinkField) : null;
+                if (!Array.isArray(linkedSites) || !linkedSites.some((s) => s.id === selectedSiteId)) continue;
+            }
+
+            const linkedWeeks = weekLinkField ? event.getCellValue(weekLinkField) : null;
+            if (!Array.isArray(linkedWeeks)) continue;
+
+            const eventWeekIds = new Set();
+            for (const wl of linkedWeeks) {
+                if (blocWeekIds.has(wl.id)) eventWeekIds.add(wl.id);
+            }
+            if (eventWeekIds.size === 0) continue;
+
+            const linkedCanals = canalLinkField ? event.getCellValue(canalLinkField) : null;
+            const canals = Array.isArray(linkedCanals) && linkedCanals.length > 0
+                ? linkedCanals
+                : [{id: '__no_canal__', name: 'Sans canal'}];
+
+            for (const canal of canals) {
+                if (selectedCanalId !== '__all__' && canal.id !== selectedCanalId) continue;
+                if (!canalsMap.has(canal.id)) {
+                    canalsMap.set(canal.id, {canalId: canal.id, canalName: canal.name || 'Sans canal', events: []});
+                }
+                canalsMap.get(canal.id).events.push({
+                    eventId: event.id,
+                    eventName: event.name || '',
+                    weekIds: eventWeekIds,
+                });
+            }
+        }
+
+        return Array.from(canalsMap.values())
+            .sort((a, b) => (a.canalName || '').localeCompare(b.canalName || ''));
+    }, [
+        eventRecords, calendrierWeeks,
+        weekLinkField, siteLinkField, canalLinkField,
+        selectedSiteId, selectedCanalId,
+    ]);
+
     // Error state
     if (errorState) {
         return (
@@ -416,26 +575,65 @@ function RoutageApp() {
         );
     }
 
+    const toggleBtn = (target, label) => (
+        <button
+            type="button"
+            onClick={() => setView(target)}
+            className={`text-sm px-3 py-1 rounded border transition-colors ${
+                view === target
+                    ? 'bg-blue-blue dark:bg-blue-blueDark1 text-white border-blue-blue dark:border-blue-blueDark1'
+                    : 'bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200 border-gray-gray200 dark:border-gray-gray600 hover:bg-gray-gray50 dark:hover:bg-gray-gray600'
+            }`}
+        >
+            {label}
+        </button>
+    );
+
     // Render
     return (
         <div className="w-full h-screen overflow-auto bg-white dark:bg-gray-gray800 px-2">
             {/* Filters */}
             <div className="mb-3 flex flex-wrap items-center gap-4 sticky top-0 z-10 bg-white dark:bg-gray-gray800 py-2">
-                <div className="flex items-center gap-2">
-                    <label className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300">
-                        Semaine :
-                    </label>
-                    <select
-                        value={effectiveWeekId}
-                        onChange={(e) => setSelectedWeekId(e.target.value)}
-                        className="text-sm border border-gray-gray200 dark:border-gray-gray600 rounded px-2 py-1 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
-                    >
-                        <option value="__all__">Toutes les semaines</option>
-                        {sortedWeekOptions.map((week) => (
-                            <option key={week.id} value={week.id}>{week.name}</option>
-                        ))}
-                    </select>
+                <div className="flex items-center gap-1">
+                    {toggleBtn('routage', 'Routage')}
+                    {toggleBtn('calendrier', 'Calendrier')}
                 </div>
+                {view === 'routage' && (
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300">
+                            Semaine :
+                        </label>
+                        <select
+                            value={effectiveWeekId}
+                            onChange={(e) => setSelectedWeekId(e.target.value)}
+                            className="text-sm border border-gray-gray200 dark:border-gray-gray600 rounded px-2 py-1 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
+                        >
+                            <option value="__all__">Toutes les semaines</option>
+                            {sortedWeekOptions.map((week) => (
+                                <option key={week.id} value={week.id}>{week.name}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
+                {view === 'calendrier' && (
+                    <div className="flex items-center gap-2">
+                        <label className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300">
+                            Bloc :
+                        </label>
+                        <select
+                            value={effectiveBlocSaison || ''}
+                            onChange={(e) => setSelectedBlocSaison(e.target.value || null)}
+                            className="text-sm border border-gray-gray200 dark:border-gray-gray600 rounded px-2 py-1 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
+                        >
+                            {blocSaisonOptions.length === 0 && (
+                                <option value="">Aucun bloc</option>
+                            )}
+                            {blocSaisonOptions.map((bloc) => (
+                                <option key={bloc} value={bloc}>{bloc}</option>
+                            ))}
+                        </select>
+                    </div>
+                )}
                 <div className="flex items-center gap-2">
                     <label className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300">
                         Site :
@@ -468,7 +666,7 @@ function RoutageApp() {
                 </div>
             </div>
 
-            {sortedWeeks.length === 0 ? (
+            {view === 'routage' && (sortedWeeks.length === 0 ? (
                 <p className="text-sm text-gray-gray500 dark:text-gray-gray400 text-center py-8">
                     Aucun evenement a afficher.
                 </p>
@@ -636,6 +834,98 @@ function RoutageApp() {
                         );
                     })}
                 </table>
+            ))}
+
+            {view === 'calendrier' && (
+                !effectiveBlocSaison ? (
+                    <p className="text-sm text-gray-gray500 dark:text-gray-gray400 text-center py-8">
+                        Aucun bloc saisonnier disponible.
+                    </p>
+                ) : calendrierByCanal.length === 0 ? (
+                    <p className="text-sm text-gray-gray500 dark:text-gray-gray400 text-center py-8">
+                        Aucun evenement a afficher pour {effectiveBlocSaison}.
+                    </p>
+                ) : (
+                    <div className="space-y-6">
+                        {calendrierByCanal.map((canal) => {
+                            const totalCols = 1 + calendrierWeeks.length;
+                            return (
+                                <table
+                                    key={canal.canalId}
+                                    className="border-collapse text-xs min-w-max w-full"
+                                >
+                                    <thead>
+                                        {/* Canal name + month spans */}
+                                        <tr>
+                                            <th
+                                                className="border border-gray-gray200 dark:border-gray-gray600 bg-yellow-yellowLight2 dark:bg-yellow-yellowDark1 text-left px-2 py-1 font-semibold text-sm text-gray-gray700 dark:text-gray-gray200 min-w-[160px]"
+                                            >
+                                                {canal.canalName}
+                                            </th>
+                                            {calendrierMonthHeaders.map((h) => (
+                                                <th
+                                                    key={`${canal.canalId}-${h.year}-${h.month}`}
+                                                    colSpan={h.span}
+                                                    className="border border-gray-gray200 dark:border-gray-gray600 bg-yellow-yellowLight2 dark:bg-yellow-yellowDark1 text-center px-1 py-1 font-semibold text-xs text-gray-gray700 dark:text-gray-gray200"
+                                                >
+                                                    {MONTH_NAMES_FR[h.month]} {h.year}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                        {/* PROJETS + Sunday day numbers */}
+                                        <tr>
+                                            <th className="border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray75 dark:bg-gray-gray700 text-left px-2 py-1 font-semibold text-xs text-gray-gray600 dark:text-gray-gray300">
+                                                PROJETS
+                                            </th>
+                                            {calendrierWeeks.map((w) => (
+                                                <th
+                                                    key={`${canal.canalId}-day-${w.id}`}
+                                                    className="border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray50 dark:bg-gray-gray700 text-center px-0.5 py-0.5 font-medium text-gray-gray600 dark:text-gray-gray300"
+                                                    style={{width: 36, minWidth: 36}}
+                                                >
+                                                    {w.dateDebut.getDate()}
+                                                </th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {canal.events.length === 0 && (
+                                            <tr>
+                                                <td colSpan={totalCols} className="border border-gray-gray200 dark:border-gray-gray600 px-2 text-gray-gray400 dark:text-gray-gray500" style={{height: 18}} />
+                                            </tr>
+                                        )}
+                                        {canal.events.map((event) => (
+                                            <tr
+                                                key={`${canal.canalId}-${event.eventId}`}
+                                                style={{height: 22, cursor: canExpand ? 'pointer' : 'default'}}
+                                                className="hover:bg-blue-blueLight3 dark:hover:bg-blue-blueDark1"
+                                                onClick={() => handleRowClick(event.eventId)}
+                                            >
+                                                <td className="border border-gray-gray200 dark:border-gray-gray600 px-2 truncate max-w-[200px] min-w-[160px] text-gray-gray700 dark:text-gray-gray200">
+                                                    {event.eventName}
+                                                </td>
+                                                {calendrierWeeks.map((w) => {
+                                                    const active = event.weekIds.has(w.id);
+                                                    return (
+                                                        <td
+                                                            key={`${canal.canalId}-${event.eventId}-${w.id}`}
+                                                            className={`border border-gray-gray200 dark:border-gray-gray600 ${
+                                                                active
+                                                                    ? 'bg-blue-blueLight2 dark:bg-blue-blueDark1'
+                                                                    : ''
+                                                            }`}
+                                                            style={{width: 36, minWidth: 36}}
+                                                        />
+                                                    );
+                                                })}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            );
+                        })}
+                    </div>
+                )
             )}
         </div>
     );
