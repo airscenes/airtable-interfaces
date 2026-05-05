@@ -260,6 +260,7 @@ function RoutageApp() {
     const [selectedWeekId, setSelectedWeekId] = useState(null);
     const [selectedCanalId, setSelectedCanalId] = useState('__all__');
     const [selectedBlocSaison, setSelectedBlocSaison] = useState(null);
+    const [selectedYear, setSelectedYear] = useState(null);
 
     const canExpand = eventsTable && eventsTable.hasPermissionToExpandRecords();
 
@@ -461,7 +462,41 @@ function RoutageApp() {
 
     const effectiveBlocSaison = selectedBlocSaison ?? currentBlocSaison ?? blocSaisonOptions[0] ?? null;
 
-    // Weeks of the selected seasonal bloc, sorted by start date
+    // Years available for the selected seasonal bloc (from week start dates)
+    const yearOptions = useMemo(() => {
+        if (!effectiveBlocSaison || !blocSaisonField || !dateDebutField || !weekRecords) return [];
+        const set = new Set();
+        for (const wr of weekRecords) {
+            const v = readBlocSaisonValue(wr, blocSaisonField);
+            if (v !== effectiveBlocSaison) continue;
+            const d = parseAirtableDate(wr.getCellValue(dateDebutField));
+            if (d) set.add(d.getFullYear());
+        }
+        return Array.from(set).sort((a, b) => a - b);
+    }, [weekRecords, blocSaisonField, dateDebutField, effectiveBlocSaison]);
+
+    // Year of the week containing today (fallback: current calendar year)
+    const currentYear = useMemo(() => {
+        if (!dateDebutField || !weekRecords) return new Date().getFullYear();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        for (const wr of weekRecords) {
+            const start = parseAirtableDate(wr.getCellValue(dateDebutField));
+            const end = dateFinField ? parseAirtableDate(wr.getCellValue(dateFinField)) : null;
+            if (start) {
+                const endDate = end || new Date(start.getTime() + 6 * 86400000);
+                if (today >= start && today <= endDate) return start.getFullYear();
+            }
+        }
+        return new Date().getFullYear();
+    }, [weekRecords, dateDebutField, dateFinField]);
+
+    const effectiveYear =
+        selectedYear !== null && yearOptions.includes(selectedYear)
+            ? selectedYear
+            : (yearOptions.includes(currentYear) ? currentYear : yearOptions[yearOptions.length - 1] ?? null);
+
+    // Weeks of the selected seasonal bloc + year, sorted by start date
     const calendrierWeeks = useMemo(() => {
         if (!effectiveBlocSaison || !blocSaisonField || !dateDebutField || !weekRecords) return [];
         const arr = [];
@@ -470,11 +505,12 @@ function RoutageApp() {
             if (v !== effectiveBlocSaison) continue;
             const dateDebut = parseAirtableDate(wr.getCellValue(dateDebutField));
             if (!dateDebut) continue;
+            if (effectiveYear !== null && dateDebut.getFullYear() !== effectiveYear) continue;
             arr.push({id: wr.id, name: wr.name, dateDebut});
         }
         arr.sort((a, b) => a.dateDebut.getTime() - b.dateDebut.getTime());
         return arr;
-    }, [weekRecords, blocSaisonField, dateDebutField, effectiveBlocSaison]);
+    }, [weekRecords, blocSaisonField, dateDebutField, effectiveBlocSaison, effectiveYear]);
 
     // Month headers spanning consecutive weeks. The "month" of a week is the
     // month of its mid-point (Wednesday) so weeks straddling a boundary
@@ -616,23 +652,42 @@ function RoutageApp() {
                     </div>
                 )}
                 {view === 'calendrier' && (
-                    <div className="flex items-center gap-2">
-                        <label className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300">
-                            Bloc :
-                        </label>
-                        <select
-                            value={effectiveBlocSaison || ''}
-                            onChange={(e) => setSelectedBlocSaison(e.target.value || null)}
-                            className="text-sm border border-gray-gray200 dark:border-gray-gray600 rounded px-2 py-1 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
-                        >
-                            {blocSaisonOptions.length === 0 && (
-                                <option value="">Aucun bloc</option>
-                            )}
-                            {blocSaisonOptions.map((bloc) => (
-                                <option key={bloc} value={bloc}>{bloc}</option>
-                            ))}
-                        </select>
-                    </div>
+                    <>
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300">
+                                Bloc :
+                            </label>
+                            <select
+                                value={effectiveBlocSaison || ''}
+                                onChange={(e) => setSelectedBlocSaison(e.target.value || null)}
+                                className="text-sm border border-gray-gray200 dark:border-gray-gray600 rounded px-2 py-1 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
+                            >
+                                {blocSaisonOptions.length === 0 && (
+                                    <option value="">Aucun bloc</option>
+                                )}
+                                {blocSaisonOptions.map((bloc) => (
+                                    <option key={bloc} value={bloc}>{bloc}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300">
+                                Année :
+                            </label>
+                            <select
+                                value={effectiveYear ?? ''}
+                                onChange={(e) => setSelectedYear(e.target.value ? Number(e.target.value) : null)}
+                                className="text-sm border border-gray-gray200 dark:border-gray-gray600 rounded px-2 py-1 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
+                            >
+                                {yearOptions.length === 0 && (
+                                    <option value="">—</option>
+                                )}
+                                {yearOptions.map((y) => (
+                                    <option key={y} value={y}>{y}</option>
+                                ))}
+                            </select>
+                        </div>
+                    </>
                 )}
                 <div className="flex items-center gap-2">
                     <label className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300">
