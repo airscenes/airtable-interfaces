@@ -849,16 +849,19 @@ function RoutageApp() {
                     <div className="space-y-6">
                         {calendrierByCanal.map((canal) => {
                             const totalCols = 1 + calendrierWeeks.length;
+                            const tableWidth = 120 + calendrierWeeks.length * 36;
                             return (
                                 <table
                                     key={canal.canalId}
-                                    className="border-collapse text-xs min-w-max w-full"
+                                    className="border-collapse text-xs"
+                                    style={{tableLayout: 'fixed', width: tableWidth}}
                                 >
                                     <thead>
                                         {/* Canal name + month spans */}
                                         <tr>
                                             <th
-                                                className="border border-gray-gray200 dark:border-gray-gray600 bg-yellow-yellowLight2 dark:bg-yellow-yellowDark1 text-left px-2 py-1 font-semibold text-sm text-gray-gray700 dark:text-gray-gray200 min-w-[160px]"
+                                                className="border border-gray-gray200 dark:border-gray-gray600 bg-yellow-yellowLight2 dark:bg-yellow-yellowDark1 text-left px-2 py-1 font-semibold text-sm text-gray-gray700 dark:text-gray-gray200 truncate"
+                                                style={{width: 120, minWidth: 120, maxWidth: 120}}
                                             >
                                                 {canal.canalName}
                                             </th>
@@ -874,7 +877,10 @@ function RoutageApp() {
                                         </tr>
                                         {/* PROJETS + Sunday day numbers */}
                                         <tr>
-                                            <th className="border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray75 dark:bg-gray-gray700 text-left px-2 py-1 font-semibold text-xs text-gray-gray600 dark:text-gray-gray300">
+                                            <th
+                                                className="border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray75 dark:bg-gray-gray700 text-left px-2 py-1 font-semibold text-xs text-gray-gray600 dark:text-gray-gray300"
+                                                style={{width: 120, minWidth: 120, maxWidth: 120}}
+                                            >
                                                 PROJETS
                                             </th>
                                             {calendrierWeeks.map((w) => (
@@ -901,7 +907,10 @@ function RoutageApp() {
                                                 className="hover:bg-blue-blueLight3 dark:hover:bg-blue-blueDark1"
                                                 onClick={() => handleRowClick(event.eventId)}
                                             >
-                                                <td className="border border-gray-gray200 dark:border-gray-gray600 px-2 truncate max-w-[200px] min-w-[160px] text-gray-gray700 dark:text-gray-gray200">
+                                                <td
+                                                    className="border border-gray-gray200 dark:border-gray-gray600 px-2 truncate text-gray-gray700 dark:text-gray-gray200"
+                                                    style={{width: 120, minWidth: 120, maxWidth: 120}}
+                                                >
                                                     {event.eventName}
                                                 </td>
                                                 {calendrierWeeks.map((w) => {
@@ -911,7 +920,7 @@ function RoutageApp() {
                                                             key={`${canal.canalId}-${event.eventId}-${w.id}`}
                                                             className={`border border-gray-gray200 dark:border-gray-gray600 ${
                                                                 active
-                                                                    ? 'bg-blue-blueLight2 dark:bg-blue-blueDark1'
+                                                                    ? 'bg-blue-blue dark:bg-blue-blueDusty'
                                                                     : ''
                                                             }`}
                                                             style={{width: 36, minWidth: 36}}
