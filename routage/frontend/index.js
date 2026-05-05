@@ -724,7 +724,7 @@ function RoutageApp() {
 
             {view === 'routage' && (sortedWeeks.length === 0 ? (
                 <p className="text-sm text-gray-gray500 dark:text-gray-gray400 text-center py-8">
-                    Aucun evenement a afficher.
+                    Aucun événement à afficher.
                 </p>
             ) : (
                 <table className="border-collapse text-xs min-w-max w-full">
@@ -899,7 +899,7 @@ function RoutageApp() {
                     </p>
                 ) : calendrierByCanal.length === 0 ? (
                     <p className="text-sm text-gray-gray500 dark:text-gray-gray400 text-center py-8">
-                        Aucun evenement a afficher pour {effectiveBlocSaison}.
+                        Aucun événement à afficher pour {effectiveBlocSaison}.
                     </p>
                 ) : (
                     <div className="space-y-6">
