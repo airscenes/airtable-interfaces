@@ -904,7 +904,7 @@ function RoutageApp() {
                     <div className="space-y-6">
                         {calendrierByCanal.map((canal) => {
                             const totalCols = 1 + calendrierWeeks.length;
-                            const tableWidth = 480 + calendrierWeeks.length * 36;
+                            const tableWidth = 380 + calendrierWeeks.length * 36;
                             return (
                                 <table
                                     key={canal.canalId}
@@ -916,7 +916,7 @@ function RoutageApp() {
                                         <tr>
                                             <th
                                                 className="border border-gray-gray200 dark:border-gray-gray600 bg-yellow-yellowLight2 dark:bg-yellow-yellowDark1 text-left px-2 py-1 font-semibold text-sm text-gray-gray700 dark:text-gray-gray200 truncate"
-                                                style={{width: 480, minWidth: 480, maxWidth: 480}}
+                                                style={{width: 380, minWidth: 380, maxWidth: 380}}
                                             >
                                                 {canal.canalName}
                                             </th>
@@ -934,7 +934,7 @@ function RoutageApp() {
                                         <tr>
                                             <th
                                                 className="border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray75 dark:bg-gray-gray700 text-left px-2 py-1 font-semibold text-xs text-gray-gray600 dark:text-gray-gray300"
-                                                style={{width: 480, minWidth: 480, maxWidth: 480}}
+                                                style={{width: 380, minWidth: 380, maxWidth: 380}}
                                             >
                                                 PROJETS
                                             </th>
@@ -964,7 +964,7 @@ function RoutageApp() {
                                             >
                                                 <td
                                                     className="border border-gray-gray200 dark:border-gray-gray600 px-2 truncate text-gray-gray700 dark:text-gray-gray200"
-                                                    style={{width: 480, minWidth: 480, maxWidth: 480}}
+                                                    style={{width: 380, minWidth: 380, maxWidth: 380}}
                                                 >
                                                     {event.eventName}
                                                 </td>
