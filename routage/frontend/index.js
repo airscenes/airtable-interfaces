@@ -494,9 +494,18 @@ function RoutageApp() {
         return [...canalRecords].sort((a, b) => compareCanalNames(a.name, b.name));
     }, [canalRecords]);
 
-    // Bloc horaire records (e.g. AM, PM, SOIR, NUIT) sorted by the original
-    // table order, used by the Calendrier filter.
-    const blocHoraireOptions = useMemo(() => blocRecords ?? [], [blocRecords]);
+    // Bloc horaire records (AM, PM, SOIR, NUIT) sorted by daypart order,
+    // used by the Calendrier filter.
+    const blocHoraireOptions = useMemo(() => {
+        if (!blocRecords) return [];
+        const order = new Map(BLOC_ORDER.map((name, idx) => [name, idx]));
+        return [...blocRecords].sort((a, b) => {
+            const ai = order.has((a.name || '').toLowerCase()) ? order.get((a.name || '').toLowerCase()) : Number.MAX_SAFE_INTEGER;
+            const bi = order.has((b.name || '').toLowerCase()) ? order.get((b.name || '').toLowerCase()) : Number.MAX_SAFE_INTEGER;
+            if (ai !== bi) return ai - bi;
+            return (a.name || '').localeCompare(b.name || '', 'fr');
+        });
+    }, [blocRecords]);
 
     // Years available for the selected seasonal bloc (from week start dates)
     const yearOptions = useMemo(() => {
