@@ -22,6 +22,31 @@ const MONTH_NAMES_FR = [
     'JUILLET', 'AOÛT', 'SEPTEMBRE', 'OCTOBRE', 'NOVEMBRE', 'DÉCEMBRE',
 ];
 
+// Pinned ordering for the Canal dropdown and Calendrier sections.
+// Names not in this list fall through to alphabetical order.
+const CANAL_PRIORITY_ORDER = [
+    'Principal',
+    'Aire d’attente',
+    'Jeux',
+    'Poker',
+    'Hautes-mises',
+    'Nambs',
+];
+
+function compareCanalNames(a, b) {
+    const norm = (s) => (s || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[‘’]/g, "'");
+    const priorityMap = new Map(
+        CANAL_PRIORITY_ORDER.map((name, idx) => [norm(name), idx]),
+    );
+    const ai = priorityMap.has(norm(a)) ? priorityMap.get(norm(a)) : Number.MAX_SAFE_INTEGER;
+    const bi = priorityMap.has(norm(b)) ? priorityMap.get(norm(b)) : Number.MAX_SAFE_INTEGER;
+    if (ai !== bi) return ai - bi;
+    return (a || '').localeCompare(b || '', 'fr');
+}
+
 // === HELPERS ===
 
 function parseAirtableDate(dateStr) {
@@ -261,6 +286,7 @@ function RoutageApp() {
     const [selectedCanalId, setSelectedCanalId] = useState('__all__');
     const [selectedBlocSaison, setSelectedBlocSaison] = useState(null);
     const [selectedYear, setSelectedYear] = useState(null);
+    const [selectedBlocHoraireId, setSelectedBlocHoraireId] = useState('__all__');
 
     const canExpand = eventsTable && eventsTable.hasPermissionToExpandRecords();
 
@@ -462,6 +488,16 @@ function RoutageApp() {
 
     const effectiveBlocSaison = selectedBlocSaison ?? currentBlocSaison ?? blocSaisonOptions[0] ?? null;
 
+    // Canal records sorted by the pinned priority order
+    const sortedCanalRecords = useMemo(() => {
+        if (!canalRecords) return [];
+        return [...canalRecords].sort((a, b) => compareCanalNames(a.name, b.name));
+    }, [canalRecords]);
+
+    // Bloc horaire records (e.g. AM, PM, SOIR, NUIT) sorted by the original
+    // table order, used by the Calendrier filter.
+    const blocHoraireOptions = useMemo(() => blocRecords ?? [], [blocRecords]);
+
     // Years available for the selected seasonal bloc (from week start dates)
     const yearOptions = useMemo(() => {
         if (!effectiveBlocSaison || !blocSaisonField || !dateDebutField || !weekRecords) return [];
@@ -549,6 +585,11 @@ function RoutageApp() {
                 if (!Array.isArray(linkedSites) || !linkedSites.some((s) => s.id === selectedSiteId)) continue;
             }
 
+            if (selectedBlocHoraireId !== '__all__') {
+                const linkedBlocs = blocLinkField ? event.getCellValue(blocLinkField) : null;
+                if (!Array.isArray(linkedBlocs) || !linkedBlocs.some((b) => b.id === selectedBlocHoraireId)) continue;
+            }
+
             const linkedWeeks = weekLinkField ? event.getCellValue(weekLinkField) : null;
             if (!Array.isArray(linkedWeeks)) continue;
 
@@ -577,11 +618,11 @@ function RoutageApp() {
         }
 
         return Array.from(canalsMap.values())
-            .sort((a, b) => (a.canalName || '').localeCompare(b.canalName || ''));
+            .sort((a, b) => compareCanalNames(a.canalName, b.canalName));
     }, [
         eventRecords, calendrierWeeks,
-        weekLinkField, siteLinkField, canalLinkField,
-        selectedSiteId, selectedCanalId,
+        weekLinkField, siteLinkField, canalLinkField, blocLinkField,
+        selectedSiteId, selectedCanalId, selectedBlocHoraireId,
     ]);
 
     // Error state
@@ -688,6 +729,21 @@ function RoutageApp() {
                                 ))}
                             </select>
                         </div>
+                        <div className="flex items-center gap-2">
+                            <label className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300">
+                                Bloc(s) horaire :
+                            </label>
+                            <select
+                                value={selectedBlocHoraireId}
+                                onChange={(e) => setSelectedBlocHoraireId(e.target.value)}
+                                className="text-sm border border-gray-gray200 dark:border-gray-gray600 rounded px-2 py-1 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
+                            >
+                                <option value="__all__">Tous</option>
+                                {blocHoraireOptions.map((bloc) => (
+                                    <option key={bloc.id} value={bloc.id}>{bloc.name}</option>
+                                ))}
+                            </select>
+                        </div>
                     </>
                 )}
                 <div className="flex items-center gap-2">
@@ -715,7 +771,7 @@ function RoutageApp() {
                         className="text-sm border border-gray-gray200 dark:border-gray-gray600 rounded px-2 py-1 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
                     >
                         <option value="__all__">Tous les canaux</option>
-                        {canalRecords.map((canal) => (
+                        {sortedCanalRecords.map((canal) => (
                             <option key={canal.id} value={canal.id}>{canal.name}</option>
                         ))}
                     </select>
