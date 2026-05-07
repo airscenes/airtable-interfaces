@@ -1,19 +1,17 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import {
   initializeBlock,
-  useBase,
   useRecords,
   useCustomProperties,
 } from "@airtable/blocks/interface/ui";
 import { FieldType } from "@airtable/blocks/interface/models";
 import {
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   ResponsiveContainer,
 } from "recharts";
 import "./style.css";
@@ -194,7 +192,7 @@ function SpectacleCard({ name, subtitle, imageUrl, onClick }) {
 
 // --- Royalties Chart ---
 
-function RoyaltiesChart({ data, selectedIsrcs, height = 400 }) {
+function RoyaltiesChart({ data, height = 400 }) {
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-48">
@@ -205,16 +203,11 @@ function RoyaltiesChart({ data, selectedIsrcs, height = 400 }) {
     );
   }
 
-  // If specific ISRCs selected, show stacked bars per track; otherwise total
-  const trackKeys = selectedIsrcs.length > 0
-    ? selectedIsrcs
-    : [...new Set(data.flatMap((d) => Object.keys(d).filter((k) => k !== "month" && k !== "monthLabel" && k !== "total")))];
-
   return (
     <div className="bg-white dark:bg-gray-gray700 rounded-lg p-4 shadow-sm">
       <div style={{ width: "100%", height }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 10, right: 30, bottom: 5, left: 30 }}>
+          <LineChart data={data} margin={{ top: 10, right: 30, bottom: 5, left: 30 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e8e8e8" vertical={false} />
             <XAxis
               dataKey="monthLabel"
@@ -242,73 +235,66 @@ function RoyaltiesChart({ data, selectedIsrcs, height = 400 }) {
                 border: "1px solid #e0e0e0",
                 boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
               }}
-              formatter={(value, name) => [fmtCurrency(value), name]}
+              formatter={(value) => [fmtCurrency(value), "Revenu net"]}
             />
-            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-            {trackKeys.map((key, i) => (
-              <Bar
-                key={key}
-                dataKey={key}
-                stackId="revenue"
-                fill={TRACK_COLORS[i % TRACK_COLORS.length]}
-                name={key}
-              />
-            ))}
-          </BarChart>
+            <Line
+              type="monotone"
+              dataKey="total"
+              stroke="#4a90d9"
+              strokeWidth={2}
+              dot={{ r: 3, fill: "#4a90d9" }}
+              activeDot={{ r: 5 }}
+            />
+          </LineChart>
         </ResponsiveContainer>
       </div>
     </div>
   );
 }
 
-// --- Track List ---
+// --- Ranking List ---
 
-function TrackList({ tracks, selectedIsrcs, onToggle, onSelectAll, onDeselectAll }) {
-  const allSelected = selectedIsrcs.length === 0;
+function RankingList({ items, title }) {
+  const total = items.reduce((s, it) => s + it.revenue, 0);
   return (
     <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm border border-gray-gray100 dark:border-gray-gray600 overflow-hidden">
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-gray100 dark:border-gray-gray600">
+      <div className="px-3 py-2 border-b border-gray-gray100 dark:border-gray-gray600">
         <span className="text-xs font-semibold text-gray-gray600 dark:text-gray-gray300">
-          Pistes ({tracks.length})
+          {title} ({items.length})
         </span>
-        <button
-          onClick={allSelected ? onDeselectAll : onSelectAll}
-          className="text-xs text-blue-blue hover:text-blue-blueDark1 dark:text-blue-blueLight1 font-medium"
-        >
-          {allSelected ? "Deselectionner" : "Voir tout"}
-        </button>
       </div>
-      <div style={{ maxHeight: 350, overflowY: "auto" }}>
-        {tracks.map((track, i) => {
-          const isActive = allSelected || selectedIsrcs.includes(track.label);
-          return (
-            <div
-              key={track.isrc}
-              onClick={() => onToggle(track.label)}
-              className={`flex items-center gap-2 px-3 py-2 cursor-pointer transition-colors text-xs
-                ${isActive ? "bg-blue-blueLight3 dark:bg-gray-gray600" : "hover:bg-gray-gray50 dark:hover:bg-gray-gray600"}`}
-            >
+      <div style={{ maxHeight: 500, overflowY: "auto" }}>
+        {items.length === 0 ? (
+          <div className="px-3 py-4 text-xs text-gray-gray400 text-center">Aucune donnee</div>
+        ) : (
+          items.map((it, i) => {
+            const pct = total > 0 ? (it.revenue / total) * 100 : 0;
+            return (
               <div
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: 2,
-                  backgroundColor: TRACK_COLORS[i % TRACK_COLORS.length],
-                  flexShrink: 0,
-                }}
-              />
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-gray-gray700 dark:text-gray-gray200 truncate">
-                  {track.title || track.isrc}
-                </p>
-                <p className="text-gray-gray400 truncate">{track.isrc}</p>
+                key={it.key}
+                className="flex items-center gap-3 px-3 py-2 text-xs border-b border-gray-gray100 dark:border-gray-gray600"
+              >
+                <span className="text-gray-gray400 font-medium w-6 text-right">{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="font-medium text-gray-gray700 dark:text-gray-gray200 truncate">
+                      {it.label}
+                    </span>
+                    <span className="text-gray-gray500 dark:text-gray-gray400 font-medium whitespace-nowrap">
+                      {fmtCurrency(it.revenue)} <span className="text-gray-gray400">({pct.toFixed(1)}%)</span>
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-gray-gray100 dark:bg-gray-gray600 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${pct}%`, backgroundColor: TRACK_COLORS[i % TRACK_COLORS.length] }}
+                    />
+                  </div>
+                </div>
               </div>
-              <span className="text-gray-gray500 dark:text-gray-gray400 font-medium whitespace-nowrap">
-                {fmtCurrency(track.totalRevenue)}
-              </span>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );
@@ -326,13 +312,13 @@ function DetailPage({
   clientId,
   onBack,
 }) {
-  const [selectedIsrcs, setSelectedIsrcs] = useState([]);
   const [royaltiesData, setRoyaltiesData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const [viewBy, setViewBy] = useState("platform");
   const cacheRef = useRef(new Map());
 
   // Extract ISRCs from oeuvres records
@@ -420,37 +406,37 @@ function DetailPage({
     return () => { didCancel = true; };
   }, [supabaseUrl, supabaseAnonKey, clientId, isrcList, dateFrom, dateTo, refreshKey]);
 
-  // Transform raw data into chart format
-  const { chartData, tracksWithRevenue } = useMemo(() => {
-    if (!royaltiesData || royaltiesData.length === 0) {
-      return { chartData: [], tracksWithRevenue: tracks.map((t) => ({ ...t, totalRevenue: 0 })) };
-    }
-
-    // Group by month
+  // Monthly totals for the chart
+  const chartData = useMemo(() => {
+    if (!royaltiesData || royaltiesData.length === 0) return [];
     const byMonth = {};
-    const revByTrack = {};
-
     royaltiesData.forEach((row) => {
-      const monthKey = row.reporting_month?.split("T")[0] || row.reporting_month;
-      const label = isrcToLabel[row.isrc] || row.track_title || row.isrc;
+      const monthKey = (row.reporting_month || "").slice(0, 7);
       const rev = parseFloat(row.total_net_revenue) || 0;
-
-      if (!byMonth[monthKey]) byMonth[monthKey] = { month: monthKey, monthLabel: formatMonth(monthKey) };
-      byMonth[monthKey][label] = (byMonth[monthKey][label] || 0) + rev;
-      byMonth[monthKey].total = (byMonth[monthKey].total || 0) + rev;
-
-      revByTrack[row.isrc] = (revByTrack[row.isrc] || 0) + rev;
+      if (!byMonth[monthKey]) byMonth[monthKey] = { month: monthKey, monthLabel: formatMonth(monthKey), total: 0 };
+      byMonth[monthKey].total += rev;
     });
+    return Object.values(byMonth).sort((a, b) => a.month.localeCompare(b.month));
+  }, [royaltiesData]);
 
-    const chartData = Object.values(byMonth).sort((a, b) => a.month.localeCompare(b.month));
-
-    const tracksWithRevenue = tracks.map((t) => ({
-      ...t,
-      totalRevenue: revByTrack[t.isrc] || 0,
-    })).sort((a, b) => b.totalRevenue - a.totalRevenue);
-
-    return { chartData, tracksWithRevenue };
-  }, [royaltiesData, tracks, isrcToLabel]);
+  // Ranked items for the list, based on viewBy
+  const rankedItems = useMemo(() => {
+    if (!royaltiesData || royaltiesData.length === 0) return [];
+    const totals = {};
+    royaltiesData.forEach((row) => {
+      const rev = parseFloat(row.total_net_revenue) || 0;
+      let key;
+      if (viewBy === "track") {
+        key = isrcToLabel[row.isrc] || row.track_title || row.isrc || "(inconnu)";
+      } else {
+        key = row[viewBy] || "(autre)";
+      }
+      totals[key] = (totals[key] || 0) + rev;
+    });
+    return Object.entries(totals)
+      .map(([key, revenue]) => ({ key, label: key, revenue }))
+      .sort((a, b) => b.revenue - a.revenue);
+  }, [royaltiesData, viewBy, isrcToLabel]);
 
   // KPIs
   const totalRevenue = useMemo(() => {
@@ -462,18 +448,6 @@ function DetailPage({
     if (!royaltiesData) return 0;
     return royaltiesData.reduce((sum, r) => sum + (parseInt(r.total_quantity) || 0), 0);
   }, [royaltiesData]);
-
-  // Toggle track selection
-  const handleToggle = (label) => {
-    setSelectedIsrcs((prev) => {
-      if (prev.length === 0) return [label];
-      if (prev.includes(label)) {
-        const next = prev.filter((l) => l !== label);
-        return next.length === 0 ? [] : next;
-      }
-      return [...prev, label];
-    });
-  };
 
   // Presets
   const presets = [
@@ -598,25 +572,11 @@ function DetailPage({
           </div>
         </div>
 
-        {/* Mode label */}
-        {selectedIsrcs.length > 0 ? (
-          <button
-            onClick={() => setSelectedIsrcs([])}
-            className="flex items-center gap-1 text-xs font-medium text-blue-blue hover:text-blue-blueDark1
-                         dark:text-blue-blueLight1 dark:hover:text-blue-blueLight2 transition-colors mb-1 mx-auto"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M19 12H5M12 19l-7-7 7-7" />
-            </svg>
-            Voir le total ({selectedIsrcs.length} piste{selectedIsrcs.length > 1 ? "s" : ""})
-          </button>
-        ) : (
-          <p className="text-xs text-gray-gray500 dark:text-gray-gray400 mb-1 text-center font-medium">
-            Total &mdash; toutes les pistes
-          </p>
-        )}
+        <p className="text-xs text-gray-gray500 dark:text-gray-gray400 mb-1 text-center font-medium">
+          Revenu net total par mois
+        </p>
 
-        <RoyaltiesChart data={chartData} selectedIsrcs={selectedIsrcs} height={320} />
+        <RoyaltiesChart data={chartData} height={440} />
       </div>
     );
   })();
@@ -658,22 +618,41 @@ function DetailPage({
           <p className="text-2xl font-bold font-display text-gray-gray800 dark:text-gray-gray100">
             {tracks.length}
           </p>
-          <p className="text-xs text-gray-gray400 mt-1">Pistes (ISRCs)</p>
+          <p className="text-xs text-gray-gray400 mt-1">Pistes</p>
         </div>
       </div>
 
-      {/* Chart + Track List */}
-      <div className="flex gap-5" style={{ minHeight: 400 }}>
-        <div style={{ width: "65%" }}>{chartContent}</div>
-        <div style={{ width: "35%" }}>
-          <TrackList
-            tracks={tracksWithRevenue}
-            selectedIsrcs={selectedIsrcs}
-            onToggle={handleToggle}
-            onSelectAll={() => setSelectedIsrcs([])}
-            onDeselectAll={() => setSelectedIsrcs([tracksWithRevenue[0]?.label].filter(Boolean))}
-          />
+      {/* Chart full width */}
+      <div className="w-full mb-5">{chartContent}</div>
+
+      {/* View-by selector + ranking list */}
+      <div className="w-full">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          <span className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Voir par:</span>
+          {[
+            { key: "platform", label: "Plateforme" },
+            { key: "country_region", label: "Pays" },
+            { key: "sales_type", label: "Type de vente" },
+            { key: "track", label: "Piste" },
+          ].map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => setViewBy(opt.key)}
+              className={`${btnBase} ${viewBy === opt.key ? btnActive : btnInactive}`}
+            >
+              {opt.label}
+            </button>
+          ))}
         </div>
+        <RankingList
+          items={rankedItems}
+          title={
+            viewBy === "platform" ? "Plateformes"
+            : viewBy === "country_region" ? "Pays / regions"
+            : viewBy === "sales_type" ? "Types de vente"
+            : "Pistes"
+          }
+        />
       </div>
     </div>
   );
@@ -682,19 +661,26 @@ function DetailPage({
 // --- Main App ---
 
 function RoyaltiesApp() {
-  const base = useBase();
-  const customProperties = useCustomProperties(getCustomProperties, base);
+  const { customPropertyValueByKey } = useCustomProperties(getCustomProperties);
 
-  const spectaclesTable = customProperties.spectaclesTable;
-  const oeuvresTable = customProperties.oeuvresTable;
-  const imageField = customProperties.imageField;
-  const cardSubtitleField = customProperties.cardSubtitleField;
-  const oeuvresLinkField = customProperties.oeuvresLinkField;
-  const isrcField = customProperties.isrcField;
-  const trackTitleField = customProperties.trackTitleField;
-  const supabaseUrl = customProperties.supabaseUrl;
-  const supabaseAnonKey = customProperties.supabaseAnonKey;
-  const clientId = customProperties.clientId;
+  const spectaclesTable = customPropertyValueByKey.spectaclesTable;
+  const oeuvresTable = customPropertyValueByKey.oeuvresTable;
+  const imageField = customPropertyValueByKey.imageField;
+  const cardSubtitleField = customPropertyValueByKey.cardSubtitleField;
+  const oeuvresLinkField = customPropertyValueByKey.oeuvresLinkField;
+  const isrcField = customPropertyValueByKey.isrcField;
+  const trackTitleField = customPropertyValueByKey.trackTitleField;
+  const supabaseUrl = customPropertyValueByKey.supabaseUrl;
+  const supabaseAnonKey = customPropertyValueByKey.supabaseAnonKey;
+  const clientId = customPropertyValueByKey.clientId;
+
+  if (!spectaclesTable || !oeuvresTable) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-sm text-gray-gray500">Veuillez configurer les tables dans les proprietes de l'extension.</p>
+      </div>
+    );
+  }
 
   const spectaclesRecords = useRecords(spectaclesTable);
   const oeuvresRecords = useRecords(oeuvresTable);
