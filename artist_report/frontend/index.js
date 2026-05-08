@@ -111,6 +111,7 @@ function getCustomProperties(base) {
 
     // --- Comptes (pour les lignes ad-hoc) ---
     { key: "comptesTable", label: "Table des Comptes", type: "table" },
+    { key: "categoriesTable", label: "Table des Catégories (liée à Comptes via le champ « Catégories »)", type: "table" },
 
     // --- Template Excel ---
     { key: "templateAttachmentField", label: "Champ attachement Template Excel", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
@@ -440,8 +441,7 @@ function readDateForExport(rec, dateField, dateWriteField) {
   return tryRead(dateField) || tryRead(dateWriteField) || "";
 }
 
-const DEP_COL_MAP = ["B", "C"];                  // 2 dépenses columns in template
-const REV_COL_MAP = ["F", "G", "H", "I", "J"];   // 5 revenus columns in template
+const REV_COL_MAP = ["F", "H", "I", "J"];   // 4 revenus columns (G = Bandcamp physique, retiré)
 const DEP_FIRST_ROW = 25;
 const REV_LIST_ROW = 34;    // first row for existing revenus consolidated list
 
@@ -450,7 +450,6 @@ async function exportFromTemplate({
   canalName, year, half,
   monthIndices,
   revenusInputs, revenusChoices,
-  depensesInputs, depensesChoices,
   existingDepenses,
   depensesDateField, depensesDateWriteField,
   depensesMontantField, depensesNotesField, depensesFournisseurField, depensesDescriptionField,
@@ -484,17 +483,9 @@ async function exportFromTemplate({
     });
   });
 
-  // 2. Fill top grids — Dépenses (B12:C17)
+  // 2. Fill top grid — Revenus (F12:J17, G = Bandcamp physique retiré)
   for (let i = 0; i < 6 && i < monthIndices.length; i++) {
     const m = monthIndices[i];
-    for (let j = 0; j < depensesChoices.length && j < DEP_COL_MAP.length; j++) {
-      const col = DEP_COL_MAP[j];
-      const choice = depensesChoices[j];
-      const raw = (depensesInputs[m] && depensesInputs[m][choice.id]) || "";
-      const v = parseFloat(String(raw).replace(",", "."));
-      if (!isNaN(v) && v !== 0) ws.getCell(`${col}${12 + i}`).value = v;
-    }
-    // Revenus (F12:J17)
     for (let j = 0; j < revenusChoices.length && j < REV_COL_MAP.length; j++) {
       const col = REV_COL_MAP[j];
       const choice = revenusChoices[j];
@@ -572,14 +563,7 @@ async function exportFromTemplate({
     return s;
   };
 
-  // Top grids monthly totals (row 18)
-  const depColSums = [];
-  DEP_COL_MAP.forEach((col, idx) => {
-    const choice = depensesChoices[idx];
-    const s = choice ? gridColSum(depensesInputs, choice.id) : 0;
-    depColSums.push(s);
-    ws.getCell(`${col}18`).value = s;
-  });
+  // Top grid monthly totals (row 18) — Revenus only
   const revColSums = [];
   REV_COL_MAP.forEach((col, idx) => {
     const choice = revenusChoices[idx];
@@ -588,10 +572,7 @@ async function exportFromTemplate({
     ws.getCell(`${col}18`).value = s;
   });
 
-  // Distributeur totals (row 20)
-  const depGridTotal = depColSums.reduce((s, v) => s + v, 0);
   const revGridTotal = revColSums.reduce((s, v) => s + v, 0);
-  ws.getCell(`B20`).value = depGridTotal;
   ws.getCell(`F20`).value = revGridTotal;
 
   // Existing dépenses sub-total (G26 area, shifted by depOffset)
@@ -798,7 +779,7 @@ function ReportInner({ cfg }) {
     depensesCategorieField, depensesEtatLinkField, depensesFournisseurField, depensesNotesField, depensesDescriptionField,
     depensesNoFactureField, depensesModePaiementField, depensesArtisteField,
     revenusColumnsJson, depensesColumnsJson,
-    comptesTable,
+    comptesTable, categoriesTable,
     templateAttachmentField,
   } = cfg;
 
@@ -806,6 +787,31 @@ function ReportInner({ cfg }) {
   const revenusRecords = useRecords(revenusTable);
   const depensesRecords = useRecords(depensesTable);
   const comptesRecords = useRecords(comptesTable);
+  // useRecords crashes on null; fall back to a known table when not yet configured.
+  const categoriesRecords = useRecords(categoriesTable || canauxTable);
+
+  // Subventions/Droits: only Comptes whose "Catégories" linked records include
+  // "Synchronisation" or "Subventions". Linked-record cells return [{id}] only,
+  // so resolve names via the linked Catégories table records.
+  const filteredComptesRecords = useMemo(() => {
+    if (!comptesRecords) return [];
+    const norm = (s) => (s || "").normalize("NFC").toLowerCase();
+    const catField = comptesTable && comptesTable.fields.find((f) => norm(f.name) === norm("Catégories"));
+    if (!catField || !categoriesTable || !categoriesRecords) return comptesRecords;
+    const wantedIds = new Set(
+      categoriesRecords
+        .filter((r) => r.name === "Synchronisation" || r.name === "Subventions")
+        .map((r) => r.id),
+    );
+    if (wantedIds.size === 0) return [];
+    return comptesRecords
+      .filter((rec) => {
+        const v = rec.getCellValue(catField);
+        if (!Array.isArray(v)) return false;
+        return v.some((item) => item && wantedIds.has(item.id));
+      })
+      .sort((a, b) => (a.name || "").localeCompare(b.name || "", "fr"));
+  }, [comptesRecords, comptesTable, categoriesTable, categoriesRecords]);
 
   const columnsConfig = useMemo(() => {
     const parseOne = (raw) => {
@@ -842,14 +848,12 @@ function ReportInner({ cfg }) {
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [half, setHalf] = useState("H1");
   const [revenusInputs, setRevenusInputs] = useState({});
-  const [depensesInputs, setDepensesInputs] = useState({});
   const [freeRevenus, setFreeRevenus] = useState([]); // [{compteId, notes, montant, month}]
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState(null);
 
   useEffect(() => {
     setRevenusInputs({});
-    setDepensesInputs({});
     setFreeRevenus([]);
     setSavedMsg(null);
   }, [selectedCanalId, year, half]);
@@ -911,16 +915,9 @@ function ReportInner({ cfg }) {
     () => columnsConfig.revenus.map((c) => ({ id: c.label, name: c.label, compteId: c.compteId, group: c.group })),
     [columnsConfig],
   );
-  const depensesChoices = useMemo(
-    () => columnsConfig.depenses.map((c) => ({ id: c.label, name: c.label, compteId: c.compteId, group: c.group })),
-    [columnsConfig],
-  );
 
   const handleRevenusChange = (m, choiceId, val) => {
     setRevenusInputs((prev) => ({ ...prev, [m]: { ...(prev[m] || {}), [choiceId]: val } }));
-  };
-  const handleDepensesChange = (m, choiceId, val) => {
-    setDepensesInputs((prev) => ({ ...prev, [m]: { ...(prev[m] || {}), [choiceId]: val } }));
   };
 
   const collectRecords = (inputs, columns, dateField, montantField, categorieField, canalLinkField, notesField, notesPrefix) => {
@@ -972,11 +969,7 @@ function ReportInner({ cfg }) {
     ],
     [revenusInputs, freeRevenus, revenusChoices, year, selectedCanalId, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField],
   );
-  const newDepensesToCreate = useMemo(
-    () => collectRecords(depensesInputs, depensesChoices, depensesDateWriteField, depensesMontantField, depensesCategorieField, depensesCanalLinkField, depensesNotesField, "Distributeur "),
-    [depensesInputs, depensesChoices, year, selectedCanalId, depensesDateWriteField, depensesMontantField, depensesCategorieField, depensesCanalLinkField, depensesNotesField],
-  );
-  const totalToCreate = newRevenusToCreate.length + newDepensesToCreate.length;
+  const totalToCreate = newRevenusToCreate.length;
 
   const handleSave = async () => {
     if (totalToCreate === 0 || saving) return;
@@ -986,11 +979,7 @@ function ReportInner({ cfg }) {
       for (let i = 0; i < newRevenusToCreate.length; i += 50) {
         await revenusTable.createRecordsAsync(newRevenusToCreate.slice(i, i + 50));
       }
-      for (let i = 0; i < newDepensesToCreate.length; i += 50) {
-        await depensesTable.createRecordsAsync(newDepensesToCreate.slice(i, i + 50));
-      }
       setRevenusInputs({});
-      setDepensesInputs({});
       setSavedMsg(`${totalToCreate} entrée${totalToCreate > 1 ? "s" : ""} sauvegardée${totalToCreate > 1 ? "s" : ""}.`);
     } catch (err) {
       console.error("Save failed:", err);
@@ -1029,7 +1018,6 @@ function ReportInner({ cfg }) {
         year, half,
         monthIndices,
         revenusInputs, revenusChoices,
-        depensesInputs, depensesChoices,
         existingDepenses,
         depensesDateField, depensesDateWriteField,
         depensesMontantField, depensesNotesField, depensesFournisseurField, depensesDescriptionField,
@@ -1059,11 +1047,10 @@ function ReportInner({ cfg }) {
   };
 
   const totalDepenses = useMemo(() => {
-    const existing = depensesMontantField
+    return depensesMontantField
       ? existingDepenses.reduce((s, r) => s + (Number(r.getCellValue(depensesMontantField)) || 0), 0)
       : 0;
-    return existing + sumInputs(depensesInputs);
-  }, [existingDepenses, depensesInputs, depensesMontantField]);
+  }, [existingDepenses, depensesMontantField]);
 
   const totalRevenus = useMemo(() => {
     const existing = revenusMontantField
@@ -1142,7 +1129,7 @@ function ReportInner({ cfg }) {
           title="Subventions / Droits synchro / Autres"
           rows={freeRevenus}
           onChange={setFreeRevenus}
-          comptesRecords={comptesRecords}
+          comptesRecords={filteredComptesRecords}
           monthIndices={monthIndices}
         />
       </div>
@@ -1161,17 +1148,8 @@ function ReportInner({ cfg }) {
       </div>
 
       <h2 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100 mt-2 mb-3">
-        Dépenses Distributeur
+        Dépenses
       </h2>
-      <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
-        <EditableGrid
-          title="Saisie"
-          choices={depensesChoices}
-          monthIndices={monthIndices}
-          inputs={depensesInputs}
-          onChange={handleDepensesChange}
-        />
-      </div>
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-6">
         <h3 className="text-base font-semibold text-gray-gray700 dark:text-gray-gray100 mb-2">
           Existantes sur la période (non encore rapportées)
