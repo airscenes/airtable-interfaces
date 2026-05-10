@@ -378,6 +378,7 @@ function DetailPage({
               apikey: supabaseAnonKey,
               Authorization: `Bearer ${supabaseAnonKey}`,
               "Content-Type": "application/json",
+              "x-client-id": clientId,
             },
             body: JSON.stringify(body),
           },
