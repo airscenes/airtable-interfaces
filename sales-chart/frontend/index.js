@@ -37,6 +37,17 @@ const MONTHS_SHORT = [
   "dec",
 ];
 
+// Date range presets: `days` or `months` = offset back from now.
+// Day-based presets also pin dateTo to "now" so short ranges render a line.
+const PRESETS = [
+  { key: "24h", label: "24h", days: 1 },
+  { key: "72h", label: "72h", days: 3 },
+  { key: "7d", label: "7j", days: 7 },
+  { key: "1m", label: "1m", months: 1 },
+  { key: "3m", label: "3m", months: 3 },
+  { key: "all", label: "Tout" },
+];
+
 function formatDate(isoDate) {
   if (!isoDate) return "";
   const parts = isoDate.split("-");
@@ -417,6 +428,66 @@ function CustomXAxisTick({ x, y, payload }) {
 
 // --- Sales Chart Component ---
 
+// Aggregate raw sales_report rows into one cumulative point per calendar day.
+// Cumulative values never decrease (Math.max); each record carries its last
+// known value forward to fill gap days. String-based date math avoids UTC shift.
+function aggregateSalesByDate(rows) {
+  const byRecord = {};
+  const allDatesSet = new Set();
+  rows.forEach((row) => {
+    const rid = row.record_id;
+    const day = row.date ? row.date.split("T")[0] : row.date;
+    allDatesSet.add(day);
+    if (!byRecord[rid]) byRecord[rid] = {};
+    byRecord[rid][day] = {
+      sold: row.sold || 0,
+      free: row.free || 0,
+      total: parseFloat(row.total) || 0,
+    };
+  });
+  const sortedDates = [...allDatesSet].sort();
+  if (sortedDates.length === 0) return [];
+  const recordIds = Object.keys(byRecord);
+  const nextDay = (dateStr) => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const dt = new Date(y, m - 1, d + 1);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  };
+  const lastKnown = {};
+  const formatted = [];
+  for (
+    let day = sortedDates[0];
+    day <= sortedDates[sortedDates.length - 1];
+    day = nextDay(day)
+  ) {
+    let sumSold = 0,
+      sumFree = 0,
+      sumTotal = 0;
+    for (const rid of recordIds) {
+      if (byRecord[rid] && byRecord[rid][day]) {
+        const entry = byRecord[rid][day];
+        if (!lastKnown[rid]) lastKnown[rid] = { sold: 0, free: 0, total: 0 };
+        lastKnown[rid].sold = Math.max(lastKnown[rid].sold, entry.sold);
+        lastKnown[rid].free = Math.max(lastKnown[rid].free, entry.free);
+        lastKnown[rid].total = Math.max(lastKnown[rid].total, entry.total);
+      }
+      if (lastKnown[rid]) {
+        sumSold += lastKnown[rid].sold;
+        sumFree += lastKnown[rid].free;
+        sumTotal += lastKnown[rid].total;
+      }
+    }
+    formatted.push({
+      date: day,
+      dateLabel: formatDate(day),
+      ventes: sumSold,
+      gratuits: sumFree,
+      total_dollars: sumTotal,
+    });
+  }
+  return formatted;
+}
+
 function SalesChart({ data, capacity, revenueCapacity, height = 500 }) {
   if (!data || data.length === 0) {
     return (
@@ -536,6 +607,270 @@ function SalesChart({ data, capacity, revenueCapacity, height = 500 }) {
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+    </div>
+  );
+}
+
+// --- Home aggregate chart: total sales across every representation ---
+
+function HomeSalesChart({ repIds, supabaseUrl, supabaseAnonKey, baseId }) {
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const cacheRef = useRef(new Map());
+  const idsStr = useMemo(() => [...repIds].sort().join(","), [repIds]);
+
+  useEffect(() => {
+    if (!supabaseUrl || !supabaseAnonKey || !idsStr) {
+      setData([]);
+      return;
+    }
+    const today = new Date().toISOString().split("T")[0];
+    const cacheKey = `home_${baseId}_${today}_${refreshKey}`;
+    let didCancel = false;
+
+    const run = async () => {
+      if (cacheRef.current.has(cacheKey)) {
+        if (!didCancel) {
+          setData(cacheRef.current.get(cacheKey));
+          setLoading(false);
+        }
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const ids = idsStr.split(",");
+        // Chunk the IN() filter so URLs stay within server limits.
+        const chunkSize = 150;
+        const pageSize = 1000;
+        let rows = [];
+        for (let i = 0; i < ids.length; i += chunkSize) {
+          const chunk = ids.slice(i, i + chunkSize).join(",");
+          const baseUrl =
+            `${supabaseUrl}/rest/v1/sales_report` +
+            `?base_id=eq.${baseId}` +
+            `&record_id=in.(${chunk})` +
+            `&order=date.asc` +
+            `&select=record_id,date,sold,free,total`;
+          let offset = 0;
+          while (true) {
+            const response = await fetch(
+              baseUrl + `&limit=${pageSize}&offset=${offset}`,
+              {
+                headers: {
+                  apikey: supabaseAnonKey,
+                  Authorization: `Bearer ${supabaseAnonKey}`,
+                  "Content-Type": "application/json",
+                },
+              },
+            );
+            if (!response.ok) {
+              throw new Error(
+                `Erreur Supabase: ${response.status} ${response.statusText}`,
+              );
+            }
+            const page = await response.json();
+            rows = rows.concat(page);
+            if (page.length < pageSize) break;
+            offset += pageSize;
+            if (didCancel) return;
+          }
+        }
+        if (didCancel) return;
+        const formatted = aggregateSalesByDate(rows);
+        cacheRef.current.set(cacheKey, formatted);
+        setData(formatted);
+        setLoading(false);
+      } catch (err) {
+        if (!didCancel) {
+          setError(err.message);
+          setLoading(false);
+        }
+      }
+    };
+
+    run();
+    return () => {
+      didCancel = true;
+    };
+  }, [idsStr, supabaseUrl, supabaseAnonKey, baseId, refreshKey]);
+
+  const localDateStr = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  const activePreset = useMemo(() => {
+    if (!dateFrom && !dateTo) return "all";
+    const now = new Date();
+    const nowStr = localDateStr(now);
+    for (const p of PRESETS) {
+      if (p.key === "all") continue;
+      const from = new Date(now);
+      if (p.days != null) from.setDate(from.getDate() - p.days);
+      else from.setMonth(from.getMonth() - p.months);
+      if (dateFrom !== localDateStr(from)) continue;
+      if (p.days != null ? dateTo === nowStr : !dateTo) return p.key;
+    }
+    return null;
+  }, [dateFrom, dateTo]);
+
+  const filteredData = useMemo(() => {
+    if (!data.length) return data;
+    let d = data;
+    if (dateFrom) d = d.filter((x) => x.date >= dateFrom);
+    if (dateTo) d = d.filter((x) => x.date <= dateTo);
+    if (d.length === 1 && dateTo && d[0].date !== dateTo) {
+      d = [...d, { ...d[0], date: dateTo, dateLabel: dateTo }];
+    }
+    return d;
+  }, [data, dateFrom, dateTo]);
+
+  // Delta between the point just before the range and the last point in range.
+  const periodStats = useMemo(() => {
+    if (filteredData.length < 1) return null;
+    const first = filteredData[0];
+    const last = filteredData[filteredData.length - 1];
+    const baseIndex = data.indexOf(first);
+    const baseRow =
+      baseIndex > 0 ? data[baseIndex - 1] : { ventes: 0, total_dollars: 0 };
+    return {
+      ventesInPeriod: last.ventes - baseRow.ventes,
+      revenusInPeriod: last.total_dollars - baseRow.total_dollars,
+    };
+  }, [filteredData, data]);
+
+  const hasFilter = !!(dateFrom || dateTo);
+  const kpis = useMemo(() => {
+    if (!data.length)
+      return [
+        { value: "—", label: "Billets vendus" },
+        { value: "—", label: "Revenus" },
+      ];
+    const last =
+      filteredData.length > 0
+        ? filteredData[filteredData.length - 1]
+        : data[data.length - 1];
+    if (hasFilter && periodStats) {
+      return [
+        {
+          value: `+${periodStats.ventesInPeriod.toLocaleString("fr-FR")}`,
+          label: "Billets vendus (période)",
+          colored: true,
+        },
+        {
+          value: `+${periodStats.revenusInPeriod.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} $`,
+          label: "Revenus (période)",
+          colored: true,
+        },
+      ];
+    }
+    return [
+      { value: last.ventes.toLocaleString("fr-FR"), label: "Billets vendus" },
+      {
+        value: `${last.total_dollars.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} $`,
+        label: "Revenus",
+      },
+    ];
+  }, [data, filteredData, hasFilter, periodStats]);
+
+  const setPreset = (key) => {
+    const now = new Date();
+    const p = PRESETS.find((x) => x.key === key);
+    if (!p || key === "all") {
+      setDateFrom("");
+      setDateTo("");
+      return;
+    }
+    const from = new Date(now);
+    if (p.days != null) from.setDate(from.getDate() - p.days);
+    else from.setMonth(from.getMonth() - p.months);
+    setDateFrom(localDateStr(from));
+    setDateTo(p.days != null ? localDateStr(now) : "");
+  };
+
+  const btnBase = "px-2 py-0.5 rounded text-xs font-medium transition-colors";
+  const btnActive = "bg-blue-blue text-white";
+  const btnInactive =
+    "bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray300 hover:bg-gray-gray200 dark:hover:bg-gray-gray500";
+
+  return (
+    <div>
+      {/* Filter bar + dynamic KPIs */}
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <div className="flex items-center gap-1">
+          {PRESETS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setPreset(p.key)}
+              className={`${btnBase} ${activePreset === p.key ? btnActive : btnInactive}`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-3">
+          {kpis.map((k, i) => (
+            <div
+              key={i}
+              className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm border border-gray-gray100 dark:border-gray-gray600 flex flex-col items-center justify-center px-4 py-2"
+              style={{
+                minWidth: 120,
+                ...(k.colored
+                  ? { borderColor: i === 0 ? "#3b82f6" : "#4a7a33", borderWidth: 2 }
+                  : {}),
+              }}
+            >
+              <span
+                className="font-bold font-display text-gray-gray800 dark:text-gray-gray100"
+                style={{
+                  fontSize: "1.25rem",
+                  lineHeight: 1.1,
+                  ...(k.colored ? { color: i === 0 ? "#3b82f6" : "#4a7a33" } : {}),
+                }}
+              >
+                {k.value}
+              </span>
+              <span
+                className="text-gray-gray500 dark:text-gray-gray400 uppercase tracking-wide mt-0.5"
+                style={{ fontSize: "0.55rem", fontWeight: 500 }}
+              >
+                {k.label}
+              </span>
+            </div>
+          ))}
+          <button
+            onClick={() => {
+              cacheRef.current.clear();
+              setRefreshKey((k) => k + 1);
+            }}
+            title="Rafraîchir les données"
+            className={`${btnBase} ${btnInactive}`}
+          >
+            ↺
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div
+          className="bg-white dark:bg-gray-gray700 rounded-lg p-4 shadow-sm flex items-center justify-center"
+          style={{ height: 300 }}
+        >
+          <div className="flex items-center space-x-3 text-gray-gray500">
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-blue"></div>
+            <span className="text-sm">Chargement...</span>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="bg-white dark:bg-gray-gray700 rounded-lg p-4 shadow-sm text-sm text-red-red dark:text-red-redLight1">
+          {error}
+        </div>
+      ) : (
+        <SalesChart data={filteredData} height={280} />
+      )}
     </div>
   );
 }
@@ -841,80 +1176,7 @@ function DetailPage({
         }
 
         if (!didCancel) {
-          // Group rows by record_id, keyed by date (works for both all mode and multi-select)
-          const byRecord = {};
-          const allDatesSet = new Set();
-          data.forEach((row) => {
-            const rid = row.record_id;
-            const day = row.date ? row.date.split("T")[0] : row.date;
-            allDatesSet.add(day);
-            if (!byRecord[rid]) byRecord[rid] = {};
-            byRecord[rid][day] = {
-              sold: row.sold || 0,
-              free: row.free || 0,
-              total: parseFloat(row.total) || 0,
-            };
-          });
-
-          const sortedDates = [...allDatesSet].sort();
-          const recordIds = Object.keys(byRecord);
-          let formatted;
-
-          if (sortedDates.length > 0) {
-            // Fill every calendar day; carry-forward per record
-            // Cumulative data: values never decrease (use Math.max)
-            // Use string-based date iteration to avoid UTC timezone shift
-            const nextDay = (dateStr) => {
-              const [y, m, d] = dateStr.split("-").map(Number);
-              const dt = new Date(y, m - 1, d + 1);
-              return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
-            };
-            const lastKnown = {};
-            formatted = [];
-            for (
-              let day = sortedDates[0];
-              day <= sortedDates[sortedDates.length - 1];
-              day = nextDay(day)
-            ) {
-              let sumSold = 0,
-                sumFree = 0,
-                sumTotal = 0;
-              for (const rid of recordIds) {
-                if (byRecord[rid] && byRecord[rid][day]) {
-                  const entry = byRecord[rid][day];
-                  if (!lastKnown[rid])
-                    lastKnown[rid] = { sold: 0, free: 0, total: 0 };
-                  lastKnown[rid].sold = Math.max(
-                    lastKnown[rid].sold,
-                    entry.sold,
-                  );
-                  lastKnown[rid].free = Math.max(
-                    lastKnown[rid].free,
-                    entry.free,
-                  );
-                  lastKnown[rid].total = Math.max(
-                    lastKnown[rid].total,
-                    entry.total,
-                  );
-                }
-                if (lastKnown[rid]) {
-                  sumSold += lastKnown[rid].sold;
-                  sumFree += lastKnown[rid].free;
-                  sumTotal += lastKnown[rid].total;
-                }
-              }
-              formatted.push({
-                date: day,
-                dateLabel: formatDate(day),
-                ventes: sumSold,
-                gratuits: sumFree,
-                total_dollars: sumTotal,
-              });
-            }
-          } else {
-            formatted = [];
-          }
-
+          const formatted = aggregateSalesByDate(data);
           cacheRef.current.set(cacheKey, formatted);
           setSalesData(formatted);
           setLoading(false);
@@ -940,16 +1202,14 @@ function DetailPage({
   const activePreset = useMemo(() => {
     if (!dateFrom && !dateTo) return "all";
     const now = new Date();
-    const ytdStart = `${now.getFullYear()}-01-01`;
-    if (dateFrom === ytdStart && !dateTo) return "ytd";
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    if (dateFrom === localDateStr(yesterday) && dateTo === localDateStr(now))
-      return "24h";
-    for (const m of [3, 6, 12]) {
+    const nowStr = localDateStr(now);
+    for (const p of PRESETS) {
+      if (p.key === "all") continue;
       const from = new Date(now);
-      from.setMonth(from.getMonth() - m);
-      if (dateFrom === localDateStr(from) && !dateTo) return m;
+      if (p.days != null) from.setDate(from.getDate() - p.days);
+      else from.setMonth(from.getMonth() - p.months);
+      if (dateFrom !== localDateStr(from)) continue;
+      if (p.days != null ? dateTo === nowStr : !dateTo) return p.key;
     }
     return null;
   }, [dateFrom, dateTo]);
@@ -1016,25 +1276,19 @@ function DetailPage({
   }, [salesData, filteredSalesData, hasFilter, periodStats]);
 
   // Preset helper
-  const setPreset = (preset) => {
+  const setPreset = (key) => {
     const now = new Date();
-    if (preset === "all") {
+    const p = PRESETS.find((x) => x.key === key);
+    if (!p || key === "all") {
       setDateFrom("");
       setDateTo("");
-    } else if (preset === "24h") {
-      const from = new Date(now);
-      from.setDate(from.getDate() - 1);
-      setDateFrom(localDateStr(from));
-      setDateTo(localDateStr(now));
-    } else if (preset === "ytd") {
-      setDateFrom(`${now.getFullYear()}-01-01`);
-      setDateTo("");
-    } else {
-      const from = new Date(now);
-      from.setMonth(from.getMonth() - preset);
-      setDateFrom(localDateStr(from));
-      setDateTo("");
+      return;
     }
+    const from = new Date(now);
+    if (p.days != null) from.setDate(from.getDate() - p.days);
+    else from.setMonth(from.getMonth() - p.months);
+    setDateFrom(localDateStr(from));
+    setDateTo(p.days != null ? localDateStr(now) : "");
   };
 
   // Build chart content based on current state
@@ -1080,14 +1334,7 @@ function DetailPage({
     const activeReps = isAllMode ? filteredReps : filteredReps.filter((r) => selectedRepIds.has(r.id));
     const totalCapacity = activeReps.reduce((sum, r) => sum + (r.capacity || 0), 0) || null;
     const totalRevenuePotential = activeReps.reduce((sum, r) => sum + (r.revenuePotential || 0), 0) || null;
-    const presets = [
-      { key: "24h", label: "24h" },
-      { key: 3, label: "3m" },
-      { key: 6, label: "6m" },
-      { key: 12, label: "1an" },
-      { key: "ytd", label: "YTD" },
-      { key: "all", label: "Tout" },
-    ];
+    const presets = PRESETS;
     const btnBase = "px-2 py-0.5 rounded text-xs font-medium transition-colors";
     const btnActive = "bg-blue-blue text-white";
     const btnInactive =
@@ -1671,7 +1918,11 @@ function SalesChartApp() {
   const filteredSpectacles = useMemo(() => {
     if (!search) return spectacles;
     const lower = search.toLowerCase();
-    return spectacles.filter((s) => s.name.toLowerCase().includes(lower));
+    return spectacles.filter(
+      (s) =>
+        s.name.toLowerCase().includes(lower) ||
+        (s.subtitle && s.subtitle.toLowerCase().includes(lower)),
+    );
   }, [spectacles, search]);
 
   // Get representations for selected spectacle (with table column values)
@@ -1847,7 +2098,7 @@ function SalesChartApp() {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Rechercher un spectacle..."
+          placeholder="Rechercher un spectacle ou un artiste..."
           style={{
             fontSize: 13,
             padding: "6px 12px",
@@ -1858,6 +2109,19 @@ function SalesChartApp() {
             width: 260,
             outline: "none",
           }}
+        />
+      </div>
+
+      {/* Overview: total sales across every representation */}
+      <div className="mb-6">
+        <h3 className="text-sm font-semibold text-gray-gray600 dark:text-gray-gray300 mb-2">
+          Ventes globales
+        </h3>
+        <HomeSalesChart
+          repIds={(repRecords || []).map((r) => r.id)}
+          supabaseUrl={supabaseUrl}
+          supabaseAnonKey={supabaseAnonKey}
+          baseId={base.id}
         />
       </div>
 

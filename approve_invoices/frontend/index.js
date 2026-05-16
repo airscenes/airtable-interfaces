@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   initializeBlock,
   useBase,
@@ -119,7 +119,7 @@ function SelectBadge({ value }) {
   if (!palette) return <span>{value.text}</span>;
   return (
     <span
-      style={{ backgroundColor: palette.bg, color: palette.text, padding: "3px 12px", borderRadius: 9999, fontSize: 15, fontWeight: 500, whiteSpace: "nowrap", display: "inline-block" }}
+      style={{ backgroundColor: palette.bg, color: palette.text, padding: "1px 8px", borderRadius: 9999, fontSize: 12, fontWeight: 500, whiteSpace: "nowrap", display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" }}
     >
       {value.text}
     </span>
@@ -297,14 +297,24 @@ function DepensesTable({ depenses, columns, base }) {
 
 // ─── Custom Properties ───────────────────────────────────────────────────────
 
-function getCustomProperties(base) {
-  const facturesTable = base.tables.find((t) => t.name.toLowerCase().includes("facture")) || base.tables[0];
-  const depensesTable = base.tables.find((t) => t.name.toLowerCase().includes("depense") || t.name.toLowerCase().includes("expense")) || (base.tables[1] || base.tables[0]);
+function buildCustomProperties(base, valuesRef) {
+  const current = valuesRef.current || {};
+  const facturesTable = current.facturesTable
+    || base.tables.find((t) => t.name.toLowerCase().includes("facture")) || base.tables[0];
+  const depensesTable = current.depensesTable
+    || base.tables.find((t) => t.name.toLowerCase().includes("depense") || t.name.toLowerCase().includes("expense")) || (base.tables[1] || base.tables[0]);
+  const transactionsTable = current.transactionsTable
+    || base.tables.find((t) => {
+      const n = t.name.toLowerCase();
+      return n.includes("transaction") || n.includes("paiement");
+    }) || base.tables[0];
 
   const isCheckbox = (f) => { try { return f.config.type === FieldType.CHECKBOX; } catch { return false; } };
   const isLink = (f) => { try { return f.config.type === FieldType.MULTIPLE_RECORD_LINKS; } catch { return false; } };
   const isAttachment = (f) => { try { return f.config.type === FieldType.MULTIPLE_ATTACHMENTS; } catch { return false; } };
   const isDate = (f) => { try { return f.config.type === FieldType.DATE || f.config.type === FieldType.DATE_TIME; } catch { return false; } };
+  const isNumeric = (f) => { try { const t = f.config.type; return t === FieldType.NUMBER || t === FieldType.CURRENCY || t === FieldType.PERCENT; } catch { return false; } };
+  const isSingleSelect = (f) => { try { return f.config.type === FieldType.SINGLE_SELECT; } catch { return false; } };
 
   // Helper: build a field property, only include defaultValue if found (undefined crashes SDK)
   const fieldProp = (key, label, table, opts = {}) => {
@@ -352,9 +362,6 @@ function getCustomProperties(base) {
     }),
     fieldProp("colStatut", "Facture: Statut", facturesTable, {
       defaultValue: findField(facturesTable, (f) => f.name.toLowerCase().includes("statut")),
-    }),
-    fieldProp("colModePaiement", "Facture: Mode de paiement", facturesTable, {
-      defaultValue: findField(facturesTable, (f) => f.name.toLowerCase().includes("paiement")),
     }),
     fieldProp("colEcriture", "Facture: Ecriture", facturesTable, {
       defaultValue: findField(facturesTable, (f) => f.name.toLowerCase().includes("ecriture")),
@@ -416,13 +423,34 @@ function getCustomProperties(base) {
       key: "actionMode", label: "Mode du bouton", type: "enum",
       possibleValues: [
         { value: "qb", label: "Approbation QB (checkbox)" },
-        { value: "date", label: "Pousser une date" },
+        { value: "date", label: "Creer transactions de paiement" },
       ],
       defaultValue: "qb",
     },
-    fieldProp("dateField", "Champ Date cible (mode date)", facturesTable, {
+
+    // Transactions table + fields (mode "date")
+    { key: "transactionsTable", label: "Table Transactions", type: "table", defaultValue: transactionsTable },
+    fieldProp("txnDateField", "Transaction: Date", transactionsTable, {
       shouldFieldBeAllowed: isDate,
-      defaultValue: findField(facturesTable, isDate),
+      defaultValue: findField(transactionsTable, isDate),
+    }),
+    fieldProp("txnMontantField", "Transaction: Montant", transactionsTable, {
+      shouldFieldBeAllowed: isNumeric,
+      defaultValue: findField(transactionsTable, (f) => isNumeric(f) && (f.name.toLowerCase().includes("montant") || f.name.toLowerCase().includes("total"))),
+    }),
+    fieldProp("txnLinkFactureField", "Transaction: Lien Facture", transactionsTable, {
+      shouldFieldBeAllowed: isLink,
+      defaultValue: findField(transactionsTable, (f) => isLink(f) && f.name.toLowerCase().includes("facture")),
+    }),
+    fieldProp("txnModePaiementField", "Transaction: Mode de paiement", transactionsTable, {
+      shouldFieldBeAllowed: (f) => {
+        try {
+          const t = f.config.type;
+          return t === FieldType.SINGLE_SELECT || t === FieldType.SINGLE_LINE_TEXT || t === FieldType.MULTILINE_TEXT;
+        } catch { return false; }
+      },
+      defaultValue: findField(transactionsTable, (f) => isSingleSelect(f) && f.name.toLowerCase().includes("mode"))
+        || findField(transactionsTable, (f) => f.name.toLowerCase().includes("mode")),
     }),
   ];
 }
@@ -431,7 +459,31 @@ function getCustomProperties(base) {
 
 function ApprobationFacturesApp() {
   const base = useBase();
-  const { customPropertyValueByKey, errorState } = useCustomProperties(getCustomProperties);
+  const valuesRef = useRef({});
+  const [selectedTableIds, setSelectedTableIds] = useState({});
+  const getProps = useCallback(
+    (b) => buildCustomProperties(b, valuesRef),
+    // Force re-eval when any table selection changes so dependent field pickers
+    // re-bind to the user-chosen table instead of the auto-detected default.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedTableIds.facturesTable, selectedTableIds.depensesTable, selectedTableIds.transactionsTable]
+  );
+  const { customPropertyValueByKey, errorState } = useCustomProperties(getProps);
+  valuesRef.current = customPropertyValueByKey;
+  useEffect(() => {
+    const next = {
+      facturesTable: customPropertyValueByKey?.facturesTable?.id,
+      depensesTable: customPropertyValueByKey?.depensesTable?.id,
+      transactionsTable: customPropertyValueByKey?.transactionsTable?.id,
+    };
+    setSelectedTableIds((prev) =>
+      prev.facturesTable === next.facturesTable &&
+      prev.depensesTable === next.depensesTable &&
+      prev.transactionsTable === next.transactionsTable
+        ? prev
+        : next
+    );
+  }, [customPropertyValueByKey]);
 
   const facturesTable = customPropertyValueByKey.facturesTable;
   const depensesTable = customPropertyValueByKey.depensesTable;
@@ -471,7 +523,6 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
   const colFactureAttachment = customPropertyValueByKey.colFactureAttachment;
   const colNotes = customPropertyValueByKey.colNotes;
   const colStatut = customPropertyValueByKey.colStatut;
-  const colModePaiement = customPropertyValueByKey.colModePaiement;
   const colEcriture = customPropertyValueByKey.colEcriture;
   const colFournisseur = customPropertyValueByKey.colFournisseur;
   const colDatePaiement = customPropertyValueByKey.colDatePaiement;
@@ -493,7 +544,11 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
 
   // Mode
   const actionMode = customPropertyValueByKey.actionMode || "qb";
-  const dateField = customPropertyValueByKey.dateField;
+  const transactionsTable = customPropertyValueByKey.transactionsTable;
+  const txnDateField = customPropertyValueByKey.txnDateField;
+  const txnMontantField = customPropertyValueByKey.txnMontantField;
+  const txnLinkFactureField = customPropertyValueByKey.txnLinkFactureField;
+  const txnModePaiementField = customPropertyValueByKey.txnModePaiementField;
 
   // Records - tables are guaranteed to exist here
   const factureRecords = useRecords(facturesTable);
@@ -505,6 +560,14 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
   const [approveResult, setApproveResult] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [selectedDate, setSelectedDate] = useState(getTodayISO);
+  const [selectedMode, setSelectedMode] = useState("");
+
+  // Mode de paiement choices (from txnModePaiementField single select options)
+  const modeChoices = useMemo(() => getFieldChoices(txnModePaiementField, base) || [], [txnModePaiementField, base]);
+
+  useEffect(() => {
+    if (!selectedMode && modeChoices.length > 0) setSelectedMode(modeChoices[0].name);
+  }, [modeChoices, selectedMode]);
 
   // Toggle accordion
   const toggleExpand = useCallback((id) => {
@@ -580,29 +643,40 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
   ].filter((c) => c.field), [colDepName, colCanaux, colMontant, colTPS, colTVQ, colDepTotalBrut, colTaxesApplicables, colDepNotes]);
 
   // Facture column definitions (for header)
+  // width: optional fixed width in px (otherwise flex-1 min-w-[100px])
   const factureColumns = useMemo(() => [
     { key: "num", label: "Facture", field: colFactureNum },
-    { key: "date", label: "Date de la facture", field: colDateFacture },
+    { key: "date", label: "Date de la facture", field: colDateFacture, width: 110 },
     { key: "fournisseur", label: "Fournisseur", field: colFournisseur },
-    { key: "totalNet", label: "Total net", field: colTotalNet },
-    { key: "totalBrut", label: "Total brute", field: colTotalBrut },
-    { key: "statut", label: "Statut", field: colStatut },
-    { key: "datePaiement", label: "Date de paiement", field: colDatePaiement },
-    { key: "totalPaiements", label: "Total paiements", field: colTotalPaiements },
-    { key: "solde", label: "Solde", field: colSolde },
-    { key: "attachment", label: "Facture", field: colFactureAttachment },
-    { key: "approuvee", label: "Approuvee", field: colApprouvee },
+    { key: "totalNet", label: "Total net", field: colTotalNet, width: 100 },
+    { key: "totalBrut", label: "Total brute", field: colTotalBrut, width: 100 },
+    { key: "statut", label: "Statut", field: colStatut, width: 110 },
+    { key: "datePaiement", label: "Date de paiement", field: colDatePaiement, width: 110 },
+    { key: "totalPaiements", label: "Total paiements", field: colTotalPaiements, width: 110 },
+    { key: "solde", label: "Solde", field: colSolde, width: 100 },
+    { key: "attachment", label: "Facture", field: colFactureAttachment, width: 70 },
+    { key: "approuvee", label: "Approuvee", field: colApprouvee, width: 80 },
     { key: "notes", label: "Notes", field: colNotes },
-    { key: "ecriture", label: "Ecriture", field: colEcriture },
-    { key: "modePaiement", label: "Mode de paiement", field: colModePaiement },
+    { key: "ecriture", label: "Ecriture", field: colEcriture, width: 90 },
     { key: "urlDropbox", label: "URL Dropbox", field: colUrlDropbox },
-  ].filter((c) => c.field), [colFactureNum, colDateFacture, colFournisseur, colTotalNet, colTotalBrut, colStatut, colDatePaiement, colTotalPaiements, colSolde, colFactureAttachment, colApprouvee, colUrlDropbox, colNotes, colEcriture, colModePaiement]);
+  ].filter((c) => c.field), [colFactureNum, colDateFacture, colFournisseur, colTotalNet, colTotalBrut, colStatut, colDatePaiement, colTotalPaiements, colSolde, colFactureAttachment, colApprouvee, colUrlDropbox, colNotes, colEcriture]);
+
+  // Helper to compute column className + inline style
+  const colSizing = useCallback((col) => {
+    if (col.width) return { className: "flex-shrink-0", style: { width: col.width } };
+    return { className: "flex-1 min-w-[100px]", style: undefined };
+  }, []);
 
   // Check write permissions
   const canUpdate = useMemo(() => {
     if (!facturesTable) return false;
     try { return facturesTable.hasPermissionToUpdateRecords(); } catch { return false; }
   }, [facturesTable]);
+
+  const canCreateTxn = useMemo(() => {
+    if (!transactionsTable) return false;
+    try { return transactionsTable.hasPermissionToCreateRecords(); } catch { return false; }
+  }, [transactionsTable]);
 
   // Approve handler
   const DRY_RUN = false; // Set to false to enable real writes
@@ -613,10 +687,7 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
     setApproveResult(null);
 
     try {
-      console.log("[DEBUG] actionMode:", actionMode, "| dateField:", dateField, "| colApprouvee:", colApprouvee);
-      if (!canUpdate && !DRY_RUN) {
-        throw new Error("Permission refusee. Activez 'Modifier les entrees dans le texte' dans les Actions d'utilisateur de la page.");
-      }
+      console.log("[DEBUG] actionMode:", actionMode, "| colApprouvee:", colApprouvee);
       const toApprove = actionMode === "date"
         ? factures
         : factures.filter((f) => !f.isExcluded && !f.isApproved);
@@ -627,6 +698,9 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
       }
 
       if (actionMode === "qb" && colApprouvee) {
+        if (!canUpdate && !DRY_RUN) {
+          throw new Error("Permission refusee. Activez 'Modifier les entrees dans le texte' dans les Actions d'utilisateur de la page.");
+        }
         const updates = toApprove.map((f) => ({ id: f.id, fields: { [colApprouvee.name]: true } }));
         if (DRY_RUN) {
           console.log("[DRY RUN] Mode: qb | Field:", colApprouvee.name);
@@ -639,18 +713,34 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
           }
           setApproveResult({ success: true, message: `${toApprove.length} facture(s) approuvee(s).` });
         }
-      } else if (actionMode === "date" && dateField) {
-        const updates = toApprove.map((f) => ({ id: f.id, fields: { [dateField.name]: selectedDate } }));
-        if (DRY_RUN) {
-          console.log("[DRY RUN] Mode: date | Field:", dateField.name, "| Value:", selectedDate);
-          console.log("[DRY RUN] Records to update:", updates.length);
-          console.table(updates.map((u) => ({ id: u.id, ...u.fields })));
-          setApproveResult({ success: true, message: `[DRY RUN] ${updates.length} facture(s) seraient payee(s) avec ${selectedDate}. Voir console.` });
-        } else {
-          for (let i = 0; i < updates.length; i += 50) {
-            await facturesTable.updateRecordsAsync(updates.slice(i, i + 50));
+      } else if (actionMode === "date") {
+        if (!transactionsTable || !txnDateField || !txnMontantField || !txnLinkFactureField) {
+          throw new Error("Configuration incomplete : table Transactions et champs Date / Montant / Lien Facture requis.");
+        }
+        if (!canCreateTxn && !DRY_RUN) {
+          throw new Error("Permission refusee pour creer des transactions. Activez 'Ajouter des entrees' dans les Actions d'utilisateur de la page.");
+        }
+        const creates = toApprove.map((f) => {
+          const fields = {
+            [txnDateField.name]: selectedDate,
+            [txnMontantField.name]: f.totalBrut,
+            [txnLinkFactureField.name]: [{ id: f.id }],
+          };
+          if (txnModePaiementField && selectedMode) {
+            fields[txnModePaiementField.name] = { name: selectedMode };
           }
-          setApproveResult({ success: true, message: `${toApprove.length} facture(s) payee(s).` });
+          return { fields };
+        });
+        if (DRY_RUN) {
+          console.log("[DRY RUN] Mode: date (creer transactions) | Date:", selectedDate, "| Mode paiement:", selectedMode);
+          console.log("[DRY RUN] Transactions a creer:", creates.length);
+          console.table(creates.map((c) => c.fields));
+          setApproveResult({ success: true, message: `[DRY RUN] ${creates.length} transaction(s) seraient creee(s). Voir console.` });
+        } else {
+          for (let i = 0; i < creates.length; i += 50) {
+            await transactionsTable.createRecordsAsync(creates.slice(i, i + 50));
+          }
+          setApproveResult({ success: true, message: `${creates.length} transaction(s) creee(s).` });
         }
       } else {
         throw new Error("Configuration incomplete : verifiez le mode et les champs configures.");
@@ -660,7 +750,7 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
       setApproveResult({ success: false, message: `Erreur: ${err.message}` });
     }
     setApproving(false);
-  }, [factures, facturesTable, colApprouvee, dateField, actionMode, selectedDate]);
+  }, [factures, facturesTable, colApprouvee, actionMode, selectedDate, selectedMode, canUpdate, canCreateTxn, transactionsTable, txnDateField, txnMontantField, txnLinkFactureField, txnModePaiementField]);
 
   // Toggle exclure checkbox
   const handleToggleExclure = useCallback(async (recordId, currentValue) => {
@@ -680,7 +770,7 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
   const buttonLabel = actionMode === "date" ? "Payer les factures" : "Approuver les factures";
   const confirmTitle = actionMode === "date" ? "Confirmer le paiement" : "Confirmer l'approbation";
   const confirmMsg = actionMode === "date"
-    ? `Payer ${kpis.approvableCount} facture(s) avec la date ${selectedDate} ?`
+    ? `Creer ${kpis.approvableCount} transaction(s) datee(s) du ${selectedDate}${selectedMode ? ` (${selectedMode})` : ""} ?`
     : `Approuver ${kpis.approvableCount} facture(s) ?${kpis.excludedCount > 0 ? ` (${kpis.excludedCount} exclue(s))` : ""}`;
 
   return (
@@ -695,14 +785,35 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
         </div>
         <div className="flex items-center gap-3">
           {actionMode === "date" && (
-            <input
-              type="text"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              placeholder="YYYY-MM-DD"
-              pattern="\d{4}-\d{2}-\d{2}"
-              className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-gray700 text-gray-800 dark:text-gray-100 text-sm w-[130px] font-mono"
-            />
+            <>
+              <input
+                type="text"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                placeholder="YYYY-MM-DD"
+                pattern="\d{4}-\d{2}-\d{2}"
+                className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-gray700 text-gray-800 dark:text-gray-100 text-sm w-[130px] font-mono"
+              />
+              {modeChoices.length > 0 ? (
+                <select
+                  value={selectedMode}
+                  onChange={(e) => setSelectedMode(e.target.value)}
+                  className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-gray700 text-gray-800 dark:text-gray-100 text-sm"
+                >
+                  {modeChoices.map((c) => (
+                    <option key={c.id || c.name} value={c.name}>{c.name}</option>
+                  ))}
+                </select>
+              ) : txnModePaiementField ? (
+                <input
+                  type="text"
+                  value={selectedMode}
+                  onChange={(e) => setSelectedMode(e.target.value)}
+                  placeholder="Mode de paiement"
+                  className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-gray700 text-gray-800 dark:text-gray-100 text-sm"
+                />
+              ) : null}
+            </>
           )}
           <button
             onClick={() => setShowConfirm(true)}
@@ -722,9 +833,10 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
           <div className="flex items-center text-sm uppercase text-gray-500 dark:text-gray-400 font-medium border-b border-gray-200 dark:border-gray-600 px-2">
             <div className="w-[30px]" /> {/* open record button space */}
             <div className="w-8" /> {/* chevron space */}
-            {factureColumns.map((col) => (
-              <div key={col.key} className="px-3 py-2 flex-1 min-w-[100px]">{col.label}</div>
-            ))}
+            {factureColumns.map((col) => {
+              const s = colSizing(col);
+              return <div key={col.key} className={`px-3 py-2 ${s.className}`} style={s.style}>{col.label}</div>;
+            })}
             {exclureField && actionMode !== "date" && <div className="px-3 py-2 w-[80px] text-center">Exclure</div>}
           </div>
 
@@ -740,10 +852,11 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
                     <div className="w-[30px]" />
                     <div className="w-8" />
                     {factureColumns.map((col) => {
-                      if (col.key === "fournisseur") return <div key={col.key} className="px-3 py-1.5 flex-1 min-w-[100px] text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">{group.supplier} &middot; {group.count}</div>;
-                      if (col.key === "totalNet") return <div key={col.key} className="px-3 py-1.5 flex-1 min-w-[100px] text-xs text-gray-500 dark:text-gray-400">Somme {fmtCurrency(group.totalNet)}</div>;
-                      if (col.key === "totalBrut") return <div key={col.key} className="px-3 py-1.5 flex-1 min-w-[100px] text-xs text-gray-500 dark:text-gray-400">Somme {fmtCurrency(group.totalBrut)}</div>;
-                      return <div key={col.key} className="px-3 py-1.5 flex-1 min-w-[100px]" />;
+                      const s = colSizing(col);
+                      if (col.key === "fournisseur") return <div key={col.key} className={`px-3 py-1.5 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 ${s.className}`} style={s.style}>{group.supplier} &middot; {group.count}</div>;
+                      if (col.key === "totalNet") return <div key={col.key} className={`px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 ${s.className}`} style={s.style}>Somme {fmtCurrency(group.totalNet)}</div>;
+                      if (col.key === "totalBrut") return <div key={col.key} className={`px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 ${s.className}`} style={s.style}>Somme {fmtCurrency(group.totalBrut)}</div>;
+                      return <div key={col.key} className={`px-3 py-1.5 ${s.className}`} style={s.style} />;
                     })}
                     {exclureField && actionMode !== "date" && <div className="px-3 py-1.5 w-[80px]" />}
                   </div>
@@ -769,11 +882,14 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
                             className={`text-gray-400 transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
                           />
                         </div>
-                        {factureColumns.map((col) => (
-                          <div key={col.key} className="px-3 py-2.5 flex-1 min-w-[100px] text-base text-gray-700 dark:text-gray-200 truncate">
-                            <CellValue record={facture.record} field={col.field} base={base} />
-                          </div>
-                        ))}
+                        {factureColumns.map((col) => {
+                          const s = colSizing(col);
+                          return (
+                            <div key={col.key} className={`px-3 py-2.5 text-base text-gray-700 dark:text-gray-200 truncate ${s.className}`} style={s.style}>
+                              <CellValue record={facture.record} field={col.field} base={base} />
+                            </div>
+                          );
+                        })}
                         {exclureField && actionMode !== "date" && (
                           <div className="px-3 py-2.5 w-[80px] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
                             <input

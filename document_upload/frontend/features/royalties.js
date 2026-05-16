@@ -6,7 +6,6 @@ import {
 } from '../lib/supabase.js';
 
 const MAX_BYTES = 50 * 1024 * 1024;
-const MONTHLY_QUOTA = 5;
 const FILENAME_RE = /^[\w. -]+\.csv$/i;
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 180000;
@@ -68,21 +67,14 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId}) {
     const [history, setHistory] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyError, setHistoryError] = useState(null);
-    const [quotaUsed, setQuotaUsed] = useState(null);
-    const [quotaError, setQuotaError] = useState(null);
     const [dragOver, setDragOver] = useState(false);
     const fileInputRef = useRef(null);
 
-    const refreshHistoryAndQuota = useCallback(async () => {
+    const refreshHistory = useCallback(async () => {
         if (!supabaseUrl || !apiKey || !clientId) return;
         setHistoryLoading(true);
         setHistoryError(null);
-        setQuotaError(null);
         try {
-            const monthStart = new Date();
-            monthStart.setUTCDate(1);
-            monthStart.setUTCHours(0, 0, 0, 0);
-
             const rows = await pgRestSelect({
                 supabaseUrl,
                 apiKey,
@@ -93,22 +85,16 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId}) {
                     '&order=uploaded_at.desc&limit=50',
             });
             setHistory(rows);
-
-            const used = rows.filter(
-                (r) => r.status !== 'failed' && r.uploaded_at >= monthStart.toISOString(),
-            ).length;
-            setQuotaUsed(used);
         } catch (err) {
             setHistoryError(err.message);
-            setQuotaError(err.message);
         } finally {
             setHistoryLoading(false);
         }
     }, [supabaseUrl, apiKey, clientId]);
 
     useEffect(() => {
-        refreshHistoryAndQuota();
-    }, [refreshHistoryAndQuota]);
+        refreshHistory();
+    }, [refreshHistory]);
 
     const validateFile = (f) => {
         if (!f) return 'Aucun fichier sélectionné.';
@@ -164,9 +150,7 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId}) {
             });
         } catch (err) {
             setPhase('error');
-            if (err.status === 429) {
-                setErrorMessage('Quota mensuel atteint (5 uploads par mois).');
-            } else if (err.status === 404) {
+            if (err.status === 404) {
                 setErrorMessage('Client introuvable. Vérifiez la configuration de l\'extension.');
             } else if (err.status === 400) {
                 setErrorMessage(err.message || 'Requête invalide.');
@@ -190,7 +174,7 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId}) {
         }
 
         setPhase('importing');
-        refreshHistoryAndQuota();
+        refreshHistory();
 
         const result = await pollAuditStatus({
             supabaseUrl,
@@ -211,38 +195,13 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId}) {
             setPhase('error');
             setErrorMessage(result.error);
         }
-        refreshHistoryAndQuota();
+        refreshHistory();
     };
 
-    const remaining = quotaUsed == null ? null : Math.max(0, MONTHLY_QUOTA - quotaUsed);
-    const quotaExhausted = remaining === 0;
-    const canUpload = file && !validationError && (phase === 'idle' || phase === 'done' || phase === 'error') && !quotaExhausted;
+    const canUpload = file && !validationError && (phase === 'idle' || phase === 'done' || phase === 'error');
 
     return (
         <div className="space-y-5">
-            {/* Quota indicator */}
-            <div className="bg-white dark:bg-gray-gray700 rounded-lg p-4 border border-gray-gray100 dark:border-gray-gray600 flex items-center justify-between">
-                <div>
-                    <p className="text-xs text-gray-gray400 mb-1">Quota mensuel</p>
-                    {quotaError ? (
-                        <p className="text-sm text-red-red">Erreur : {quotaError}</p>
-                    ) : remaining == null ? (
-                        <p className="text-sm text-gray-gray500">Chargement...</p>
-                    ) : (
-                        <p className="text-sm font-semibold text-gray-gray700 dark:text-gray-gray200">
-                            {remaining}/{MONTHLY_QUOTA} uploads restants ce mois-ci
-                        </p>
-                    )}
-                </div>
-                <button
-                    onClick={refreshHistoryAndQuota}
-                    title="Rafraîchir"
-                    className="text-xs px-2 py-1 rounded bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray300 hover:bg-gray-gray200 dark:hover:bg-gray-gray500"
-                >
-                    &#8634;
-                </button>
-            </div>
-
             {/* Drop zone */}
             <div
                 onDragOver={(e) => {
@@ -345,7 +304,16 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId}) {
                     <span className="text-xs font-semibold text-gray-gray600 dark:text-gray-gray300">
                         Historique ({history.length})
                     </span>
-                    {historyLoading && <span className="text-xs text-gray-gray400">Chargement...</span>}
+                    <div className="flex items-center gap-2">
+                        {historyLoading && <span className="text-xs text-gray-gray400">Chargement...</span>}
+                        <button
+                            onClick={refreshHistory}
+                            title="Rafraîchir"
+                            className="text-xs px-2 py-1 rounded bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray300 hover:bg-gray-gray200 dark:hover:bg-gray-gray500"
+                        >
+                            &#8634;
+                        </button>
+                    </div>
                 </div>
                 {historyError ? (
                     <div className="p-3 text-sm text-red-red">Erreur : {historyError}</div>

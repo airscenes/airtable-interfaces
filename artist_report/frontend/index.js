@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, Fragment } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import {
   initializeBlock,
   useRecords,
@@ -74,6 +74,8 @@ function getCustomProperties(base) {
   const revenusTable = findTable("revenu") || tables[1] || tables[0];
   const depensesTable =
     findTable("depense", "dépense") || tables[2] || tables[0];
+  const oeuvresTable =
+    findTable("oeuvre", "piste") || tables[0];
 
   const anyField = () => true;
 
@@ -82,6 +84,11 @@ function getCustomProperties(base) {
     { key: "canauxTable", label: "Table des Canaux (projets/albums)", type: "table" },
     { key: "canalImageField", label: "Champ image (Canaux)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
     { key: "canalSubtitleField", label: "Champ sous-titre carte (Canaux)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
+    { key: "oeuvresLinkField", label: "Champ lien Oeuvres (Canaux)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
+
+    // --- Oeuvres (pour récupérer les ISRCs) ---
+    { key: "oeuvresTable", label: "Table des Oeuvres", type: "table" },
+    { key: "isrcField", label: "Champ ISRC (Oeuvres)", type: "field", table: oeuvresTable, shouldFieldBeAllowed: anyField },
 
     // --- Revenus ---
     { key: "revenusTable", label: "Table des Revenus", type: "table" },
@@ -111,7 +118,7 @@ function getCustomProperties(base) {
 
     // --- Comptes (pour les lignes ad-hoc) ---
     { key: "comptesTable", label: "Table des Comptes", type: "table" },
-    { key: "categoriesTable", label: "Table des Catégories (liée à Comptes via le champ « Catégories »)", type: "table" },
+    { key: "comptesNumeroField", label: "Champ numero_compte (Comptes) — < 5000 = Revenu, ≥ 5000 = Dépense", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("compte")) || tables[0], shouldFieldBeAllowed: anyField },
 
     // --- Template Excel ---
     { key: "templateAttachmentField", label: "Champ attachement Template Excel", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
@@ -132,6 +139,12 @@ function getCustomProperties(base) {
       type: "string",
       defaultValue: "[]",
     },
+
+    // --- Royalties Supabase ---
+    { key: "supabaseUrl", label: "Supabase URL", type: "string", defaultValue: "" },
+    { key: "supabaseAnonKey", label: "Supabase Anon Key", type: "string", defaultValue: "" },
+    { key: "clientId", label: "Client UUID (royalties)", type: "string", defaultValue: "" },
+    { key: "royaltiesColumn", label: "Label colonne Royalties (dans JSON Revenus)", type: "string", defaultValue: "Believe" },
   ];
 }
 
@@ -217,6 +230,29 @@ function PeriodPicker({ year, half, onChangeYear, onChangeHalf }) {
   );
 }
 
+// Cell input: raw decimal while focused, formatted currency when blurred.
+function CurrencyCellInput({ value, onChange, placeholder = "0" }) {
+  const [focused, setFocused] = useState(false);
+  const num = parseFloat(String(value || "").replace(",", "."));
+  const hasValue = value !== "" && value != null && !isNaN(num);
+  const display = focused || !hasValue ? value || "" : fmtCurrency(num);
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={display}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full text-right bg-transparent text-gray-gray700 dark:text-gray-gray100
+                 px-2 py-1 rounded border border-transparent
+                 hover:border-gray-gray200 dark:hover:border-gray-gray600
+                 focus:border-blue-blue focus:outline-none"
+    />
+  );
+}
+
 // --- UI: Editable grid (months × categories) ---
 
 function EditableGrid({ title, choices, monthIndices, inputs, onChange }) {
@@ -286,16 +322,9 @@ function EditableGrid({ title, choices, monthIndices, inputs, onChange }) {
                     </td>
                     {choices.map((c) => (
                       <td key={c.id} className="p-1 border-b border-gray-gray100 dark:border-gray-gray700">
-                        <input
-                          type="text"
-                          inputMode="decimal"
+                        <CurrencyCellInput
                           value={(inputs[m] && inputs[m][c.id]) || ""}
-                          onChange={(e) => onChange(m, c.id, e.target.value)}
-                          placeholder="0"
-                          className="w-full text-right bg-transparent text-gray-gray700 dark:text-gray-gray100
-                                     px-2 py-1 rounded border border-transparent
-                                     hover:border-gray-gray200 dark:hover:border-gray-gray600
-                                     focus:border-blue-blue focus:outline-none"
+                          onChange={(val) => onChange(m, c.id, val)}
                         />
                       </td>
                     ))}
@@ -336,9 +365,19 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
     0,
   );
 
-  // Group by Comptes (catégorie)
+  // Sort entries chronologically (ascending) using the date field
+  const dateSortKey = (rec) => {
+    let v = rec.getCellValue(dateField);
+    if (v == null) v = rec.getCellValueAsString(dateField);
+    const p = parseIsoParts(v);
+    if (!p) return Number.MAX_SAFE_INTEGER; // entries without a date go last
+    return p.year * 10000 + p.month * 100 + p.day;
+  };
+  const sortedEntries = [...entries].sort((a, b) => dateSortKey(a) - dateSortKey(b));
+
+  // Group by Comptes (catégorie), preserving chronological order within each group
   const groups = new Map();
-  for (const r of entries) {
+  for (const r of sortedEntries) {
     const key = categorieField ? r.getCellValueAsString(categorieField) || "—" : "—";
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(r);
@@ -352,7 +391,13 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
         {title} déjà saisis ({entries.length}) — total {fmtCurrency(total)}
       </div>
       <div className="border border-gray-gray100 dark:border-gray-gray600 rounded overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col style={{ width: 100 }} />
+            {fournisseurField && <col />}
+            {descriptionField && <col />}
+            <col style={{ width: 130 }} />
+          </colgroup>
           <thead className="bg-gray-gray50 dark:bg-gray-gray800">
             <tr>
               <th className="text-left p-2">Date</th>
@@ -616,42 +661,108 @@ async function exportFromTemplate({
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// --- Free entries editor (Subventions / Droits synchro) ---
+// Read a Compte's numero from the configured field, fallback parses from name.
+// Used to classify comptes: < 5000 = Revenu, >= 5000 = Dépense.
+function getCompteCode(rec, numeroField) {
+  if (numeroField) {
+    const raw = rec.getCellValue(numeroField);
+    const n = typeof raw === "number" ? raw : parseFloat(String(raw || ""));
+    if (!isNaN(n)) return Math.trunc(n);
+  }
+  const m = String(rec.name || "").match(/(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
 
-function FreeEntriesEditor({ title, rows, onChange, comptesRecords, monthIndices }) {
-  const addRow = () => onChange([...rows, { compteId: "", notes: "", montant: "", month: monthIndices[0] }]);
+// --- Saisies editor (Revenus or Dépenses, per-line) ---
+
+function SaisiesEditor({ title, rows, onChange, comptesRecords, comptesNumeroField, monthIndices }) {
+  const comptesByType = useMemo(() => {
+    const revenu = [];
+    const depense = [];
+    for (const rec of comptesRecords || []) {
+      const code = getCompteCode(rec, comptesNumeroField);
+      if (code == null) continue;
+      if (code >= 4000 && code < 5000) revenu.push(rec);
+      else if (code >= 5000 && code < 6000) depense.push(rec);
+    }
+    const cmp = (a, b) => (a.name || "").localeCompare(b.name || "", "fr");
+    revenu.sort(cmp);
+    depense.sort(cmp);
+    return { revenu, depense };
+  }, [comptesRecords, comptesNumeroField]);
+
+  const addRow = () => onChange([...rows, { type: "revenu", compteId: "", notes: "", montant: "", month: monthIndices[0] }]);
   const updateRow = (idx, patch) => onChange(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   const removeRow = (idx) => onChange(rows.filter((_, i) => i !== idx));
 
-  const total = rows.reduce((s, r) => {
-    const v = parseFloat(String(r.montant || "").replace(",", "."));
-    return s + (isNaN(v) ? 0 : v);
-  }, 0);
+  const totals = rows.reduce(
+    (acc, r) => {
+      const v = parseFloat(String(r.montant || "").replace(",", "."));
+      if (isNaN(v)) return acc;
+      if (r.type === "depense") acc.depense += v;
+      else acc.revenu += v;
+      return acc;
+    },
+    { revenu: 0, depense: 0 },
+  );
 
   return (
-    <div className="mt-4">
+    <div>
       <h3 className="text-lg font-semibold text-gray-gray700 dark:text-gray-gray100 mb-2">{title}</h3>
       <div className="overflow-x-auto">
-        <table className="w-full text-base border-collapse">
+        <table className="w-full text-base border-collapse table-fixed">
+          <colgroup>
+            <col style={{ width: 150 }} />
+            <col style={{ width: 110 }} />
+            <col style={{ width: 180 }} />
+            <col />
+            <col style={{ width: 130 }} />
+            <col style={{ width: 40 }} />
+          </colgroup>
           <thead>
             <tr className="bg-gray-gray50 dark:bg-gray-gray800">
+              <th className="text-left p-2 border-b border-gray-gray200 dark:border-gray-gray600">Type</th>
               <th className="text-left p-2 border-b border-gray-gray200 dark:border-gray-gray600">Mois</th>
               <th className="text-left p-2 border-b border-gray-gray200 dark:border-gray-gray600">Compte</th>
               <th className="text-left p-2 border-b border-gray-gray200 dark:border-gray-gray600">Description</th>
               <th className="text-right p-2 border-b border-gray-gray200 dark:border-gray-gray600">Montant</th>
-              <th className="p-2 border-b border-gray-gray200 dark:border-gray-gray600 w-10"></th>
+              <th className="p-2 border-b border-gray-gray200 dark:border-gray-gray600"></th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="p-3 text-center text-gray-gray500 italic">
+                <td colSpan={6} className="p-3 text-center text-gray-gray500 italic">
                   Aucune ligne. Clique sur « + Ajouter » pour saisir.
                 </td>
               </tr>
             )}
             {rows.map((r, idx) => (
               <tr key={idx} className="border-b border-gray-gray100 dark:border-gray-gray700">
+                <td className="p-1">
+                  <div className="inline-flex border border-gray-gray200 dark:border-gray-gray600 rounded overflow-hidden text-xs">
+                    <button
+                      onClick={() => updateRow(idx, { type: "revenu", compteId: "" })}
+                      className={`px-2 py-1 w-16 text-center ${
+                        r.type !== "depense"
+                          ? "bg-green-greenDark1 text-white"
+                          : "bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100"
+                      }`}
+                    >
+                      Revenu
+                    </button>
+                    <button
+                      onClick={() => updateRow(idx, { type: "depense", compteId: "" })}
+                      className={`px-2 py-1 w-16 text-center ${
+                        r.type === "depense"
+                          ? "bg-red-redDark1 text-white"
+                          : "bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100"
+                      }`}
+                    >
+                      Dépense
+                    </button>
+                  </div>
+                </td>
                 <td className="p-1">
                   <select
                     value={r.month}
@@ -668,7 +779,7 @@ function FreeEntriesEditor({ title, rows, onChange, comptesRecords, monthIndices
                     className="bg-white dark:bg-gray-gray700 border border-gray-gray200 dark:border-gray-gray600 rounded px-2 py-1 text-base w-full"
                   >
                     <option value="">— Choisir —</option>
-                    {(comptesRecords || []).map((rec) => (
+                    {(r.type === "depense" ? comptesByType.depense : comptesByType.revenu).map((rec) => (
                       <option key={rec.id} value={rec.id}>{rec.name}</option>
                     ))}
                   </select>
@@ -704,8 +815,12 @@ function FreeEntriesEditor({ title, rows, onChange, comptesRecords, monthIndices
               </tr>
             ))}
             <tr className="bg-gray-gray50 dark:bg-gray-gray800 font-semibold">
-              <td colSpan={3} className="p-2">Total</td>
-              <td className="p-2 text-right">{fmtCurrency(total)}</td>
+              <td colSpan={4} className="p-2">Totaux</td>
+              <td className="p-2 text-right">
+                <span className="text-green-greenDark1">+{fmtCurrency(totals.revenu)}</span>
+                {" / "}
+                <span className="text-red-redDark1">-{fmtCurrency(totals.depense)}</span>
+              </td>
               <td className="p-2"></td>
             </tr>
           </tbody>
@@ -779,8 +894,10 @@ function ReportInner({ cfg }) {
     depensesCategorieField, depensesEtatLinkField, depensesFournisseurField, depensesNotesField, depensesDescriptionField,
     depensesNoFactureField, depensesModePaiementField, depensesArtisteField,
     revenusColumnsJson, depensesColumnsJson,
-    comptesTable, categoriesTable,
+    comptesTable, comptesNumeroField,
     templateAttachmentField,
+    oeuvresTable, oeuvresLinkField, isrcField,
+    supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn,
   } = cfg;
 
   const canauxRecords = useRecords(canauxTable);
@@ -788,30 +905,7 @@ function ReportInner({ cfg }) {
   const depensesRecords = useRecords(depensesTable);
   const comptesRecords = useRecords(comptesTable);
   // useRecords crashes on null; fall back to a known table when not yet configured.
-  const categoriesRecords = useRecords(categoriesTable || canauxTable);
-
-  // Subventions/Droits: only Comptes whose "Catégories" linked records include
-  // "Synchronisation" or "Subventions". Linked-record cells return [{id}] only,
-  // so resolve names via the linked Catégories table records.
-  const filteredComptesRecords = useMemo(() => {
-    if (!comptesRecords) return [];
-    const norm = (s) => (s || "").normalize("NFC").toLowerCase();
-    const catField = comptesTable && comptesTable.fields.find((f) => norm(f.name) === norm("Catégories"));
-    if (!catField || !categoriesTable || !categoriesRecords) return comptesRecords;
-    const wantedIds = new Set(
-      categoriesRecords
-        .filter((r) => r.name === "Synchronisation" || r.name === "Subventions")
-        .map((r) => r.id),
-    );
-    if (wantedIds.size === 0) return [];
-    return comptesRecords
-      .filter((rec) => {
-        const v = rec.getCellValue(catField);
-        if (!Array.isArray(v)) return false;
-        return v.some((item) => item && wantedIds.has(item.id));
-      })
-      .sort((a, b) => (a.name || "").localeCompare(b.name || "", "fr"));
-  }, [comptesRecords, comptesTable, categoriesTable, categoriesRecords]);
+  const oeuvresRecords = useRecords(oeuvresTable || canauxTable);
 
   const columnsConfig = useMemo(() => {
     const parseOne = (raw) => {
@@ -848,15 +942,145 @@ function ReportInner({ cfg }) {
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [half, setHalf] = useState("H1");
   const [revenusInputs, setRevenusInputs] = useState({});
-  const [freeRevenus, setFreeRevenus] = useState([]); // [{compteId, notes, montant, month}]
+  const [saisies, setSaisies] = useState([]); // [{type: "revenu"|"depense", compteId, notes, montant, month}]
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState(null);
+  const [royaltiesLoading, setRoyaltiesLoading] = useState(false);
+  const [royaltiesError, setRoyaltiesError] = useState(null);
+  const [royaltiesRefreshKey, setRoyaltiesRefreshKey] = useState(0);
+  const royaltiesCacheRef = useRef(new Map());
 
   useEffect(() => {
     setRevenusInputs({});
-    setFreeRevenus([]);
+    setSaisies([]);
     setSavedMsg(null);
+    setRoyaltiesError(null);
   }, [selectedCanalId, year, half]);
+
+  // Resolve the compteId of the Royalties column (from revenusColumnsJson) for dup-detection
+  const royaltiesCompteId = useMemo(() => {
+    const col = (columnsConfig.revenus || []).find((c) => c.label === royaltiesColumn);
+    return col ? col.compteId : null;
+  }, [columnsConfig, royaltiesColumn]);
+
+  // Months of the current period that already have a Royalties revenu record in Airtable.
+  // We skip pre-filling those months to prevent creating duplicates if the user clicks Save again.
+  const monthsWithExistingRoyalty = useMemo(() => {
+    const set = new Set();
+    if (!royaltiesCompteId || !revenusRecords || !selectedCanalId || !revenusCanalLinkField || !revenusCategorieField) return set;
+    const dateFields = [revenusDateField, revenusDateWriteField].filter(Boolean);
+    for (const rec of revenusRecords) {
+      const links = rec.getCellValue(revenusCanalLinkField);
+      if (!Array.isArray(links) || !links.some((l) => l.id === selectedCanalId)) continue;
+      const cat = rec.getCellValue(revenusCategorieField);
+      if (!Array.isArray(cat) || !cat.some((c) => c.id === royaltiesCompteId)) continue;
+      let d = null;
+      for (const f of dateFields) {
+        d = rec.getCellValue(f);
+        if (d == null) d = rec.getCellValueAsString(f);
+        if (d != null && d !== "") break;
+      }
+      const parts = parseIsoParts(d);
+      if (!parts || parts.year !== year) continue;
+      if (half === "H1" && parts.month > 6) continue;
+      if (half === "H2" && parts.month < 7) continue;
+      set.add(parts.month);
+    }
+    return set;
+  }, [revenusRecords, royaltiesCompteId, selectedCanalId, revenusCanalLinkField, revenusCategorieField, revenusDateField, revenusDateWriteField, year, half]);
+
+  // Extract ISRCs from the selected canal's linked Oeuvres
+  const isrcList = useMemo(() => {
+    if (!selectedCanalId || !canauxRecords || !oeuvresLinkField || !oeuvresRecords || !isrcField) return [];
+    const canalRec = canauxRecords.find((r) => r.id === selectedCanalId);
+    if (!canalRec) return [];
+    const links = canalRec.getCellValue(oeuvresLinkField);
+    if (!Array.isArray(links) || links.length === 0) return [];
+    const linkedIds = new Set(links.map((l) => l.id));
+    const out = [];
+    for (const rec of oeuvresRecords) {
+      if (!linkedIds.has(rec.id)) continue;
+      const isrc = rec.getCellValueAsString(isrcField);
+      if (isrc) out.push(isrc);
+    }
+    return out;
+  }, [selectedCanalId, canauxRecords, oeuvresLinkField, oeuvresRecords, isrcField]);
+
+  // Fetch royalties from Supabase for the selected period and pre-fill the Royalties column
+  useEffect(() => {
+    if (saving) return; // don't mutate revenusInputs while a save is in flight
+    if (!supabaseUrl || !supabaseAnonKey || !clientId || !royaltiesColumn || isrcList.length === 0 || !selectedCanalId) {
+      return;
+    }
+    const dateFrom = half === "H1" ? `${year}-01-01` : `${year}-07-01`;
+    const dateTo = half === "H1" ? `${year}-06-30` : `${year}-12-31`;
+    const cacheKey = `${selectedCanalId}_${year}_${half}_${isrcList.join(",")}_${royaltiesRefreshKey}`;
+    let didCancel = false;
+
+    const applyData = (rows) => {
+      const byMonth = {};
+      for (const row of rows || []) {
+        const monthKey = (row.reporting_month || "").slice(0, 7); // YYYY-MM
+        const m = parseInt(monthKey.split("-")[1], 10);
+        if (!m || m < 1 || m > 12) continue;
+        const rev = parseFloat(row.total_net_revenue) || 0;
+        byMonth[m] = (byMonth[m] || 0) + rev;
+      }
+      setRevenusInputs((prev) => {
+        const next = { ...prev };
+        for (const m of monthIndices) {
+          if (monthsWithExistingRoyalty.has(m)) continue;
+          const total = byMonth[m];
+          if (total == null || total === 0) continue;
+          const row = { ...(next[m] || {}) };
+          row[royaltiesColumn] = String(total.toFixed(2));
+          next[m] = row;
+        }
+        return next;
+      });
+    };
+
+    if (royaltiesCacheRef.current.has(cacheKey)) {
+      applyData(royaltiesCacheRef.current.get(cacheKey));
+      return;
+    }
+
+    setRoyaltiesLoading(true);
+    setRoyaltiesError(null);
+
+    (async () => {
+      try {
+        const response = await fetch(`${supabaseUrl}/rest/v1/rpc/get_royalties_summary`, {
+          method: "POST",
+          headers: {
+            apikey: supabaseAnonKey,
+            Authorization: `Bearer ${supabaseAnonKey}`,
+            "Content-Type": "application/json",
+            "x-client-id": clientId,
+          },
+          body: JSON.stringify({
+            p_client_id: clientId,
+            p_isrcs: isrcList,
+            p_from: dateFrom,
+            p_to: dateTo,
+          }),
+        });
+        if (!response.ok) throw new Error(`Supabase ${response.status} ${response.statusText}`);
+        const data = await response.json();
+        if (didCancel) return;
+        royaltiesCacheRef.current.set(cacheKey, data);
+        applyData(data);
+      } catch (err) {
+        if (!didCancel) setRoyaltiesError(err.message || String(err));
+      } finally {
+        if (!didCancel) setRoyaltiesLoading(false);
+      }
+    })();
+
+    return () => { didCancel = true; };
+    // monthIndices derived from half; safe to omit
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCanalId, year, half, isrcList, supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn, royaltiesRefreshKey, monthsWithExistingRoyalty]);
 
   const canaux = useMemo(() => {
     if (!canauxRecords) return [];
@@ -944,32 +1168,40 @@ function ReportInner({ cfg }) {
     return out;
   };
 
-  const collectFreeRecords = (rows, dateField, montantField, categorieField, canalLinkField, notesField) => {
-    const out = [];
-    if (!dateField || !montantField || !categorieField || !canalLinkField || !selectedCanalId) return out;
-    for (const r of rows) {
-      const v = parseFloat(String(r.montant || "").replace(",", "."));
-      if (!r.compteId || !r.month || isNaN(v) || v === 0) continue;
-      const fields = {
-        [dateField.id]: monthIsoDate(year, r.month),
-        [montantField.id]: v,
-        [categorieField.id]: [{ id: r.compteId }],
-        [canalLinkField.id]: [{ id: selectedCanalId }],
-      };
-      if (notesField && r.notes) fields[notesField.id] = r.notes;
-      out.push({ fields });
-    }
-    return out;
+  // Build a record payload from a saisie row, for the target type's set of fields.
+  const buildSaisieRecord = (r, dateField, montantField, categorieField, canalLinkField, notesField) => {
+    const v = parseFloat(String(r.montant || "").replace(",", "."));
+    if (!r.compteId || !r.month || isNaN(v) || v === 0) return null;
+    if (!dateField || !montantField || !categorieField || !canalLinkField || !selectedCanalId) return null;
+    const fields = {
+      [dateField.id]: monthIsoDate(year, r.month),
+      [montantField.id]: v,
+      [categorieField.id]: [{ id: r.compteId }],
+      [canalLinkField.id]: [{ id: selectedCanalId }],
+    };
+    if (notesField && r.notes) fields[notesField.id] = r.notes;
+    return { fields };
   };
 
-  const newRevenusToCreate = useMemo(
-    () => [
-      ...collectRecords(revenusInputs, revenusChoices, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField),
-      ...collectFreeRecords(freeRevenus, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField),
-    ],
-    [revenusInputs, freeRevenus, revenusChoices, year, selectedCanalId, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField],
-  );
-  const totalToCreate = newRevenusToCreate.length;
+  const newRevenusToCreate = useMemo(() => {
+    const fromGrid = collectRecords(revenusInputs, revenusChoices, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField);
+    const fromSaisies = saisies
+      .filter((r) => r.type !== "depense")
+      .map((r) => buildSaisieRecord(r, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField))
+      .filter(Boolean);
+    return [...fromGrid, ...fromSaisies];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revenusInputs, saisies, revenusChoices, year, selectedCanalId, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField]);
+
+  const newDepensesToCreate = useMemo(() => {
+    return saisies
+      .filter((r) => r.type === "depense")
+      .map((r) => buildSaisieRecord(r, depensesDateWriteField, depensesMontantField, depensesCategorieField, depensesCanalLinkField, depensesNotesField))
+      .filter(Boolean);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saisies, year, selectedCanalId, depensesDateWriteField, depensesMontantField, depensesCategorieField, depensesCanalLinkField, depensesNotesField]);
+
+  const totalToCreate = newRevenusToCreate.length + newDepensesToCreate.length;
 
   const handleSave = async () => {
     if (totalToCreate === 0 || saving) return;
@@ -979,7 +1211,11 @@ function ReportInner({ cfg }) {
       for (let i = 0; i < newRevenusToCreate.length; i += 50) {
         await revenusTable.createRecordsAsync(newRevenusToCreate.slice(i, i + 50));
       }
+      for (let i = 0; i < newDepensesToCreate.length; i += 50) {
+        await depensesTable.createRecordsAsync(newDepensesToCreate.slice(i, i + 50));
+      }
       setRevenusInputs({});
+      setSaisies([]);
       setSavedMsg(`${totalToCreate} entrée${totalToCreate > 1 ? "s" : ""} sauvegardée${totalToCreate > 1 ? "s" : ""}.`);
     } catch (err) {
       console.error("Save failed:", err);
@@ -1046,22 +1282,30 @@ function ReportInner({ cfg }) {
     return total;
   };
 
+  const saisiesTotals = useMemo(() => {
+    const acc = { revenu: 0, depense: 0 };
+    for (const r of saisies) {
+      const v = parseFloat(String(r.montant || "").replace(",", "."));
+      if (isNaN(v)) continue;
+      if (r.type === "depense") acc.depense += v;
+      else acc.revenu += v;
+    }
+    return acc;
+  }, [saisies]);
+
   const totalDepenses = useMemo(() => {
-    return depensesMontantField
+    const existing = depensesMontantField
       ? existingDepenses.reduce((s, r) => s + (Number(r.getCellValue(depensesMontantField)) || 0), 0)
       : 0;
-  }, [existingDepenses, depensesMontantField]);
+    return existing + saisiesTotals.depense;
+  }, [existingDepenses, depensesMontantField, saisiesTotals]);
 
   const totalRevenus = useMemo(() => {
     const existing = revenusMontantField
       ? existingRevenus.reduce((s, r) => s + (Number(r.getCellValue(revenusMontantField)) || 0), 0)
       : 0;
-    const free = freeRevenus.reduce((s, r) => {
-      const v = parseFloat(String(r.montant || "").replace(",", "."));
-      return s + (isNaN(v) ? 0 : v);
-    }, 0);
-    return existing + sumInputs(revenusInputs) + free;
-  }, [existingRevenus, revenusInputs, freeRevenus, revenusMontantField]);
+    return existing + sumInputs(revenusInputs) + saisiesTotals.revenu;
+  }, [existingRevenus, revenusInputs, saisiesTotals, revenusMontantField]);
 
   // --- Render ---
 
@@ -1099,7 +1343,30 @@ function ReportInner({ cfg }) {
       </div>
 
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
-        <PeriodPicker year={year} half={half} onChangeYear={setYear} onChangeHalf={setHalf} />
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <PeriodPicker year={year} half={half} onChangeYear={setYear} onChangeHalf={setHalf} />
+          <div className="flex items-center gap-2 text-sm">
+            {royaltiesLoading && (
+              <span className="flex items-center gap-2 text-gray-gray500">
+                <span className="inline-block w-3 h-3 border-2 border-blue-blue border-t-transparent rounded-full animate-spin"></span>
+                Chargement royalties…
+              </span>
+            )}
+            {royaltiesError && (
+              <span className="text-red-redDark1">Erreur royalties : {royaltiesError}</span>
+            )}
+            <button
+              onClick={() => {
+                royaltiesCacheRef.current.clear();
+                setRoyaltiesRefreshKey((k) => k + 1);
+              }}
+              title="Rafraîchir les royalties Supabase"
+              className="px-2 py-1 rounded text-sm bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray200 hover:bg-gray-gray200"
+            >
+              ↺ Royalties
+            </button>
+          </div>
+        </div>
       </div>
 
       {columnsConfig.error && (
@@ -1114,6 +1381,17 @@ function ReportInner({ cfg }) {
         <KpiTile label="Solde" value={totalRevenus - totalDepenses} accent="blue" />
       </div>
 
+      <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
+        <SaisiesEditor
+          title="Saisies"
+          rows={saisies}
+          onChange={setSaisies}
+          comptesRecords={comptesRecords}
+          comptesNumeroField={comptesNumeroField}
+          monthIndices={monthIndices}
+        />
+      </div>
+
       <h2 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100 mt-2 mb-3">
         Revenus ventes albums
       </h2>
@@ -1124,13 +1402,6 @@ function ReportInner({ cfg }) {
           monthIndices={monthIndices}
           inputs={revenusInputs}
           onChange={handleRevenusChange}
-        />
-        <FreeEntriesEditor
-          title="Subventions / Droits synchro / Autres"
-          rows={freeRevenus}
-          onChange={setFreeRevenus}
-          comptesRecords={filteredComptesRecords}
-          monthIndices={monthIndices}
         />
       </div>
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-6">
