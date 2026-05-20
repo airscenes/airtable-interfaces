@@ -13,7 +13,7 @@ import { LIST_COLS, GRID_TEMPLATE } from "./listColumns";
 // Other parent columns (budget, probable) render empty in the sub-list.
 
 const SUB_LABELS = {
-  name: "Campagne",
+  name: "Identifiant budget",
   spend_budget: "Total dépensé",
   spend_media: "Média",
   spend_prod: "Prod",
@@ -27,7 +27,7 @@ const SUB_ALIGNS = {
   spend_budget: "right",
 };
 
-export function CampagnesSubList({ budgets, nameField, spendTotalField, spendMediaField, spendProdField }) {
+export function CampagnesSubList({ budgets, nameField, identifiantField, spendTotalField, spendMediaField, spendProdField }) {
   if (!budgets || budgets.length === 0) {
     return (
       <div className="bn-sublist-empty py-2 pl-10 text-xs italic text-gray-gray400">
@@ -55,8 +55,15 @@ export function CampagnesSubList({ budgets, nameField, spendTotalField, spendMed
 
       <div className="bn-sublist-body">
         {budgets.map((b) => {
+          // First column shows the Budget's `identifiant_budget`. The linked
+          // Campagne name (from `nameField`) is kept as the cell's hover title.
+          const identifiant = identifiantField
+            ? b.getCellValueAsString(identifiantField)
+            : "";
           const linked = nameField ? b.getCellValue(nameField) : null;
-          const name = Array.isArray(linked) ? linked.map((l) => l.name).join(", ") : "";
+          const linkedName = Array.isArray(linked)
+            ? linked.map((l) => l.name).join(", ")
+            : "";
           const spendTotal = spendTotalField ? b.getCellValue(spendTotalField) : null;
           const spendMedia = spendMediaField ? b.getCellValue(spendMediaField) : null;
           const spendProd = spendProdField ? b.getCellValue(spendProdField) : null;
@@ -67,8 +74,11 @@ export function CampagnesSubList({ budgets, nameField, spendTotalField, spendMed
               style={{ gridTemplateColumns: GRID_TEMPLATE }}
             >
               <div className="bn-sublist-cell bn-sublist-cell-spacer" />
-              <div className="bn-sublist-cell bn-sublist-cell-name px-3 min-w-0 truncate" title={name || "—"}>
-                {name || "—"}
+              <div
+                className="bn-sublist-cell bn-sublist-cell-name px-3 min-w-0 truncate"
+                title={linkedName || identifiant || "—"}
+              >
+                {identifiant || "—"}
               </div>
               <div className="bn-sublist-cell bn-sublist-cell-spend-total px-3 min-w-0 tabular-nums text-right">
                 {fmtCurrency(spendTotal)}

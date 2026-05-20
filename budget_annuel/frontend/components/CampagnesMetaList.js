@@ -198,12 +198,12 @@ export function CampagnesMetaList({
   budgetField,
   percentField,
   budgetReviseField,
-  soldeField,
   probableField,
   spendMediaField,
   spendProdField,
   budgetsByCampagneMetaId,
   budgetNameField,
+  budgetIdentifiantField,
   budgetSpendTotalField,
   budgetSpendMediaField,
   budgetSpendProdField,
@@ -329,6 +329,7 @@ export function CampagnesMetaList({
               <CampagnesSubList
                 budgets={childBudgets}
                 nameField={budgetNameField}
+                identifiantField={budgetIdentifiantField}
                 spendTotalField={budgetSpendTotalField}
                 spendMediaField={budgetSpendMediaField}
                 spendProdField={budgetSpendProdField}

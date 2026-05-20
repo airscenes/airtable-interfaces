@@ -1,52 +1,142 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   initializeBlock,
-  useBase,
   useRecords,
+  useCustomProperties,
 } from "@airtable/blocks/interface/ui";
 import { YearDropdown } from "./components/YearDropdown";
 import { AnnualBudget } from "./components/AnnualBudget";
 import { CampagnesMetaList } from "./components/CampagnesMetaList";
 import "./style.css";
 
-const findField = (table, name) =>
-    table?.fields?.find(
-    (f) => f?.name?.toLowerCase() === name.toLowerCase(),
-  ) || null;
+// --- Custom Properties Definition ---
+// Tables and fields are configured per Interface page via the extension's
+// properties panel — nothing is hard-coded. `defaultValue` pre-selects the
+// table/field when a matching name exists, so a base laid out the expected
+// way works out of the box but stays overridable.
 
-function App() {
-  const base = useBase();
-  const yearsTable = base?.tables?.find(
-    (t) => t?.name?.toLowerCase() === "budget annuel",
-  ) || null;
+const anyField = () => true;
 
-  const campagnesMetaTable = base?.tables?.find(
-    (t) => t?.name?.toLowerCase() === "campagnes_meta",
-  ) || null;
-  const budgetTable = base?.tables?.find(
-    (t) => t?.name?.toLowerCase() === "budgets",
-  ) || null;
-
-  // Guard at the boundary: useRecords crashes on null tables. If the
-  // "Budget Annuel" table can't be found, render the widget with no options.
-  if (!yearsTable || !yearsTable.id) {
-    return (
-      <div className="bn-app p-4 min-h-screen bg-white dark:bg-gray-gray800">
-        <YearDropdown options={[]} value={null} onChange={() => {}} />
-      </div>
+// Resolve a Field by trying each candidate name in order (case-insensitive).
+const findField = (table, ...names) => {
+  if (!table) return undefined;
+  for (const n of names) {
+    const f = table.fields?.find(
+      (x) => x?.name?.toLowerCase() === n.toLowerCase(),
     );
+    if (f) return f;
   }
+  return undefined;
+};
 
+function getCustomProperties(base) {
+  const tables = base.tables;
+  const exact = (...kw) =>
+    tables.find((t) => kw.some((k) => t.name?.toLowerCase() === k));
+  const includes = (...kw) =>
+    tables.find((t) => kw.some((k) => t.name?.toLowerCase().includes(k)));
+
+  const yearsTable = exact("budget annuel");
+  const campagnesMetaTable = exact("campagnes_meta") || includes("campagne");
+  const budgetTable = exact("budgets");
+
+  // Field properties require a `table`; fall back to the first table when the
+  // expected one is not found so the property panel still renders.
+  const fb = tables[0];
+  const yT = yearsTable || fb;
+  const cT = campagnesMetaTable || fb;
+  const bT = budgetTable || fb;
+
+  return [
+    // --- Tables ---
+    { key: "yearsTable", label: "Table Budget Annuel (années)", type: "table", defaultValue: yearsTable },
+    { key: "campagnesMetaTable", label: "Table Campagnes_META", type: "table", defaultValue: campagnesMetaTable },
+    { key: "budgetTable", label: "Table Budgets", type: "table", defaultValue: budgetTable },
+
+    // --- Champs Budget Annuel ---
+    { key: "yearField", label: "Champ Années (Budget Annuel)", type: "field", table: yT, shouldFieldBeAllowed: anyField, defaultValue: findField(yearsTable, "années", "annees") },
+    { key: "campagnesLinkField", label: "Lien Campagnes_META (Budget Annuel)", type: "field", table: yT, shouldFieldBeAllowed: anyField, defaultValue: findField(yearsTable, "campagnes_meta") },
+    { key: "budgetAnnualTotalField", label: "Champ Budget Annuel Total (Budget Annuel)", type: "field", table: yT, shouldFieldBeAllowed: anyField, defaultValue: findField(yearsTable, "Budget Annuel Total") },
+    { key: "budgetReviseTotalField", label: "Champ Budget Révisé Total (Budget Annuel)", type: "field", table: yT, shouldFieldBeAllowed: anyField, defaultValue: findField(yearsTable, "Budget Révisé Total") },
+
+    // --- Champs Campagnes_META ---
+    { key: "nameField", label: "Champ Name (Campagnes_META)", type: "field", table: cT, shouldFieldBeAllowed: anyField, defaultValue: findField(campagnesMetaTable, "name") },
+    { key: "spendBudgetField", label: "Champ spend_budget (Campagnes_META)", type: "field", table: cT, shouldFieldBeAllowed: anyField, defaultValue: findField(campagnesMetaTable, "spend_budget") },
+    { key: "budgetField", label: "Champ budget (Campagnes_META)", type: "field", table: cT, shouldFieldBeAllowed: anyField, defaultValue: findField(campagnesMetaTable, "budget") },
+    { key: "percentField", label: "Champ Ratio Budget (Campagnes_META)", type: "field", table: cT, shouldFieldBeAllowed: anyField, defaultValue: findField(campagnesMetaTable, "Ratio Budget") },
+    { key: "budgetReviseField", label: "Champ Budget Révisé (Campagnes_META)", type: "field", table: cT, shouldFieldBeAllowed: anyField, defaultValue: findField(campagnesMetaTable, "Budget Révisé") },
+    { key: "probableField", label: "Champ Probable (Campagnes_META)", type: "field", table: cT, shouldFieldBeAllowed: anyField, defaultValue: findField(campagnesMetaTable, "Probable") },
+    { key: "spendMediaField", label: "Champ spend_media (Campagnes_META)", type: "field", table: cT, shouldFieldBeAllowed: anyField, defaultValue: findField(campagnesMetaTable, "spend_media") },
+    { key: "spendProdField", label: "Champ spend_prod (Campagnes_META)", type: "field", table: cT, shouldFieldBeAllowed: anyField, defaultValue: findField(campagnesMetaTable, "spend_prod") },
+
+    // --- Champs Budgets ---
+    { key: "budgetNameField", label: "Lien Campagne (Budgets)", type: "field", table: bT, shouldFieldBeAllowed: anyField, defaultValue: findField(budgetTable, "Campagne") },
+    { key: "budgetIdentifiantField", label: "Champ identifiant_budget (Budgets)", type: "field", table: bT, shouldFieldBeAllowed: anyField, defaultValue: findField(budgetTable, "identifiant_budget") },
+    { key: "budgetSpendTotalField", label: "Champ spend_total (Budgets)", type: "field", table: bT, shouldFieldBeAllowed: anyField, defaultValue: findField(budgetTable, "spend_total") },
+    { key: "budgetSpendMediaField", label: "Champ spend_media (Budgets)", type: "field", table: bT, shouldFieldBeAllowed: anyField, defaultValue: findField(budgetTable, "spend_media") },
+    { key: "budgetSpendProdField", label: "Champ spend_prod (Budgets)", type: "field", table: bT, shouldFieldBeAllowed: anyField, defaultValue: findField(budgetTable, "spend_prod") },
+    { key: "budgetCampagneMetaLinkField", label: "Lien Campagnes_META (Budgets)", type: "field", table: bT, shouldFieldBeAllowed: anyField, defaultValue: findField(budgetTable, "campagnes_meta") },
+  ];
+}
+
+// Shown when the required tables are not configured for the current page.
+function ConfigPrompt() {
   return (
-    <AppInner
-      yearsTable={yearsTable}
-      campagnesMetaTable={campagnesMetaTable}
-      budgetTable={budgetTable}
-    />
+    <div className="bn-app flex items-center justify-center min-h-screen p-8 bg-white dark:bg-gray-gray800">
+      <div className="max-w-md text-center">
+        <p className="text-sm text-gray-gray600 dark:text-gray-gray200">
+          Veuillez configurer la table Budget Annuel (et, idéalement,
+          Campagnes_META et Budgets) dans les propriétés de l&apos;extension.
+        </p>
+      </div>
+    </div>
   );
 }
 
-function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
+function App() {
+  const { customPropertyValueByKey, errorState } =
+    useCustomProperties(getCustomProperties);
+
+  if (errorState) {
+    return <ConfigPrompt />;
+  }
+
+  const yearsTable = customPropertyValueByKey.yearsTable;
+
+  // Guard at the boundary: useRecords crashes on null tables. If the
+  // Budget Annuel table isn't configured, show the configuration prompt.
+  if (!yearsTable || !yearsTable.id) {
+    return <ConfigPrompt />;
+  }
+
+  return <AppInner cfg={customPropertyValueByKey} />;
+}
+
+function AppInner({ cfg }) {
+  const {
+    yearsTable,
+    campagnesMetaTable,
+    budgetTable,
+    yearField,
+    campagnesLinkField,
+    budgetAnnualTotalField,
+    budgetReviseTotalField,
+    nameField,
+    spendBudgetField,
+    budgetField,
+    percentField,
+    budgetReviseField,
+    probableField,
+    spendMediaField,
+    spendProdField,
+    budgetNameField,
+    budgetIdentifiantField,
+    budgetSpendTotalField,
+    budgetSpendMediaField,
+    budgetSpendProdField,
+    budgetCampagneMetaLinkField,
+  } = cfg;
+
   const [year, setYear] = useState(null);
 
   // Records — useRecords always needs a real table, so optional tables fall
@@ -56,43 +146,6 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
   const campagneRecords = campagnesMetaTable ? campagneRecordsRaw : null;
   const budgetRecordsRaw = useRecords(budgetTable || yearsTable);
   const budgetRecords = budgetTable ? budgetRecordsRaw : null;
-
-  // Fields on budget_annuel
-  const yearField =
-    findField(yearsTable, "années") || findField(yearsTable, "annees");
-  const campagnesLinkField =
-    findField(yearsTable, "campagnes_meta") ||
-    yearsTable.fields?.find((f) =>
-      f?.name?.toLowerCase().includes("campagne"),
-    ) ||
-    null;
-  const budgetAnnualTotalField = findField(yearsTable, "Budget Annuel Total");
-  const budgetReviseTotalField = findField(yearsTable, "Budget Révisé Total");
-
-  // Fields on Campagnes_META
-  const nameField = findField(campagnesMetaTable, "name");
-  const spendBudgetField = findField(campagnesMetaTable, "spend_budget");
-  const budgetField = findField(campagnesMetaTable, "budget");
-  const percentField = findField(campagnesMetaTable, "Ratio Budget");
-  const budgetReviseField = findField(campagnesMetaTable, "Budget Révisé");
-  const soldeField = findField(campagnesMetaTable, "solde");
-  const probableField = findField(campagnesMetaTable, "Probable");
-  const spendMediaField = findField(campagnesMetaTable, "spend_media");
-  const spendProdField = findField(campagnesMetaTable, "spend_prod");
-
-  // Fields on Budgets
-  // `budgetNameField` points to the `Campagne` link field — `getCellValueAsString`
-  // returns the linked Campagne's primary field value, which is the display name.
-  const budgetNameField = findField(budgetTable, "Campagne");
-  const budgetSpendTotalField = findField(budgetTable, "spend_total");
-  const budgetSpendMediaField = findField(budgetTable, "spend_media");
-  const budgetSpendProdField = findField(budgetTable, "spend_prod");
-  const budgetCampagneMetaLinkField =
-    findField(budgetTable, "campagnes_meta") ||
-    budgetTable?.fields?.find((f) =>
-      f?.name?.toLowerCase().includes("campagnes_meta"),
-    ) ||
-    null;
 
   // Dropdown options
   const options = useMemo(() => {
@@ -273,13 +326,13 @@ function AppInner({ yearsTable, campagnesMetaTable, budgetTable }) {
         budgetField={budgetField}
         percentField={percentField}
         budgetReviseField={budgetReviseField}
-        soldeField={soldeField}
         probableField={probableField}
         spendMediaField={spendMediaField}
         spendProdField={spendProdField}
         yearByCampagneId={yearByCampagneId}
         budgetsByCampagneMetaId={budgetsByCampagneMetaId}
         budgetNameField={budgetNameField}
+        budgetIdentifiantField={budgetIdentifiantField}
         budgetSpendTotalField={budgetSpendTotalField}
         budgetSpendMediaField={budgetSpendMediaField}
         budgetSpendProdField={budgetSpendProdField}

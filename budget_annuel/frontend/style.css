@@ -7,7 +7,7 @@
     width: fit-content;
 }
 
-.bn-year-dropdown::hover{
+.bn-year-dropdown:hover{
     cursor:pointer;
 }
 
@@ -96,7 +96,7 @@
 }
 
 .bn-annual-budget-info,
-bn-annual-budget-caption{
+.bn-annual-budget-caption{
     font-size: 15px;
 }
 
