@@ -44,11 +44,15 @@
 
     text-align: left;
     display: -webkit-box;
-    -webkit-line-clamp: 4;
-    line-clamp: 4;
     -webkit-box-orient: vertical;
-    overflow: hidden;
     word-break: break-word;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+
+.three-days-event-group__label::-webkit-scrollbar,
+.three-days-event-block__label::-webkit-scrollbar {
+    display: none;
 }
 
 .three-days-event-block__hours{
