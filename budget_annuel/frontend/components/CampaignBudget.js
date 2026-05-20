@@ -10,22 +10,23 @@ import { fmtCurrency } from "../utils/format";
 export function CampaignBudget({ spent, probable, budget, revise }) {
   const spentVal = spent ?? 0;
   const probableVal = probable ?? 0;
-  const denom = (budget ?? 0) + (revise ?? 0);
+  // `revise` is the campagne's *revised* total budget, not a variation on top
+  // of `budget`. The effective budget is whichever is larger — the revised
+  // budget only enlarges the denominator when it exceeds the original budget.
+  const denom = Math.max(budget ?? 0, revise ?? 0);
 
   const spentPct = denom > 0 ? Math.max(0, spentVal / denom) * 100 : 0;
   const probablePct = denom > 0 ? Math.max(0, probableVal / denom) * 100 : 0;
-  const visibleProbablePct = Math.min(
-    probablePct,
-    Math.max(0, 100 - spentPct),
-  );
-  const overBudget = denom > 0 && spentVal + probableVal > denom;
+  // `probable` is the *total* expected amount, not an increment on top of
+  // spent. The probable segment is only the part that exceeds spent — when
+  // probable is below spent there's nothing extra to show.
+  const visibleProbablePct = Math.max(0, probablePct - spentPct);
+  const overBudget = denom > 0 && Math.max(spentVal, probableVal) > denom;
 
   // Solde = (budget annuel + révisé) − dépensé. Computed locally so it always
   // reflects the current props (the Airtable `solde` field can lag behind
   // edits because of formula recomputation delays).
   const solde = denom - spentVal;
-  console.log("denom: ", denom);
-  console.log("spentVal: ", spentVal);
 
   return (
     <div className="bn-campaign-budget tabular-nums flex items-center gap-3">

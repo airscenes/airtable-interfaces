@@ -25,7 +25,11 @@ export function AnnualBudget({
 }) {
   const annual = annualBudget ?? 0;
   const revise = sumOfRevise ?? 0;
-  const denominator = annual + revise;
+  // `revise` is the summed *revised* budgets, not a variation on top of the
+  // annual budget. It only enlarges the denominator by the amount it exceeds
+  // the annual budget — and the "+ …" is shown only when that excess exists.
+  const extraRevise = Math.max(0, revise - annual);
+  const denominator = annual + extraRevise;
 
   const spentPct =
     denominator > 0 && sumOfSpent != null
@@ -35,17 +39,16 @@ export function AnnualBudget({
     denominator > 0 && sumProbable != null
       ? Math.max(0, sumProbable / denominator) * 100
       : 0;
-  // Probable is clamped to whatever space remains after the spent segment,
-  // so the two fills never visually exceed the track.
-  const visibleProbablePct = Math.min(
-    probablePct,
-    Math.max(0, 100 - spentPct),
-  );
+  // Probable is the *total* expected amount, not an increment on top of
+  // spent. The probable segment is only the part that exceeds spent — when
+  // probable is below spent there's nothing extra to show.
+  const visibleProbablePct = Math.max(0, probablePct - spentPct);
 
-  // overBudget still triggers on (spent + probable) > denom — the bar's red
-  // state is about projected commitment, not just what's already spent.
-  const totalCommitted = (sumOfSpent ?? 0) + (sumProbable ?? 0);
-  const overBudget = denominator > 0 && totalCommitted > denominator;
+  // overBudget triggers when either spent or projected probable exceeds the
+  // denominator — the bar's red state is about projected commitment.
+  const overBudget =
+    denominator > 0 &&
+    Math.max(sumOfSpent ?? 0, sumProbable ?? 0) > denominator;
 
   // Solde total = what's left of the budget after spent. Probable is *not*
   // subtracted here — it's already visualized in the dark-blue bar segment.
@@ -73,8 +76,12 @@ export function AnnualBudget({
             <span className="bn-annual-budget-sep text-gray-gray500 dark:text-gray-gray400 mx-2">/</span>
             <span className="bn-annual-budget-denominator text-gray-gray500 dark:text-gray-gray400">
               {fmtCurrency(annual)}
-              <span className="mx-2">+</span>
-              {fmtCurrency(revise)}
+              {extraRevise > 0 && (
+                <>
+                  <span className="mx-2">+</span>
+                  {fmtCurrency(extraRevise)}
+                </>
+              )}
             </span>
           </div>
           <div className="bn-annual-budget-progress mt-2 h-2 w-full rounded-full bg-gray-gray100 dark:bg-gray-gray700 overflow-hidden flex">
