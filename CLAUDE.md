@@ -32,6 +32,11 @@ This repo contains **custom Airtable Interface Extensions**. Each subfolder is a
 - No Airtable UI components (`Box`, `Button`, etc.): use HTML + Tailwind
 - `--legacy-peer-deps` when installing npm packages (React 19 compat)
 
+## Gotchas
+
+- **Field visibility in custom extensions**: An extension only "sees" fields that are explicitly checked as **Visible** in the **Données** section of the extension settings (right-hand panel in the Interface editor). If `table.fields.find(f => f.name === "myField")` returns `undefined` while the field clearly exists in the underlying table, it's almost always because it hasn't been added to the visible fields list — not a typo, casing, or accent issue. Always check this panel first.
+- **String-type custom property length limit**: The `type: "string"` custom property used for JSON config (e.g. `evenementFieldsJson`) has a hard character limit in Airtable's settings input. Keep config JSON compact: prefer short formats like `["fieldName1","fieldName2"]` (string entries default `label = fieldName`) over verbose `[{"label":"...","fieldName":"..."}]`. Support both formats in the parser when a list of fields is needed.
+
 ## Commands
 
 ```bash

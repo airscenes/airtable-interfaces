@@ -53,6 +53,11 @@ The extension is immediately available in production on Airtable.
 
 - **Date format**: Always use `YYYY-MM-DD` (ISO 8601) for dates — in UI inputs, API payloads, display, and storage. Never use locale-dependent formats like `MM/DD/YYYY` or `DD/MM/YYYY`.
 
+## Gotchas
+
+- **Field visibility**: A custom extension only sees fields explicitly marked **Visible** in the **Données** section of the extension settings. If a field appears missing from the SDK (`table.fields.find(...)` returns `undefined`), check this panel first — before assuming a typo.
+- **JSON custom property length limit**: The string-type custom property used to hold JSON config has a character cap. Keep config JSON compact (e.g. `["fieldName1","fieldName2"]` rather than full `{label, fieldName}` objects).
+
 ## Creating a New Extension
 
 1. In Airtable: Interface > Add extension > Build a custom extension
