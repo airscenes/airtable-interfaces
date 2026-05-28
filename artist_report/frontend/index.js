@@ -14,6 +14,9 @@ const MONTHS_FR = [
   "Juillet","Août","Septembre","Octobre","Novembre","Décembre",
 ];
 
+// Label of the Revenus grid column pre-filled from Shopify sales (Supabase).
+const SHOPIFY_COLUMN = "Shopify";
+
 const fmtCurrency = (v) =>
   v == null || (typeof v === "number" && isNaN(v))
     ? "—"
@@ -255,19 +258,22 @@ function CurrencyCellInput({ value, onChange, placeholder = "0" }) {
 
 // --- UI: Editable grid (months × categories) ---
 
-function EditableGrid({ title, choices, monthIndices, inputs, onChange }) {
+function EditableGrid({ title, choices, monthIndices, inputs, onChange, existing = {} }) {
   const colTotals = useMemo(() => {
     const totals = {};
     for (const c of choices) totals[c.id] = 0;
     for (const m of monthIndices) {
       const row = inputs[m] || {};
+      const exRow = existing[m] || {};
       for (const c of choices) {
         const v = parseFloat(String(row[c.id] || "").replace(",", "."));
         if (!isNaN(v)) totals[c.id] += v;
+        const ev = exRow[c.id];
+        if (typeof ev === "number") totals[c.id] += ev;
       }
     }
     return totals;
-  }, [inputs, choices, monthIndices]);
+  }, [inputs, existing, choices, monthIndices]);
 
   const grandTotal = Object.values(colTotals).reduce((s, v) => s + v, 0);
 
@@ -320,14 +326,31 @@ function EditableGrid({ title, choices, monthIndices, inputs, onChange }) {
                     <td className="p-2 border-b border-gray-gray100 dark:border-gray-gray700 font-medium text-gray-gray600 dark:text-gray-gray200 sticky left-0 bg-white dark:bg-gray-gray700">
                       {MONTHS_FR[m - 1]}
                     </td>
-                    {choices.map((c) => (
-                      <td key={c.id} className="p-1 border-b border-gray-gray100 dark:border-gray-gray700">
-                        <CurrencyCellInput
-                          value={(inputs[m] && inputs[m][c.id]) || ""}
-                          onChange={(val) => onChange(m, c.id, val)}
-                        />
-                      </td>
-                    ))}
+                    {choices.map((c) => {
+                      const exVal = existing[m] && existing[m][c.id];
+                      const isSaved = typeof exVal === "number" && exVal !== 0;
+                      return (
+                        <td key={c.id} className="p-1 border-b border-gray-gray100 dark:border-gray-gray700">
+                          {isSaved ? (
+                            <div
+                              className="flex items-center justify-end gap-1 px-2 py-1
+                                         text-gray-gray600 dark:text-gray-gray200 whitespace-nowrap"
+                              title="Déjà enregistré dans Airtable"
+                            >
+                              <span>{fmtCurrency(exVal)}</span>
+                              <svg className="w-3.5 h-3.5 text-green-greenDark1 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                <path d="M7.5 13.5L4 10l1.4-1.4 2.1 2.1 5.1-5.1L14 7z" />
+                              </svg>
+                            </div>
+                          ) : (
+                            <CurrencyCellInput
+                              value={(inputs[m] && inputs[m][c.id]) || ""}
+                              onChange={(val) => onChange(m, c.id, val)}
+                            />
+                          )}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
                 <tr className="bg-gray-gray50 dark:bg-gray-gray800 font-semibold">
@@ -342,7 +365,7 @@ function EditableGrid({ title, choices, monthIndices, inputs, onChange }) {
             </table>
           </div>
           <div className="text-right text-base text-gray-gray500 mt-1">
-            Total saisi : {fmtCurrency(grandTotal)}
+            Total période (saisi + enregistré) : {fmtCurrency(grandTotal)}
           </div>
         </>
       )}
@@ -949,12 +972,17 @@ function ReportInner({ cfg }) {
   const [royaltiesError, setRoyaltiesError] = useState(null);
   const [royaltiesRefreshKey, setRoyaltiesRefreshKey] = useState(0);
   const royaltiesCacheRef = useRef(new Map());
+  const [shopifyLoading, setShopifyLoading] = useState(false);
+  const [shopifyError, setShopifyError] = useState(null);
+  const [shopifyRefreshKey, setShopifyRefreshKey] = useState(0);
+  const shopifyCacheRef = useRef(new Map());
 
   useEffect(() => {
     setRevenusInputs({});
     setSaisies([]);
     setSavedMsg(null);
     setRoyaltiesError(null);
+    setShopifyError(null);
   }, [selectedCanalId, year, half]);
 
   // Resolve the compteId of the Royalties column (from revenusColumnsJson) for dup-detection
@@ -988,6 +1016,38 @@ function ReportInner({ cfg }) {
     }
     return set;
   }, [revenusRecords, royaltiesCompteId, selectedCanalId, revenusCanalLinkField, revenusCategorieField, revenusDateField, revenusDateWriteField, year, half]);
+
+  // Resolve the compteId of the Shopify column (from revenusColumnsJson) for dup-detection
+  const shopifyCompteId = useMemo(() => {
+    const col = (columnsConfig.revenus || []).find((c) => c.label === SHOPIFY_COLUMN);
+    return col ? col.compteId : null;
+  }, [columnsConfig]);
+
+  // Months of the current period that already have a Shopify revenu record in Airtable.
+  // We skip pre-filling those months to prevent creating duplicates if the user clicks Save again.
+  const monthsWithExistingShopify = useMemo(() => {
+    const set = new Set();
+    if (!shopifyCompteId || !revenusRecords || !selectedCanalId || !revenusCanalLinkField || !revenusCategorieField) return set;
+    const dateFields = [revenusDateField, revenusDateWriteField].filter(Boolean);
+    for (const rec of revenusRecords) {
+      const links = rec.getCellValue(revenusCanalLinkField);
+      if (!Array.isArray(links) || !links.some((l) => l.id === selectedCanalId)) continue;
+      const cat = rec.getCellValue(revenusCategorieField);
+      if (!Array.isArray(cat) || !cat.some((c) => c.id === shopifyCompteId)) continue;
+      let d = null;
+      for (const f of dateFields) {
+        d = rec.getCellValue(f);
+        if (d == null) d = rec.getCellValueAsString(f);
+        if (d != null && d !== "") break;
+      }
+      const parts = parseIsoParts(d);
+      if (!parts || parts.year !== year) continue;
+      if (half === "H1" && parts.month > 6) continue;
+      if (half === "H2" && parts.month < 7) continue;
+      set.add(parts.month);
+    }
+    return set;
+  }, [revenusRecords, shopifyCompteId, selectedCanalId, revenusCanalLinkField, revenusCategorieField, revenusDateField, revenusDateWriteField, year, half]);
 
   // Extract ISRCs from the selected canal's linked Oeuvres
   const isrcList = useMemo(() => {
@@ -1082,6 +1142,84 @@ function ReportInner({ cfg }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCanalId, year, half, isrcList, supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn, royaltiesRefreshKey, monthsWithExistingRoyalty]);
 
+  // Fetch Shopify sales from Supabase for the selected period and pre-fill the Shopify column.
+  // The Shopify project_id is the Airtable canal record id.
+  useEffect(() => {
+    if (saving) return; // don't mutate revenusInputs while a save is in flight
+    if (!supabaseUrl || !supabaseAnonKey || !clientId || !selectedCanalId) {
+      return;
+    }
+    const dateFrom = half === "H1" ? `${year}-01-01` : `${year}-07-01`;
+    // get_shopify_sales_summary uses order_date < p_to, so p_to is exclusive.
+    const dateTo = half === "H1" ? `${year}-07-01` : `${year + 1}-01-01`;
+    const cacheKey = `${selectedCanalId}_${year}_${half}_${shopifyRefreshKey}`;
+    let didCancel = false;
+
+    const applyData = (rows) => {
+      const byMonth = {};
+      for (const row of rows || []) {
+        // row.month is the first day of the month (YYYY-MM-DD)
+        const m = parseInt(String(row.month || "").slice(5, 7), 10);
+        if (!m || m < 1 || m > 12) continue;
+        // Sum total_revenue across all product categories for the month.
+        byMonth[m] = (byMonth[m] || 0) + (parseFloat(row.total_revenue) || 0);
+      }
+      setRevenusInputs((prev) => {
+        const next = { ...prev };
+        for (const m of monthIndices) {
+          if (monthsWithExistingShopify.has(m)) continue;
+          const total = byMonth[m];
+          if (total == null || total === 0) continue;
+          const row = { ...(next[m] || {}) };
+          row[SHOPIFY_COLUMN] = String(total.toFixed(2));
+          next[m] = row;
+        }
+        return next;
+      });
+    };
+
+    if (shopifyCacheRef.current.has(cacheKey)) {
+      applyData(shopifyCacheRef.current.get(cacheKey));
+      return;
+    }
+
+    setShopifyLoading(true);
+    setShopifyError(null);
+
+    (async () => {
+      try {
+        const response = await fetch(`${supabaseUrl}/rest/v1/rpc/get_shopify_sales_summary`, {
+          method: "POST",
+          headers: {
+            apikey: supabaseAnonKey,
+            Authorization: `Bearer ${supabaseAnonKey}`,
+            "Content-Type": "application/json",
+            "x-client-id": clientId,
+          },
+          body: JSON.stringify({
+            p_client_id: clientId,
+            p_project_ids: [selectedCanalId],
+            p_from: dateFrom,
+            p_to: dateTo,
+          }),
+        });
+        if (!response.ok) throw new Error(`Supabase ${response.status} ${response.statusText}`);
+        const data = await response.json();
+        if (didCancel) return;
+        shopifyCacheRef.current.set(cacheKey, data);
+        applyData(data);
+      } catch (err) {
+        if (!didCancel) setShopifyError(err.message || String(err));
+      } finally {
+        if (!didCancel) setShopifyLoading(false);
+      }
+    })();
+
+    return () => { didCancel = true; };
+    // monthIndices derived from half; safe to omit
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCanalId, year, half, supabaseUrl, supabaseAnonKey, clientId, shopifyRefreshKey, monthsWithExistingShopify]);
+
   const canaux = useMemo(() => {
     if (!canauxRecords) return [];
     return canauxRecords.map((rec) => {
@@ -1139,6 +1277,36 @@ function ReportInner({ cfg }) {
     () => columnsConfig.revenus.map((c) => ({ id: c.label, name: c.label, compteId: c.compteId, group: c.group })),
     [columnsConfig],
   );
+
+  // Map existing (already-saved) revenus records onto grid cells: { month: { colId: amount } }.
+  // A record matches a column by its Notes label, falling back to its Compte link.
+  // This lets the grid display saved values without re-including them in the records to create.
+  const existingRevenusByCell = useMemo(() => {
+    const map = {};
+    if (!revenusMontantField || !revenusCategorieField || revenusChoices.length === 0) return map;
+    const dateFields = [revenusDateField, revenusDateWriteField].filter(Boolean);
+    for (const rec of existingRevenus) {
+      let d = null;
+      for (const f of dateFields) {
+        d = rec.getCellValue(f);
+        if (d == null) d = rec.getCellValueAsString(f);
+        if (d != null && d !== "") break;
+      }
+      const parts = parseIsoParts(d);
+      if (!parts) continue;
+      const cat = rec.getCellValue(revenusCategorieField);
+      const compteId = Array.isArray(cat) && cat[0] ? cat[0].id : null;
+      const notes = revenusNotesField ? rec.getCellValueAsString(revenusNotesField) : "";
+      let col = revenusChoices.find((c) => c.label === notes && c.compteId === compteId);
+      if (!col) col = revenusChoices.find((c) => c.label === notes);
+      if (!col) col = revenusChoices.find((c) => c.compteId === compteId);
+      if (!col) continue;
+      const amt = Number(rec.getCellValue(revenusMontantField)) || 0;
+      if (!map[parts.month]) map[parts.month] = {};
+      map[parts.month][col.id] = (map[parts.month][col.id] || 0) + amt;
+    }
+    return map;
+  }, [existingRevenus, revenusChoices, revenusMontantField, revenusCategorieField, revenusNotesField, revenusDateField, revenusDateWriteField]);
 
   const handleRevenusChange = (m, choiceId, val) => {
     setRevenusInputs((prev) => ({ ...prev, [m]: { ...(prev[m] || {}), [choiceId]: val } }));
@@ -1355,6 +1523,15 @@ function ReportInner({ cfg }) {
             {royaltiesError && (
               <span className="text-red-redDark1">Erreur royalties : {royaltiesError}</span>
             )}
+            {shopifyLoading && (
+              <span className="flex items-center gap-2 text-gray-gray500">
+                <span className="inline-block w-3 h-3 border-2 border-blue-blue border-t-transparent rounded-full animate-spin"></span>
+                Chargement Shopify…
+              </span>
+            )}
+            {shopifyError && (
+              <span className="text-red-redDark1">Erreur Shopify : {shopifyError}</span>
+            )}
             <button
               onClick={() => {
                 royaltiesCacheRef.current.clear();
@@ -1364,6 +1541,16 @@ function ReportInner({ cfg }) {
               className="px-2 py-1 rounded text-sm bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray200 hover:bg-gray-gray200"
             >
               ↺ Royalties
+            </button>
+            <button
+              onClick={() => {
+                shopifyCacheRef.current.clear();
+                setShopifyRefreshKey((k) => k + 1);
+              }}
+              title="Rafraîchir les ventes Shopify Supabase"
+              className="px-2 py-1 rounded text-sm bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray200 hover:bg-gray-gray200"
+            >
+              ↺ Shopify
             </button>
           </div>
         </div>
@@ -1402,6 +1589,7 @@ function ReportInner({ cfg }) {
           monthIndices={monthIndices}
           inputs={revenusInputs}
           onChange={handleRevenusChange}
+          existing={existingRevenusByCell}
         />
       </div>
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-6">
