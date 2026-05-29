@@ -1,9 +1,36 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import {
   initializeBlock,
+  useBase,
   useRecords,
   useCustomProperties,
+  expandRecord,
 } from "@airtable/blocks/interface/ui";
+
+// --- Template resolution config (Templates base) ---
+// PAT is sourced from a custom property (templatesPat) to keep it out of git.
+const TEMPLATES_BASE_ID = "apphGYreLd5WZaeSS";
+const TEMPLATES_TABLE_ID = "tbl3Qced30p2bDtu0";
+const TEMPLATES_BASE_ID_FIELD = "base_id";
+const TEMPLATES_ATTACHMENT_FIELD = "template_rapport_spectacles";
+
+async function fetchTemplateUrlForBase(workingBaseId, pat) {
+  if (!pat) throw new Error("PAT manquant (custom property templatesPat)");
+  const url = new URL(`https://api.airtable.com/v0/${TEMPLATES_BASE_ID}/${TEMPLATES_TABLE_ID}`);
+  url.searchParams.set("filterByFormula", `{${TEMPLATES_BASE_ID_FIELD}}="${workingBaseId}"`);
+  url.searchParams.set("maxRecords", "1");
+  const res = await fetch(url.toString(), {
+    headers: { Authorization: `Bearer ${pat}` },
+  });
+  if (!res.ok) throw new Error(`Templates base ${res.status} ${res.statusText}`);
+  const data = await res.json();
+  const rec = data.records?.[0];
+  if (!rec) throw new Error(`Aucun template trouvé pour base_id=${workingBaseId}`);
+  const att = rec.fields?.[TEMPLATES_ATTACHMENT_FIELD];
+  const tplUrl = Array.isArray(att) && att[0] ? att[0].url : null;
+  if (!tplUrl) throw new Error("Champ template vide sur le record client");
+  return tplUrl;
+}
 import "./style.css";
 
 // --- Helpers ---
@@ -54,14 +81,6 @@ function getInitials(name) {
   return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
 }
 
-// Resolve a single linked record (by id) from a "link to record" cell value.
-function resolveLinkedId(rec, linkField) {
-  if (!linkField) return null;
-  const v = rec.getCellValue(linkField);
-  if (!Array.isArray(v) || v.length === 0) return null;
-  return v[0].id;
-}
-
 function resolveLinkedIds(rec, linkField) {
   if (!linkField) return [];
   const v = rec.getCellValue(linkField);
@@ -79,7 +98,6 @@ function getCustomProperties(base) {
     );
 
   const spectaclesTable = findTable("spectacle") || tables[0];
-  const projetsTable = findTable("projet") || tables[0];
   const evenementsTable = findTable("événement", "evenement", "event") || tables[0];
   const revenusTable = findTable("revenu") || tables[0];
   const facturesTable = findTable("facture") || tables[0];
@@ -91,15 +109,10 @@ function getCustomProperties(base) {
     { key: "spectaclesTable", label: "Table des Spectacles", type: "table" },
     { key: "spectacleImageField", label: "Champ image (Spectacles)", type: "field", table: spectaclesTable, shouldFieldBeAllowed: anyField },
     { key: "spectacleSubtitleField", label: "Champ sous-titre carte (Spectacles)", type: "field", table: spectaclesTable, shouldFieldBeAllowed: anyField },
-    { key: "templateAttachmentField", label: "Champ attachement Template Excel (Spectacles)", type: "field", table: spectaclesTable, shouldFieldBeAllowed: anyField },
-
-    // --- Projets ---
-    { key: "projetsTable", label: "Table des Projets", type: "table" },
-    { key: "projetSpectacleLinkField", label: "Lien Spectacle (Projets)", type: "field", table: projetsTable, shouldFieldBeAllowed: anyField },
 
     // --- Événements ---
     { key: "evenementsTable", label: "Table des Événements", type: "table" },
-    { key: "evenementProjetLinkField", label: "Lien Projet (Événements)", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
+    { key: "evenementSpectacleIdField", label: "Champ Spectacle ID (Événements, lookup/formula)", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
     { key: "evenementDateField", label: "Champ Date (Événements) — pour tri/filtre", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
     { key: "evenementCachetField", label: "Champ Cachet (Événements) — revenu", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
     { key: "evenementRemiseField", label: "Champ Remise (Événements) — revenu", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
@@ -120,22 +133,25 @@ function getCustomProperties(base) {
     // --- Revenus (items de facture) ---
     { key: "revenusTable", label: "Table des Revenus (items de facture)", type: "table" },
     { key: "revenusFactureLinkField", label: "Lien Facture (Revenus)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
-    { key: "revenusDateField", label: "Champ Date (Revenus) — utilisé pour filtre et affichage", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+    { key: "revenusDateField", label: "Champ Date (Revenus) — affichage", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
     { key: "revenusMontantField", label: "Champ Montant (Revenus)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
     { key: "revenusCategorieField", label: "Champ Catégorie/Compte (Revenus, single-select)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
     { key: "revenusDescriptionField", label: "Champ Description (Revenus, optionnel)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
     { key: "revenusTaxesField", label: "Champ Taxes (Revenus, single-select)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+    { key: "revenusSpectacleLinkField", label: "Lien Spectacle (Revenus, link direct) — écrit à la saisie", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+    { key: "revenusSpectacleIdField", label: "Champ Spectacle ID (Revenus, lookup/formula) — pour filtrer", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+
+    // --- Templates (master base lookup) ---
     {
-      key: "revenusCategorieIgnoreJson",
-      label: "Catégories Revenus à ignorer (JSON: [\"option name\", ...])",
+      key: "templatesPat",
+      label: "PAT lecture base Templates (pat...)",
       type: "string",
-      defaultValue: "[]",
+      defaultValue: "",
     },
 
     // --- Factures (dépenses) ---
     { key: "facturesTable", label: "Table des Factures (dépenses)", type: "table" },
-    { key: "factureProjetLinkField", label: "Lien Projet (Factures)", type: "field", table: facturesTable, shouldFieldBeAllowed: anyField },
-    { key: "factureSpectacleLinkField", label: "Lien Spectacle (Factures) — utilisé pour les saisies", type: "field", table: facturesTable, shouldFieldBeAllowed: anyField },
+    { key: "factureSpectacleLinkField", label: "Lien Spectacle (Factures) — écrit à la saisie", type: "field", table: facturesTable, shouldFieldBeAllowed: anyField },
     { key: "factureDateWriteField", label: "Champ Date (Factures) — écriture", type: "field", table: facturesTable, shouldFieldBeAllowed: anyField },
     { key: "factureDescriptionField", label: "Champ Description (Factures, optionnel)", type: "field", table: facturesTable, shouldFieldBeAllowed: anyField },
 
@@ -630,30 +646,12 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
   );
 }
 
-// --- UI: État de compte upload (drag/drop, base64 data URL → Airtable attachment) ---
-
-const ETAT_MAX_BYTES = 5 * 1024 * 1024;
-
-function formatBytes(n) {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function readFileAsDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
+// --- UI: État de compte snapshot (record metadata only — attachment is added manually in Airtable) ---
 
 function EtatDeCompteUpload({
   etatsTable,
   etatsRecords,
   spectacleId,
-  spectacleName,
   year,
   month,
   etatSpectacleLinkField,
@@ -669,8 +667,9 @@ function EtatDeCompteUpload({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  const [dragOver, setDragOver] = useState(false);
-  const fileInputRef = useRef(null);
+  // Keep latest records visible inside async callbacks (the closure captures a stale snapshot otherwise).
+  const etatsRecordsRef = useRef(etatsRecords);
+  etatsRecordsRef.current = etatsRecords;
 
   // Find the existing État de compte for this spectacle + this month.
   const existing = useMemo(() => {
@@ -691,107 +690,108 @@ function EtatDeCompteUpload({
       })()
     : null;
 
-  const upload = async (file) => {
-    if (!file || busy) return;
+  const snapshot = async () => {
+    if (busy) return;
     setError(null);
-    if (file.size > ETAT_MAX_BYTES) {
-      setError(`Fichier trop volumineux (${formatBytes(file.size)}). Maximum : ${formatBytes(ETAT_MAX_BYTES)}.`);
-      return;
-    }
-    if (file.size === 0) {
-      setError("Fichier vide.");
-      return;
-    }
     setBusy(true);
     try {
-      const dataUrl = await readFileAsDataURL(file);
       const isoDate = monthIsoDate(year, month);
-      const fields = {};
-      if (etatAttachmentField) fields[etatAttachmentField.id] = [{ url: dataUrl, filename: file.name }];
-      if (etatDateField) fields[etatDateField.id] = isoDate;
-      if (etatSpectacleLinkField) fields[etatSpectacleLinkField.id] = [{ id: spectacleId }];
-      if (etatTotalRevenusField) fields[etatTotalRevenusField.id] = kpis.revenus;
-      if (etatTotalDepensesField) fields[etatTotalDepensesField.id] = kpis.depenses;
+      const baseFields = {};
+      if (etatDateField) baseFields[etatDateField.id] = isoDate;
+      if (etatSpectacleLinkField) baseFields[etatSpectacleLinkField.id] = [{ id: spectacleId }];
+      if (etatTotalRevenusField) baseFields[etatTotalRevenusField.id] = kpis.revenus;
+      if (etatTotalDepensesField) baseFields[etatTotalDepensesField.id] = kpis.depenses;
       if (etatEvenementsLinkField && Array.isArray(evenementIds)) {
-        fields[etatEvenementsLinkField.id] = evenementIds.map((id) => ({ id }));
+        baseFields[etatEvenementsLinkField.id] = evenementIds.map((id) => ({ id }));
       }
       if (etatRevenusLinkField && Array.isArray(revenusIds)) {
-        fields[etatRevenusLinkField.id] = revenusIds.map((id) => ({ id }));
+        baseFields[etatRevenusLinkField.id] = revenusIds.map((id) => ({ id }));
       }
-
       if (existing) {
-        await etatsTable.updateRecordsAsync([{ id: existing.id, fields }]);
+        await etatsTable.updateRecordsAsync([{ id: existing.id, fields: baseFields }]);
+        expandRecord(existing);
       } else {
-        await etatsTable.createRecordsAsync([{ fields }]);
+        const ids = await etatsTable.createRecordsAsync([{ fields: baseFields }]);
+        // useRecords needs a beat to propagate the new record; poll the ref briefly.
+        const tryExpand = (attempt) => {
+          const rec = (etatsRecordsRef.current || []).find((r) => r.id === ids[0]);
+          if (rec) expandRecord(rec);
+          else if (attempt < 10) setTimeout(() => tryExpand(attempt + 1), 100);
+        };
+        tryExpand(0);
       }
     } catch (err) {
-      console.error("État de compte upload failed:", err);
+      console.error("État de compte snapshot failed:", err);
       setError(`Erreur : ${err.message || err}`);
     } finally {
       setBusy(false);
     }
   };
 
-  const onDrop = (e) => {
-    e.preventDefault();
-    setDragOver(false);
-    const f = e.dataTransfer.files?.[0];
-    if (f) upload(f);
-  };
-
   return (
-    <div>
-      <div
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-        onClick={() => !busy && fileInputRef.current?.click()}
-        className={`rounded-lg border-2 border-dashed p-6 text-center cursor-pointer transition-colors ${
-          dragOver
-            ? "border-blue-blue bg-blue-blueLight3 dark:bg-gray-gray600"
-            : "border-gray-gray200 dark:border-gray-gray600 bg-white dark:bg-gray-gray700 hover:border-blue-blueLight1"
-        } ${busy ? "opacity-60 cursor-wait" : ""}`}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          style={{ display: "none" }}
-          onChange={(e) => upload(e.target.files?.[0])}
-        />
-        {busy ? (
-          <div className="text-sm text-gray-gray600 dark:text-gray-gray200">Upload en cours…</div>
-        ) : existingAttachment ? (
-          <div>
-            <div className="text-sm font-semibold text-gray-gray700 dark:text-gray-gray200">
-              {existingAttachment.filename}
+    <div className="rounded-lg border border-gray-gray200 dark:border-gray-gray600 bg-white dark:bg-gray-gray700 p-4">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="text-sm">
+          <div className="font-semibold text-gray-gray700 dark:text-gray-gray200">
+            État de compte · {MONTHS_FR[month - 1]} {year}
+          </div>
+          {existingAttachment ? (
+            <div
+              onClick={() => expandRecord(existing)}
+              className="mt-2 flex items-start gap-3 cursor-pointer rounded p-1 -m-1 hover:bg-gray-gray50 dark:hover:bg-gray-gray800"
+              title="Ouvrir le record"
+            >
+              {existingAttachment.thumbnails?.large?.url ? (
+                <img
+                  src={existingAttachment.thumbnails.large.url}
+                  alt={existingAttachment.filename}
+                  style={{ maxHeight: 120, maxWidth: 120, objectFit: "contain" }}
+                  className="rounded border border-gray-gray200 dark:border-gray-gray600"
+                />
+              ) : (
+                <div
+                  className="flex items-center justify-center rounded border border-gray-gray200 dark:border-gray-gray600 bg-gray-gray50 dark:bg-gray-gray800 text-gray-gray500"
+                  style={{ width: 80, height: 80, fontSize: 28 }}
+                >
+                  📎
+                </div>
+              )}
+              <div className="text-xs text-gray-gray500 dark:text-gray-gray300">
+                <div className="font-medium text-gray-gray700 dark:text-gray-gray200 break-all">
+                  {existingAttachment.filename}
+                </div>
+                <a
+                  href={existingAttachment.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="text-blue-blue hover:underline"
+                >
+                  Télécharger
+                </a>
+              </div>
             </div>
+          ) : existing ? (
             <div className="text-xs text-gray-gray500 mt-1">
-              État de compte enregistré pour {MONTHS_FR[month - 1]} {year} · {spectacleName}
+              Snapshot enregistré · attache le .xlsx dans la cellule Airtable
             </div>
-            <div className="mt-2 flex items-center justify-center gap-3 text-xs">
-              <a
-                href={existingAttachment.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="text-blue-blue hover:underline"
-              >
-                Télécharger
-              </a>
-              <span className="text-gray-gray400">·</span>
-              <span className="text-blue-blue">Cliquer ou glisser un fichier pour remplacer</span>
+          ) : (
+            <div className="text-xs text-gray-gray500 mt-1">
+              Aucun snapshot pour cette période
             </div>
-          </div>
-        ) : (
-          <div>
-            <div className="text-sm font-semibold text-gray-gray600 dark:text-gray-gray300">
-              Glissez un état de compte ici, ou cliquez pour sélectionner
-            </div>
-            <div className="text-xs text-gray-gray400 mt-2">
-              Aucun état pour {MONTHS_FR[month - 1]} {year} · Max {formatBytes(ETAT_MAX_BYTES)}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
+        <button
+          onClick={snapshot}
+          disabled={busy}
+          className={`px-4 py-2 rounded text-sm font-medium ${
+            busy
+              ? "bg-gray-gray200 text-gray-gray500 cursor-wait"
+              : "bg-blue-blue text-white hover:bg-blue-blueDark1"
+          }`}
+        >
+          {busy ? "Sauvegarde…" : existing ? "Mettre à jour le snapshot" : "Sauvegarder le snapshot"}
+        </button>
       </div>
       {error && (
         <div className="mt-2 rounded bg-red-redLight3 dark:bg-red-redDusty/20 border border-red-redLight2 p-2 text-sm text-red-redDark1 dark:text-red-redLight1">
@@ -802,15 +802,224 @@ function EtatDeCompteUpload({
   );
 }
 
-// --- Excel export (template-based, generic placeholders) ---
+// --- Excel export (template-based, dynamic sections) ---
 //
-// Replaces tags in template: {{nom_spectacle}}, {{periode}}, {{annee}}, {{mois}},
-// {{total_revenus}}, {{total_depenses}}, {{solde}}.
-// More structured fills (per-row tables) can be added once the new template format is finalized.
+// Tags: {{nom_spectacle}}, {{periode}}, {{annee}}, {{mois}}, {{date_generation}},
+//       {{total_revenus}}, {{total_depenses}}, {{solde}}
+// Section markers (each on its own row): {{events_marker}}, {{revenus_marker}}, {{factures_marker}}
+//   At a marker, the row becomes the section header, and N data rows are inserted below it.
 
-async function exportFromTemplate({ templateUrl, spectacleName, year, month, totals }) {
+const NUM_FMT_MONEY = '#,##0.00" $"';
+const ROBOTO = "Roboto";
+const FONT_SIZE = 10;
+
+// Find the row index where a marker appears (1-based, ExcelJS convention).
+function findMarkerRow(ws, key) {
+  let found = null;
+  ws.eachRow({ includeEmpty: false }, (row, rowIdx) => {
+    if (found) return;
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      if (found) return;
+      const v = cell.value;
+      const text = typeof v === "string" ? v : v && typeof v === "object" && typeof v.text === "string" ? v.text : "";
+      if (text.includes(`{{${key}}}`)) found = rowIdx;
+    });
+  });
+  return found;
+}
+
+// Insert a section (header + N rows) at a marker. Returns the number of rows added below the marker
+// so callers can compensate when processing multiple markers top-down (we process bottom-up to avoid this).
+function writeSection(ws, markerRow, headers, rows, totalsRow) {
+  // Clear the marker row (it will become the header row).
+  const headerRow = ws.getRow(markerRow);
+  headerRow.eachCell({ includeEmpty: true }, (cell) => { cell.value = null; cell.font = null; });
+
+  if (headers.length === 0) {
+    headerRow.getCell(1).value = "Rien à afficher";
+    headerRow.getCell(1).font = { name: ROBOTO, size: FONT_SIZE, italic: true, color: { argb: "FF888888" } };
+    return 0;
+  }
+
+  const BAND_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEFEFEF" } };
+  const BORDER_BOTTOM = { bottom: { style: "thin" } };
+  const BORDER_TOP = { top: { style: "thin" } };
+
+  // Write header text + apply band fill and bottom border across ALL columns of the section,
+  // so the visual line spans the full width even where cells are spacer-empty.
+  for (let c = 1; c <= headers.length; c++) {
+    const cell = headerRow.getCell(c);
+    const h = headers[c - 1];
+    if (h !== "" && h != null) {
+      cell.value = h;
+      cell.font = { name: ROBOTO, size: FONT_SIZE, bold: true };
+    }
+    cell.fill = BAND_FILL;
+    cell.border = BORDER_BOTTOM;
+  }
+
+  // Insert data rows (+ optional totals row) below the marker row.
+  const allRows = totalsRow ? [...rows, totalsRow] : rows;
+  if (allRows.length > 0) ws.spliceRows(markerRow + 1, 0, ...allRows);
+
+  // Apply Roboto font + currency format on cells that received a value.
+  for (let i = 0; i < allRows.length; i++) {
+    for (let c = 1; c <= headers.length; c++) {
+      const cell = ws.getCell(markerRow + 1 + i, c);
+      if (cell.value == null || cell.value === "") continue;
+      cell.font = { ...(cell.font || {}), name: ROBOTO, size: FONT_SIZE };
+      if (typeof cell.value === "number") cell.numFmt = NUM_FMT_MONEY;
+    }
+  }
+
+  // Style totals row: bold + band fill + top border across ALL columns.
+  if (totalsRow) {
+    const totalsRowIdx = markerRow + 1 + rows.length;
+    for (let c = 1; c <= headers.length; c++) {
+      const cell = ws.getCell(totalsRowIdx, c);
+      if (cell.value != null && cell.value !== "") {
+        cell.font = { name: ROBOTO, size: FONT_SIZE, bold: true };
+        if (typeof cell.value === "number") cell.numFmt = NUM_FMT_MONEY;
+      }
+      cell.fill = BAND_FILL;
+      cell.border = BORDER_TOP;
+    }
+  }
+
+  return allRows.length;
+}
+
+function buildEventsSection(records, fieldsConfig, evenementsTable, dateField) {
+  if (!records.length || !fieldsConfig.length || !evenementsTable) return { headers: [], rows: [], totals: null };
+  const cols = fieldsConfig
+    .map((cfg) => ({ ...cfg, field: evenementsTable.fields.find((f) => f.name === cfg.fieldName) }))
+    .filter((c) => c.field);
+
+  const sorted = dateField
+    ? [...records].sort((a, b) => (readDateIso(a, dateField) || "").localeCompare(readDateIso(b, dateField) || ""))
+    : records;
+
+  const visible = cols.filter((c) => sorted.some((r) => {
+    const v = r.getCellValueAsString(c.field);
+    return v && v.trim() !== "";
+  }));
+
+  if (visible.length === 0) return { headers: [], rows: [], totals: null };
+  const headers = visible.map((c) => c.label);
+
+  // For each visible column, decide whether it is numeric (raw cell value is a number on at least one record).
+  // We use raw values for the data rows of numeric columns so the totals row aligns, and strings elsewhere.
+  const numericCols = visible.map((c) =>
+    sorted.some((r) => typeof r.getCellValue(c.field) === "number"),
+  );
+
+  const rows = sorted.map((r) =>
+    visible.map((c, i) => {
+      if (numericCols[i]) {
+        const v = r.getCellValue(c.field);
+        return typeof v === "number" ? v : null;
+      }
+      return r.getCellValueAsString(c.field);
+    }),
+  );
+
+  // Totals row: "Total" label in the first column, sums in numeric columns, empty elsewhere.
+  const totalsRow = visible.map((c, i) => {
+    if (i === 0) return "Total";
+    if (!numericCols[i]) return "";
+    return sorted.reduce((s, r) => {
+      const v = r.getCellValue(c.field);
+      return s + (typeof v === "number" ? v : 0);
+    }, 0);
+  });
+
+  return { headers, rows, totals: totalsRow };
+}
+
+// Wide row layouts (10 cols, empty strings act as spacers).
+// Revenus: col 1 = Catégorie, col 3 = Date, col 6 = Description, col 9 = Montant
+// Dépenses: col 1 = Catégorie, col 3 = Date, col 6 = Description, col 10 = Montant
+function makeRevenusRow(cat, date, desc, montant) {
+  const row = ["", "", "", "", "", "", "", "", "", ""];
+  row[0] = cat;
+  row[2] = date;
+  row[5] = desc;
+  row[8] = montant;
+  return row;
+}
+function makeDepensesRow(cat, date, desc, montant) {
+  const row = ["", "", "", "", "", "", "", "", "", ""];
+  row[0] = cat;
+  row[2] = date;
+  row[5] = desc;
+  row[9] = montant;
+  return row;
+}
+const REVENUS_HEADERS = makeRevenusRow("Catégorie", "Date", "Description", "Montant");
+const DEPENSES_HEADERS = makeDepensesRow("Catégorie", "Date", "Description", "Montant");
+
+function buildRevenusSection(records, montantField, categorieField, descField, dates) {
+  if (!records.length) return { headers: [], rows: [] };
+  const groups = new Map();
+  for (const r of records) {
+    const cat = categorieField ? r.getCellValueAsString(categorieField) || "—" : "—";
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat).push(r);
+  }
+  const sorted = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b, "fr"));
+  const rows = [];
+  let grandTotal = 0;
+  for (const [cat, recs] of sorted) {
+    let total = 0;
+    for (const r of recs) {
+      const amt = Number(r.getCellValue(montantField)) || 0;
+      total += amt;
+      rows.push(makeRevenusRow(
+        cat,
+        dates.get(r.id) || "",
+        descField ? r.getCellValueAsString(descField) : "",
+        amt,
+      ));
+    }
+    grandTotal += total;
+    rows.push(makeRevenusRow(`Sous-total ${cat}`, "", "", total));
+  }
+  const totals = makeRevenusRow("Total revenus", "", "", grandTotal);
+  return { headers: REVENUS_HEADERS, rows, totals };
+}
+
+// "Dépenses" = Revenus items with a negative montant. Flat list (matches the UI which renders them
+// with groupByCategory={false}), sorted by date, with absolute amounts. Uses the same wide layout
+// as buildRevenusSection (col 1=Cat, col 3=Date, col 6=Desc, col 10=Montant).
+function buildDepensesSection(records, montantField, categorieField, descField, dates) {
+  if (!records.length) return { headers: [], rows: [] };
+  const sorted = [...records].sort((a, b) => (dates.get(a.id) || "").localeCompare(dates.get(b.id) || ""));
+  let total = 0;
+  const rows = sorted.map((r) => {
+    const amt = Math.abs(Number(r.getCellValue(montantField)) || 0);
+    total += amt;
+    return makeDepensesRow(
+      categorieField ? r.getCellValueAsString(categorieField) : "",
+      dates.get(r.id) || "",
+      descField ? r.getCellValueAsString(descField) : "",
+      amt,
+    );
+  });
+  const totalsRow = makeDepensesRow("Total dépenses", "", "", total);
+  return { headers: DEPENSES_HEADERS, rows, totals: totalsRow };
+}
+
+async function exportFromTemplate({
+  templateUrl, spectacleName, year, month, totals,
+  evenements, evenementFieldsConfig, evenementsTable, evenementDateField,
+  revenus, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusFactureDates,
+  depenses,
+}) {
   const { default: ExcelJS } = await import("exceljs");
   const periodLabel = `${MONTHS_FR[month - 1]} ${year}`;
+  const today = new Date();
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
   const res = await fetch(templateUrl);
   if (!res.ok) throw new Error(`Téléchargement template échoué: ${res.status}`);
   const buf = await res.arrayBuffer();
@@ -820,11 +1029,13 @@ async function exportFromTemplate({ templateUrl, spectacleName, year, month, tot
   const ws = wb.getWorksheet("Rapport") || wb.worksheets[0];
   if (!ws) throw new Error("Aucune feuille dans le template");
 
+  // 1. Replace simple tags everywhere.
   const replacements = {
     nom_spectacle: spectacleName,
     periode: periodLabel,
     annee: String(year),
     mois: MONTHS_FR[month - 1],
+    date_generation: todayIso,
     total_revenus: fmtCurrency(totals.revenus),
     total_depenses: fmtCurrency(totals.depenses),
     solde: fmtCurrency(totals.solde),
@@ -844,6 +1055,25 @@ async function exportFromTemplate({ templateUrl, spectacleName, year, month, tot
       }
     });
   });
+
+  // 2. Build the 3 sections.
+  const eventsSection = buildEventsSection(evenements, evenementFieldsConfig, evenementsTable, evenementDateField);
+  const revenusSection = buildRevenusSection(revenus, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusFactureDates);
+  const depensesSection = buildDepensesSection(depenses, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusFactureDates);
+
+  // 3. Find marker rows AFTER tag replacement.
+  // Process them bottom-up so earlier insertions don't shift later marker rows.
+  const markers = [
+    { key: "events_marker", section: eventsSection },
+    { key: "revenus_marker", section: revenusSection },
+    { key: "factures_marker", section: depensesSection },
+  ].map((m) => ({ ...m, row: findMarkerRow(ws, m.key) }))
+   .filter((m) => m.row != null)
+   .sort((a, b) => b.row - a.row);
+
+  for (const m of markers) {
+    writeSection(ws, m.row, m.section.headers, m.section.rows, m.section.totals);
+  }
 
   wb.calcProperties = { ...(wb.calcProperties || {}), fullCalcOnLoad: true };
 
@@ -868,7 +1098,7 @@ function ConfigPrompt() {
       <div className="max-w-md text-center">
         <p className="text-gray-gray600 dark:text-gray-gray200">
           Veuillez configurer les tables et champs dans les propriétés de l&apos;extension
-          (Spectacles, Projets, Événements, Revenus, Factures).
+          (Spectacles, Événements, Revenus, Factures).
         </p>
       </div>
     </div>
@@ -903,22 +1133,22 @@ function readDateIso(rec, ...fields) {
 
 function ProjectReportApp() {
   const { customPropertyValueByKey } = useCustomProperties(getCustomProperties);
-  const { spectaclesTable, projetsTable, evenementsTable, revenusTable, facturesTable } = customPropertyValueByKey;
+  const { spectaclesTable, evenementsTable, revenusTable, facturesTable } = customPropertyValueByKey;
 
-  if (!spectaclesTable || !projetsTable || !evenementsTable || !revenusTable || !facturesTable) {
+  if (!spectaclesTable || !evenementsTable || !revenusTable || !facturesTable) {
     return <ConfigPrompt />;
   }
   return <ReportInner cfg={customPropertyValueByKey} />;
 }
 
 function ReportInner({ cfg }) {
+  const base = useBase();
   const {
-    spectaclesTable, spectacleImageField, spectacleSubtitleField, templateAttachmentField,
-    projetsTable, projetSpectacleLinkField,
-    evenementsTable, evenementProjetLinkField, evenementDateField, evenementCachetField, evenementRemiseField, evenementCommissionField, evenementLabelsCsv, evenementFieldsCsv,
-    revenusTable, revenusFactureLinkField, revenusDateField, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusTaxesField,
-    revenusCategorieIgnoreJson,
-    facturesTable, factureProjetLinkField, factureSpectacleLinkField, factureDateWriteField,
+    spectaclesTable, spectacleImageField, spectacleSubtitleField,
+    evenementsTable, evenementSpectacleIdField, evenementDateField, evenementCachetField, evenementRemiseField, evenementCommissionField, evenementLabelsCsv, evenementFieldsCsv,
+    revenusTable, revenusFactureLinkField, revenusDateField, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusTaxesField, revenusSpectacleLinkField, revenusSpectacleIdField,
+    templatesPat,
+    facturesTable, factureSpectacleLinkField, factureDateWriteField,
     factureDescriptionField,
     etatsTable, etatSpectacleLinkField, etatDateField, etatAttachmentField,
     etatTotalRevenusField, etatTotalDepensesField,
@@ -926,13 +1156,12 @@ function ReportInner({ cfg }) {
   } = cfg;
 
   const spectaclesRecords = useRecords(spectaclesTable);
-  const projetsRecords = useRecords(projetsTable);
   const evenementsRecords = useRecords(evenementsTable);
   const revenusRecords = useRecords(revenusTable);
-  const facturesRecords = useRecords(facturesTable);
-  const etatsRecords = useRecords(etatsTable || facturesTable);
+  const etatsRecords = useRecords(etatsTable || revenusTable);
 
   const [selectedSpectacleId, setSelectedSpectacleId] = useState(null);
+  const [spectacleSearch, setSpectacleSearch] = useState("");
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth() + 1);
   const [saisies, setSaisies] = useState([]);
@@ -956,15 +1185,6 @@ function ReportInner({ cfg }) {
     return out;
   }, [evenementLabelsCsv, evenementFieldsCsv]);
 
-  const revenusCategorieIgnore = useMemo(() => {
-    try {
-      const parsed = JSON.parse(revenusCategorieIgnoreJson || "[]");
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }, [revenusCategorieIgnoreJson]);
-
   // Build Spectacle cards
   const spectacles = useMemo(() => {
     if (!spectaclesRecords) return [];
@@ -986,90 +1206,41 @@ function ReportInner({ cfg }) {
     [spectacles, selectedSpectacleId],
   );
 
-  // --- Cascade: Spectacle → Projets ---
-
-  const spectacleProjets = useMemo(() => {
-    if (!projetsRecords || !selectedSpectacleId || !projetSpectacleLinkField) return [];
-    return projetsRecords.filter((rec) =>
-      resolveLinkedIds(rec, projetSpectacleLinkField).includes(selectedSpectacleId),
-    );
-  }, [projetsRecords, selectedSpectacleId, projetSpectacleLinkField]);
-
-  const spectacleProjetIds = useMemo(
-    () => new Set(spectacleProjets.map((p) => p.id)),
-    [spectacleProjets],
-  );
-
-  // --- Cascade: Projets → Événements (filtered by month) ---
+  // --- Événements : filtrés par spectacle_id (lookup/formula) + date ---
 
   const spectacleEvenements = useMemo(() => {
-    if (!evenementsRecords || !evenementProjetLinkField || spectacleProjetIds.size === 0) return [];
+    if (!evenementsRecords || !selectedSpectacleId) return [];
     return evenementsRecords.filter((rec) => {
-      const projetLinks = resolveLinkedIds(rec, evenementProjetLinkField);
-      if (!projetLinks.some((id) => spectacleProjetIds.has(id))) return false;
+      if (evenementSpectacleIdField) {
+        const sid = rec.getCellValueAsString(evenementSpectacleIdField);
+        if (!sid || !sid.includes(selectedSpectacleId)) return false;
+      }
       if (evenementDateField) {
         const d = readDateIso(rec, evenementDateField);
         if (!isInPeriod(d, year, month)) return false;
       }
       return true;
     });
-  }, [evenementsRecords, evenementProjetLinkField, evenementDateField, spectacleProjetIds, year, month]);
+  }, [evenementsRecords, evenementSpectacleIdField, evenementDateField, selectedSpectacleId, year, month]);
 
-  // --- Cascade: Projets → Factures (filtered by month) ---
-
-  // A Facture belongs to the spectacle if either:
-  //   - it is linked directly to the spectacle via factureSpectacleLinkField (new flow), OR
-  //   - it is linked to one of the spectacle's projets via factureProjetLinkField (legacy data)
-  const factureBelongsToSpectacle = (rec) => {
-    if (factureSpectacleLinkField) {
-      const spectacleLinks = resolveLinkedIds(rec, factureSpectacleLinkField);
-      if (spectacleLinks.includes(selectedSpectacleId)) return true;
-    }
-    if (factureProjetLinkField && spectacleProjetIds.size > 0) {
-      const projetLinks = resolveLinkedIds(rec, factureProjetLinkField);
-      if (projetLinks.some((id) => spectacleProjetIds.has(id))) return true;
-    }
-    return false;
-  };
-
-  const facturesById = useMemo(() => {
-    const map = new Map();
-    if (!facturesRecords) return map;
-    for (const rec of facturesRecords) map.set(rec.id, rec);
-    return map;
-  }, [facturesRecords]);
-
-  // --- Cascade: Factures → Revenus (the Revenu carries its own date) ---
-
-  // Full list of revenus belonging to the spectacle for the current period — no category filter.
-  // Used by the KPI totals so they reflect the real sums.
+  // Revenus filtrés par spectacle_id (lookup/formula) si configuré.
   const spectacleRevenusAll = useMemo(() => {
-    if (!revenusRecords || !revenusFactureLinkField || !selectedSpectacleId) return [];
-    return revenusRecords.filter((rec) => {
-      const factureId = resolveLinkedId(rec, revenusFactureLinkField);
-      if (!factureId) return false;
-      const facture = facturesById.get(factureId);
-      if (!facture) return false;
-      if (!factureBelongsToSpectacle(facture)) return false;
-      if (revenusDateField) {
-        const d = readDateIso(rec, revenusDateField);
-        if (!isInPeriod(d, year, month)) return false;
-      }
-      return true;
+    const all = revenusRecords || [];
+    console.log("DBG filtre revenus", {
+      total: all.length,
+      spectacleIdFieldConfigured: !!revenusSpectacleIdField,
+      selectedSpectacleId,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revenusRecords, revenusFactureLinkField, revenusDateField, factureProjetLinkField, factureSpectacleLinkField, facturesById, spectacleProjetIds, selectedSpectacleId, year, month]);
+    if (!selectedSpectacleId || !revenusSpectacleIdField) return all;
+    return all.filter((rec) => {
+      const sid = rec.getCellValueAsString(revenusSpectacleIdField);
+      return sid && sid.includes(selectedSpectacleId);
+    });
+  }, [revenusRecords, revenusSpectacleIdField, selectedSpectacleId]);
 
   // Display-only filter: hide categories listed in revenusCategorieIgnore (already shown in the
   // Événements table). The KPIs continue to use spectacleRevenusAll so totals stay accurate.
-  const spectacleRevenusVisible = useMemo(() => {
-    const ignoreSet = new Set((revenusCategorieIgnore || []).map((s) => String(s).toLowerCase()));
-    if (ignoreSet.size === 0 || !revenusCategorieField) return spectacleRevenusAll;
-    return spectacleRevenusAll.filter((rec) => {
-      const cat = rec.getCellValueAsString(revenusCategorieField);
-      return !cat || !ignoreSet.has(cat.toLowerCase());
-    });
-  }, [spectacleRevenusAll, revenusCategorieField, revenusCategorieIgnore]);
+  const spectacleRevenusVisible = spectacleRevenusAll;
 
   // Split visible Revenus into income (montant >= 0) and expense (montant < 0) for the two lists.
   const spectacleRevenus = useMemo(
@@ -1099,8 +1270,8 @@ function ReportInner({ cfg }) {
   // --- Categories ---
 
   const revenusCategories = useMemo(
-    () => getSelectOptions(revenusCategorieField, revenusCategorieIgnore),
-    [revenusCategorieField, revenusCategorieIgnore],
+    () => getSelectOptions(revenusCategorieField, []),
+    [revenusCategorieField],
   );
   const taxesChoices = useMemo(
     () => getSelectOptions(revenusTaxesField, []),
@@ -1201,15 +1372,23 @@ function ReportInner({ cfg }) {
 
         const revenuFields = {};
         if (revenusFactureLinkField) revenuFields[revenusFactureLinkField.id] = [{ id: factureId }];
+        if (revenusSpectacleLinkField) revenuFields[revenusSpectacleLinkField.id] = [{ id: selectedSpectacleId }];
         // Date is intentionally NOT written to the Revenu — revenusDateField is typically a lookup
         // from the linked Facture and is read-only. The date is set on the Facture only.
         if (revenusMontantField) revenuFields[revenusMontantField.id] = v;
         if (revenusDescriptionField && row.description) revenuFields[revenusDescriptionField.id] = row.description;
         if (revenusCategorieField && row.categorieId) {
-          revenuFields[revenusCategorieField.id] = { id: row.categorieId };
+          // Resolve option name so we can pass both id+name (SDK is strict about single-select format).
+          const opt = revenusCategorieField.options?.choices?.find((c) => c.id === row.categorieId);
+          revenuFields[revenusCategorieField.id] = opt
+            ? { id: opt.id, name: opt.name }
+            : { id: row.categorieId };
         }
         if (revenusTaxesField && row.taxes) {
-          revenuFields[revenusTaxesField.id] = { id: row.taxes };
+          const opt = revenusTaxesField.options?.choices?.find((c) => c.id === row.taxes);
+          revenuFields[revenusTaxesField.id] = opt
+            ? { id: opt.id, name: opt.name }
+            : { id: row.taxes };
         }
         await revenusTable.createRecordsAsync([{ fields: revenuFields }]);
         created += 1;
@@ -1228,19 +1407,13 @@ function ReportInner({ cfg }) {
 
   const handleExport = async () => {
     if (!selectedSpectacle) return;
-    if (!templateAttachmentField) {
-      setSavedMsg("Erreur : champ Template Excel non configuré.");
-      return;
-    }
-    const spectacleRec = (spectaclesRecords || []).find((r) => r.id === selectedSpectacleId);
-    const attachments = spectacleRec ? spectacleRec.getCellValue(templateAttachmentField) : null;
-    if (!Array.isArray(attachments) || attachments.length === 0) {
-      setSavedMsg("Erreur : aucun template attaché sur ce spectacle.");
-      return;
-    }
-    const templateUrl = attachments[0].url;
-    if (!templateUrl) {
-      setSavedMsg("Erreur : URL du template introuvable.");
+    setSavedMsg("Récupération du template…");
+    let templateUrl;
+    try {
+      templateUrl = await fetchTemplateUrlForBase(base.id, templatesPat);
+    } catch (err) {
+      console.error("Template fetch failed:", err);
+      setSavedMsg(`Erreur template : ${err.message || err}`);
       return;
     }
     setSavedMsg("Génération du rapport…");
@@ -1254,6 +1427,16 @@ function ReportInner({ cfg }) {
           depenses: totalDepenses,
           solde: totalRevenus - totalDepenses,
         },
+        evenements: spectacleEvenements,
+        evenementFieldsConfig,
+        evenementsTable,
+        evenementDateField,
+        revenus: spectacleRevenus,
+        revenusMontantField,
+        revenusCategorieField,
+        revenusDescriptionField,
+        revenusFactureDates,
+        depenses: spectacleDepenses,
       });
       setSavedMsg("Rapport téléchargé.");
     } catch (err) {
@@ -1265,16 +1448,45 @@ function ReportInner({ cfg }) {
   // --- Render ---
 
   if (!selectedSpectacle) {
+    const q = spectacleSearch.trim().toLowerCase();
+    const filteredSpectacles = q
+      ? spectacles.filter((s) =>
+          (s.name && s.name.toLowerCase().includes(q)) ||
+          (s.subtitle && s.subtitle.toLowerCase().includes(q)),
+        )
+      : spectacles;
     return (
       <div className="min-h-screen bg-gray-gray50 dark:bg-gray-gray800 p-4 sm:p-6">
-        <h1 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100 mb-4">
-          Rapports — Sélectionne un spectacle
-        </h1>
-        {spectacles.length === 0 ? (
-          <div className="text-gray-gray500">Aucun spectacle disponible.</div>
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <h1 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100">
+            Rapports — Sélectionne un spectacle
+          </h1>
+          <div className="relative">
+            <input
+              type="text"
+              value={spectacleSearch}
+              onChange={(e) => setSpectacleSearch(e.target.value)}
+              placeholder="Rechercher un spectacle…"
+              className="bg-white dark:bg-gray-gray700 border border-gray-gray200 dark:border-gray-gray600 rounded px-3 py-2 pr-8 text-sm text-gray-gray700 dark:text-gray-gray100 w-72"
+            />
+            {spectacleSearch && (
+              <button
+                onClick={() => setSpectacleSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-gray500 hover:text-gray-gray700"
+                title="Effacer"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
+        {filteredSpectacles.length === 0 ? (
+          <div className="text-gray-gray500">
+            {spectacles.length === 0 ? "Aucun spectacle disponible." : "Aucun résultat."}
+          </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {spectacles.map((s) => (
+            {filteredSpectacles.map((s) => (
               <SpectacleCard key={s.id} {...s} onClick={() => setSelectedSpectacleId(s.id)} />
             ))}
           </div>
