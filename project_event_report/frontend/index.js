@@ -1223,20 +1223,22 @@ function ReportInner({ cfg }) {
     });
   }, [evenementsRecords, evenementSpectacleIdField, evenementDateField, selectedSpectacleId, year, month]);
 
-  // Revenus filtrés par spectacle_id (lookup/formula) si configuré.
+  // Revenus filtrés par spectacle_id (lookup/formula) si configuré, puis par mois sélectionné.
   const spectacleRevenusAll = useMemo(() => {
     const all = revenusRecords || [];
-    console.log("DBG filtre revenus", {
-      total: all.length,
-      spectacleIdFieldConfigured: !!revenusSpectacleIdField,
-      selectedSpectacleId,
-    });
-    if (!selectedSpectacleId || !revenusSpectacleIdField) return all;
+    if (!selectedSpectacleId) return [];
     return all.filter((rec) => {
-      const sid = rec.getCellValueAsString(revenusSpectacleIdField);
-      return sid && sid.includes(selectedSpectacleId);
+      if (revenusSpectacleIdField) {
+        const sid = rec.getCellValueAsString(revenusSpectacleIdField);
+        if (!sid || !sid.includes(selectedSpectacleId)) return false;
+      }
+      if (revenusDateField) {
+        const d = readDateIso(rec, revenusDateField);
+        if (!isInPeriod(d, year, month)) return false;
+      }
+      return true;
     });
-  }, [revenusRecords, revenusSpectacleIdField, selectedSpectacleId]);
+  }, [revenusRecords, revenusSpectacleIdField, revenusDateField, selectedSpectacleId, year, month]);
 
   // Display-only filter: hide categories listed in revenusCategorieIgnore (already shown in the
   // Événements table). The KPIs continue to use spectacleRevenusAll so totals stay accurate.
