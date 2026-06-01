@@ -74,6 +74,14 @@ function isInPeriod(iso, year, month) {
   return p.month === month;
 }
 
+// True when the date is strictly before the first day of the selected (year, month).
+function isBeforePeriod(iso, year, month) {
+  const p = parseIsoParts(iso);
+  if (!p) return false;
+  if (p.year !== year) return p.year < year;
+  return p.month < month;
+}
+
 function getInitials(name) {
   if (!name) return "?";
   const words = name.trim().split(/\s+/);
@@ -1206,7 +1214,31 @@ function ReportInner({ cfg }) {
     [spectacles, selectedSpectacleId],
   );
 
+  // IDs of Événements / Revenus already linked to an État de compte (any month).
+  // Items linked to a statement are considered "reconciled" and are not carried forward.
+  const reconciledEventIds = useMemo(() => {
+    const set = new Set();
+    if (!etatsRecords || !etatEvenementsLinkField) return set;
+    for (const rec of etatsRecords) {
+      const links = rec.getCellValue(etatEvenementsLinkField);
+      if (Array.isArray(links)) for (const l of links) if (l && l.id) set.add(l.id);
+    }
+    return set;
+  }, [etatsRecords, etatEvenementsLinkField]);
+
+  const reconciledRevenuIds = useMemo(() => {
+    const set = new Set();
+    if (!etatsRecords || !etatRevenusLinkField) return set;
+    for (const rec of etatsRecords) {
+      const links = rec.getCellValue(etatRevenusLinkField);
+      if (Array.isArray(links)) for (const l of links) if (l && l.id) set.add(l.id);
+    }
+    return set;
+  }, [etatsRecords, etatRevenusLinkField]);
+
   // --- Événements : filtrés par spectacle_id (lookup/formula) + date ---
+  // On affiche les événements du mois sélectionné, PLUS les événements passés non encore
+  // rattachés à un État de compte (pour les rattraper dans le relevé courant).
 
   const spectacleEvenements = useMemo(() => {
     if (!evenementsRecords || !selectedSpectacleId) return [];
@@ -1217,13 +1249,16 @@ function ReportInner({ cfg }) {
       }
       if (evenementDateField) {
         const d = readDateIso(rec, evenementDateField);
-        if (!isInPeriod(d, year, month)) return false;
+        const inPeriod = isInPeriod(d, year, month);
+        const pastUnreconciled = isBeforePeriod(d, year, month) && !reconciledEventIds.has(rec.id);
+        if (!inPeriod && !pastUnreconciled) return false;
       }
       return true;
     });
-  }, [evenementsRecords, evenementSpectacleIdField, evenementDateField, selectedSpectacleId, year, month]);
+  }, [evenementsRecords, evenementSpectacleIdField, evenementDateField, selectedSpectacleId, year, month, reconciledEventIds]);
 
   // Revenus filtrés par spectacle_id (lookup/formula) si configuré, puis par mois sélectionné.
+  // Comme les événements, on ajoute les revenus passés non encore rattachés à un État de compte.
   const spectacleRevenusAll = useMemo(() => {
     const all = revenusRecords || [];
     if (!selectedSpectacleId) return [];
@@ -1234,11 +1269,13 @@ function ReportInner({ cfg }) {
       }
       if (revenusDateField) {
         const d = readDateIso(rec, revenusDateField);
-        if (!isInPeriod(d, year, month)) return false;
+        const inPeriod = isInPeriod(d, year, month);
+        const pastUnreconciled = isBeforePeriod(d, year, month) && !reconciledRevenuIds.has(rec.id);
+        if (!inPeriod && !pastUnreconciled) return false;
       }
       return true;
     });
-  }, [revenusRecords, revenusSpectacleIdField, revenusDateField, selectedSpectacleId, year, month]);
+  }, [revenusRecords, revenusSpectacleIdField, revenusDateField, selectedSpectacleId, year, month, reconciledRevenuIds]);
 
   // Display-only filter: hide categories listed in revenusCategorieIgnore (already shown in the
   // Événements table). The KPIs continue to use spectacleRevenusAll so totals stay accurate.
