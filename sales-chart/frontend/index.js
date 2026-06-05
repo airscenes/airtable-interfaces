@@ -48,6 +48,17 @@ const PRESETS = [
   { key: "all", label: "Tout" },
 ];
 
+// Default visible window: last 7 days (matches the "7j" preset). Used as the
+// initial date filter so charts open zoomed on recent weekly variation.
+function defaultDateRange() {
+  const iso = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const now = new Date();
+  const from = new Date(now);
+  from.setDate(from.getDate() - 7);
+  return { from: iso(from), to: iso(now) };
+}
+
 function formatDate(isoDate) {
   if (!isoDate) return "";
   const parts = isoDate.split("-");
@@ -488,7 +499,43 @@ function aggregateSalesByDate(rows) {
   return formatted;
 }
 
-function SalesChart({ data, capacity, revenueCapacity, height = 500 }) {
+// Synthesize a cumulative budget-target curve over the given sorted ISO dates:
+// a single convex (accelerating) ramp from 0 at the first date to totalObjective
+// at the last date (right edge / today). Returns { isoDate: value }.
+const OBJECTIVE_ACCEL = 2.2; // >1 = slow start, accelerating toward the right edge
+function buildObjectiveSeries(dates, totalObjective) {
+  const out = {};
+  if (!dates.length || !totalObjective) return out;
+  const dayMs = (iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  const startMs = dayMs(dates[0]);
+  const span = dayMs(dates[dates.length - 1]) - startMs;
+  for (const iso of dates) {
+    const frac = span > 0 ? (dayMs(iso) - startMs) / span : 1;
+    const eased = frac <= 0 ? 0 : frac >= 1 ? 1 : Math.pow(frac, OBJECTIVE_ACCEL);
+    out[iso] = totalObjective * eased;
+  }
+  return out;
+}
+
+// Fit an axis to [min, max] with a 5% margin so the line stays off the edges.
+// Falls back to a small fixed pad when the range is flat (single value).
+function padDomain(min, max) {
+  if (!isFinite(min) || !isFinite(max)) return [0, "auto"];
+  // Keep the floor at 0 when the data is non-negative (revenue/objective never
+  // go below 0); only allow a negative lower bound if the data itself is.
+  const floor = (lo) => (min >= 0 ? Math.max(0, lo) : lo);
+  if (min === max) {
+    const pad = Math.max(1, Math.abs(min) * 0.05);
+    return [floor(min - pad), max + pad];
+  }
+  const margin = (max - min) * 0.05;
+  return [floor(min - margin), max + margin];
+}
+
+function SalesChart({ data, capacity, revenueCapacity, zoom = false, height = 500 }) {
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-48">
@@ -497,6 +544,24 @@ function SalesChart({ data, capacity, revenueCapacity, height = 500 }) {
         </p>
       </div>
     );
+  }
+
+  // Single $ axis shared by real revenue and the budget-target curve.
+  // Full view: 0→auto. When a date filter is active (zoom), fit the axis to the
+  // visible range of BOTH curves so the objective ramp stays fully on-screen
+  // (no clipping) while revenue variation is still emphasized. On charts without
+  // an objective (e.g. the global overview) only revenue drives the bounds.
+  let dollarDomain = [0, "auto"];
+  if (zoom) {
+    let lo = Infinity, hi = -Infinity;
+    for (const d of data) {
+      for (const v of [d.total_dollars, d.objectif]) {
+        if (v == null) continue;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+    }
+    if (isFinite(lo)) dollarDomain = padDomain(lo, hi);
   }
 
   return (
@@ -519,37 +584,20 @@ function SalesChart({ data, capacity, revenueCapacity, height = 500 }) {
               height={50}
             />
             <YAxis
-              yAxisId="left"
+              yAxisId="dollars"
               orientation="left"
-              stroke="#4a90d9"
-              tick={{ fontSize: 10 }}
-              tickFormatter={(v) =>
-                v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v
-              }
-              domain={[0, capacity || "auto"]}
-              padding={{ top: 20, bottom: 10 }}
-              label={{
-                value: "Billets",
-                angle: -90,
-                position: "insideLeft",
-                offset: -25,
-                style: { fontSize: 11, fill: "#4a90d9", fontWeight: 600 },
-              }}
-            />
-            <YAxis
-              yAxisId="right"
-              orientation="right"
               stroke="#6aa84f"
               tick={{ fontSize: 10 }}
               tickFormatter={(v) =>
                 `${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v} $`
               }
-              domain={[0, revenueCapacity || "auto"]}
+              domain={dollarDomain}
+              allowDataOverflow={zoom}
               padding={{ top: 20, bottom: 10 }}
               label={{
                 value: "Revenus ($)",
-                angle: 90,
-                position: "insideRight",
+                angle: -90,
+                position: "insideLeft",
                 offset: -25,
                 style: { fontSize: 11, fill: "#6aa84f", fontWeight: 600 },
               }}
@@ -562,40 +610,14 @@ function SalesChart({ data, capacity, revenueCapacity, height = 500 }) {
                 boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
               }}
               labelFormatter={formatDate}
-              formatter={(value, name) => {
-                if (name === "Revenus ($)") {
-                  return [
-                    `${value.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} $`,
-                    name,
-                  ];
-                }
-                return [value.toLocaleString("fr-FR"), name];
-              }}
+              formatter={(value, name) => [
+                `${Number(value).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} $`,
+                name,
+              ]}
             />
             <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
             <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="ventes"
-              name="Ventes"
-              stroke="#4a90d9"
-              strokeWidth={2.5}
-              dot={false}
-              activeDot={{ r: 4 }}
-            />
-            <Line
-              yAxisId="left"
-              type="monotone"
-              dataKey="gratuits"
-              name="Gratuits"
-              stroke="#e06666"
-              strokeWidth={2}
-              dot={false}
-              activeDot={{ r: 4 }}
-              strokeDasharray="5 5"
-            />
-            <Line
-              yAxisId="right"
+              yAxisId="dollars"
               type="monotone"
               dataKey="total_dollars"
               name="Revenus ($)"
@@ -603,6 +625,18 @@ function SalesChart({ data, capacity, revenueCapacity, height = 500 }) {
               strokeWidth={2.5}
               dot={false}
               activeDot={{ r: 4 }}
+            />
+            <Line
+              yAxisId="dollars"
+              type="monotone"
+              dataKey="objectif"
+              name="Objectif ($)"
+              stroke="#e69138"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4 }}
+              strokeDasharray="5 5"
+              connectNulls
             />
           </ComposedChart>
         </ResponsiveContainer>
@@ -622,6 +656,9 @@ function HomeSalesChart({ repIds, supabaseUrl, supabaseAnonKey, baseId }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const cacheRef = useRef(new Map());
   const idsStr = useMemo(() => [...repIds].sort().join(","), [repIds]);
+
+  // Note: dateFrom/dateTo above default to empty (full range) for the global
+  // overview; the 7-day default is applied to the per-spectacle detail chart.
 
   useEffect(() => {
     if (!supabaseUrl || !supabaseAnonKey || !idsStr) {
@@ -869,7 +906,7 @@ function HomeSalesChart({ repIds, supabaseUrl, supabaseAnonKey, baseId }) {
           {error}
         </div>
       ) : (
-        <SalesChart data={filteredData} height={280} />
+        <SalesChart data={filteredData} zoom={hasFilter} height={280} />
       )}
     </div>
   );
@@ -1046,8 +1083,8 @@ function DetailPage({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showAll, setShowAll] = useState(false);
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => defaultDateRange().from);
+  const [dateTo, setDateTo] = useState(() => defaultDateRange().to);
   const [filterVille, setFilterVille] = useState("");
   const [filterSalle, setFilterSalle] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -1334,6 +1371,24 @@ function DetailPage({
     const activeReps = isAllMode ? filteredReps : filteredReps.filter((r) => selectedRepIds.has(r.id));
     const totalCapacity = activeReps.reduce((sum, r) => sum + (r.capacity || 0), 0) || null;
     const totalRevenuePotential = activeReps.reduce((sum, r) => sum + (r.revenuePotential || 0), 0) || null;
+
+    // Budget-target curve: a single convex (accelerating) ramp from 0 to the
+    // TOTAL objective (sum of the active reps' "Objectif revenus producteur").
+    // The ramp spans the currently visible window — computed over the filtered
+    // dates — so it fits the active date filter (full range in "Tout", the last
+    // 7 days in "7j", etc.) and always reaches the target at the right edge.
+    const totalObjective = activeReps.reduce(
+      (s, r) => s + (r.colObjectifRevenus || 0),
+      0,
+    );
+    const objByDate = buildObjectiveSeries(
+      filteredSalesData.map((d) => d.date),
+      totalObjective,
+    );
+    const chartData = filteredSalesData.map((d) => ({
+      ...d,
+      objectif: objByDate[d.date] ?? null,
+    }));
     const presets = PRESETS;
     const btnBase = "px-2 py-0.5 rounded text-xs font-medium transition-colors";
     const btnActive = "bg-blue-blue text-white";
@@ -1419,9 +1474,10 @@ function DetailPage({
           </button>
         )}
         <SalesChart
-          data={filteredSalesData}
+          data={chartData}
           capacity={selectedRep ? selectedRep.capacity : totalCapacity}
           revenueCapacity={selectedRep ? selectedRep.revenuePotential : totalRevenuePotential}
+          zoom={hasFilter}
           height={isAllMode ? 320 : 330}
         />
       </div>
@@ -1950,9 +2006,15 @@ function SalesChartApp() {
         }
         // Raw values for filtering/sorting
         let rawDate = null;
+        let dateRepIso = null;
         if (colDateRep) {
           const dv = safeCellValue(record, colDateRep);
-          if (dv) rawDate = new Date(dv);
+          if (dv) {
+            rawDate = new Date(dv);
+            // Date/DateTime cells return an ISO string; slice to YYYY-MM-DD to
+            // avoid the new Date()→local off-by-one shift in UTC-N timezones.
+            if (typeof dv === "string") dateRepIso = dv.slice(0, 10);
+          }
         }
         const rawStatus = filterStatusField
           ? safeCellString(record, filterStatusField)
@@ -1973,6 +2035,7 @@ function SalesChartApp() {
           capacity: cap,
           revenuePotential: revPotential,
           rawDate,
+          dateRepIso,
           rawStatus,
           rawOnSale,
           colJoursRestants: getCol(record, colJoursRestants),

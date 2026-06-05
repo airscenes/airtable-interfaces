@@ -90,10 +90,21 @@ function getInitials(name) {
 }
 
 function resolveLinkedIds(rec, linkField) {
-  if (!linkField) return [];
+  if (!rec || !linkField) return [];
   const v = rec.getCellValue(linkField);
   if (!Array.isArray(v)) return [];
   return v.map((l) => l.id);
+}
+
+// Resolve a field by name (case-insensitive), trying each name in order until one matches.
+// Note: only fields marked Visible in the extension's Données panel are present in table.fields.
+function findFieldByName(table, ...names) {
+  if (!table) return null;
+  for (const n of names) {
+    const f = table.fields.find((fld) => fld.name.toLowerCase() === n.toLowerCase());
+    if (f) return f;
+  }
+  return null;
 }
 
 // --- Custom Properties Definition ---
@@ -447,7 +458,8 @@ function SaisiesEditor({ title, rows, onChange, revenusCategories, taxesChoices,
 // JSON format: [{"label": "Date", "fieldName": "Date événement"}, {"label": "Lieu", "fieldName": "Venue"}, ...]
 // Champs absents (vides) sur un événement sont masqués pour cette ligne.
 
-function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField }) {
+function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField, reportedIds }) {
+  const showCheck = !!reportedIds;
   const sorted = useMemo(() => {
     if (!dateField) return evenements;
     const key = (rec) => {
@@ -515,6 +527,7 @@ function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField }
       <table className="w-full text-sm border-collapse">
         <thead className="bg-gray-gray50 dark:bg-gray-gray800">
           <tr>
+            {showCheck && <th className="p-2 border-b border-gray-gray200 dark:border-gray-gray600" style={{ width: 28 }}></th>}
             {visibleCols.map((c) => (
               <th key={c.fieldName} className="text-left p-2 border-b border-gray-gray200 dark:border-gray-gray600 font-medium text-gray-gray700 dark:text-gray-gray100 whitespace-nowrap">
                 {c.label}
@@ -525,6 +538,13 @@ function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField }
         <tbody>
           {sorted.map((rec) => (
             <tr key={rec.id} className="border-b border-gray-gray100 dark:border-gray-gray700 hover:bg-gray-gray50 dark:hover:bg-gray-gray800">
+              {showCheck && (
+                <td className="p-2 text-center" style={{ width: 28 }}>
+                  {reportedIds.has(rec.id)
+                    ? <span className="text-green-greenDark1" title="Inclus dans l'État de compte">✓</span>
+                    : ""}
+                </td>
+              )}
               {visibleCols.map((c) => {
                 const v = rec.getCellValueAsString(c.field);
                 return (
@@ -537,6 +557,7 @@ function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField }
           ))}
           {hasAnyTotal && (
             <tr className="bg-gray-gray50 dark:bg-gray-gray800 font-semibold border-t border-gray-gray200 dark:border-gray-gray600">
+              {showCheck && <td className="p-2" style={{ width: 28 }}></td>}
               {visibleCols.map((c, idx) => (
                 <td key={c.fieldName} className="p-2 text-gray-gray700 dark:text-gray-gray100 whitespace-nowrap">
                   {columnTotals[idx] !== null ? fmtCurrency(columnTotals[idx]) : (idx === 0 ? `Total (${sorted.length})` : "")}
@@ -553,7 +574,16 @@ function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField }
 // --- UI: Revenus groupés par catégorie ---
 
 // `revenusFactureDates` is a Map(revenuId → ISO date) computed by the parent from the linked Facture.
-function RevenusByCategory({ revenus, montantField, categorieField, descriptionField, revenusFactureDates, groupByCategory = true, totalLabel = "Total" }) {
+function RevenusByCategory({ revenus, montantField, categorieField, descriptionField, revenusFactureDates, reportedIds, groupByCategory = true, totalLabel = "Total" }) {
+  // When reportedIds is provided, show a leading ✓ column marking items already in the saved report.
+  const showCheck = !!reportedIds;
+  const checkCell = (id) => (
+    <td className="p-2 text-center" style={{ width: 28 }}>
+      {reportedIds && reportedIds.has(id)
+        ? <span className="text-green-greenDark1" title="Inclus dans l'État de compte">✓</span>
+        : ""}
+    </td>
+  );
   const groups = useMemo(() => {
     if (!groupByCategory) return null;
     const map = new Map();
@@ -588,6 +618,7 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
       <table className="w-full text-sm">
         <thead className="bg-gray-gray50 dark:bg-gray-gray800">
           <tr>
+            {showCheck && <th className="p-2" style={{ width: 28 }}></th>}
             <th className="text-left p-2">Date</th>
             {!groupByCategory && categorieField && <th className="text-left p-2">Catégorie</th>}
             <th className="text-left p-2">Description</th>
@@ -601,7 +632,7 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
               return (
                 <Fragment key={cat}>
                   <tr className="bg-gray-gray100 dark:bg-gray-gray800 border-t border-gray-gray200 dark:border-gray-gray600">
-                    <td colSpan={2} className="p-2 font-semibold text-gray-gray700 dark:text-gray-gray100">
+                    <td colSpan={showCheck ? 3 : 2} className="p-2 font-semibold text-gray-gray700 dark:text-gray-gray100">
                       {cat} <span className="text-gray-gray500 font-normal">({rows.length})</span>
                     </td>
                     <td className="p-2 text-right font-semibold text-gray-gray700 dark:text-gray-gray100 whitespace-nowrap">
@@ -612,6 +643,7 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
                     const row = rowFor(r);
                     return (
                       <tr key={row.id} className="border-t border-gray-gray100 dark:border-gray-gray700">
+                        {showCheck && checkCell(row.id)}
                         <td className="p-2 text-gray-gray600 dark:text-gray-gray300 whitespace-nowrap">
                           {typeof row.dateIso === "string" ? row.dateIso.slice(0, 10) : ""}
                         </td>
@@ -631,6 +663,7 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
               .sort((a, b) => (a.dateIso || "").localeCompare(b.dateIso || ""))
               .map((row) => (
                 <tr key={row.id} className="border-t border-gray-gray100 dark:border-gray-gray700">
+                  {showCheck && checkCell(row.id)}
                   <td className="p-2 text-gray-gray600 dark:text-gray-gray300 whitespace-nowrap">
                     {typeof row.dateIso === "string" ? row.dateIso.slice(0, 10) : ""}
                   </td>
@@ -645,7 +678,7 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
               ))
           )}
           <tr className="bg-gray-gray50 dark:bg-gray-gray800 font-semibold border-t border-gray-gray200 dark:border-gray-gray600">
-            <td colSpan={!groupByCategory && categorieField ? 3 : 2} className="p-2">{totalLabel}</td>
+            <td colSpan={(!groupByCategory && categorieField ? 3 : 2) + (showCheck ? 1 : 0)} className="p-2">{totalLabel}</td>
             <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(grandTotal)}</td>
           </tr>
         </tbody>
@@ -798,7 +831,7 @@ function EtatDeCompteUpload({
               : "bg-blue-blue text-white hover:bg-blue-blueDark1"
           }`}
         >
-          {busy ? "Sauvegarde…" : existing ? "Mettre à jour le snapshot" : "Sauvegarder le snapshot"}
+          {busy ? "Traitement…" : existing ? "Recalculer le rapport" : "Créer le rapport"}
         </button>
       </div>
       {error && (
@@ -978,10 +1011,9 @@ function buildRevenusSection(records, montantField, categorieField, descField, d
   const rows = [];
   let grandTotal = 0;
   for (const [cat, recs] of sorted) {
-    let total = 0;
     for (const r of recs) {
       const amt = Number(r.getCellValue(montantField)) || 0;
-      total += amt;
+      grandTotal += amt;
       rows.push(makeRevenusRow(
         cat,
         dates.get(r.id) || "",
@@ -989,8 +1021,6 @@ function buildRevenusSection(records, montantField, categorieField, descField, d
         amt,
       ));
     }
-    grandTotal += total;
-    rows.push(makeRevenusRow(`Sous-total ${cat}`, "", "", total));
   }
   const totals = makeRevenusRow("Total revenus", "", "", grandTotal);
   return { headers: REVENUS_HEADERS, rows, totals };
@@ -1163,6 +1193,16 @@ function ReportInner({ cfg }) {
     etatEvenementsLinkField, etatRevenusLinkField,
   } = cfg;
 
+  // Organisme link: Spectacles.Producteur → Factures.Organisations (each falls back to "Organismes").
+  const spectacleProducteurField = useMemo(
+    () => findFieldByName(spectaclesTable, "Producteur", "Organismes"),
+    [spectaclesTable],
+  );
+  const factureOrganisationField = useMemo(
+    () => findFieldByName(facturesTable, "Organisations", "Organismes"),
+    [facturesTable],
+  );
+
   const spectaclesRecords = useRecords(spectaclesTable);
   const evenementsRecords = useRecords(evenementsTable);
   const revenusRecords = useRecords(revenusTable);
@@ -1214,27 +1254,58 @@ function ReportInner({ cfg }) {
     [spectacles, selectedSpectacleId],
   );
 
-  // IDs of Événements / Revenus already linked to an État de compte (any month).
-  // Items linked to a statement are considered "reconciled" and are not carried forward.
-  const reconciledEventIds = useMemo(() => {
+  // The État de compte for the currently selected spectacle + month, if it already exists.
+  // Items linked to *this* statement stay eligible so the snapshot can be updated; items
+  // linked to *another* statement are locked (already reconciled) and must not be re-linked.
+  const currentEtatId = useMemo(() => {
+    if (!etatsRecords || !selectedSpectacleId || !etatSpectacleLinkField || !etatDateField) return null;
+    const rec = etatsRecords.find((r) => {
+      const links = resolveLinkedIds(r, etatSpectacleLinkField);
+      if (!links.includes(selectedSpectacleId)) return false;
+      const p = parseIsoParts(r.getCellValue(etatDateField));
+      return p && p.year === year && p.month === month;
+    });
+    return rec ? rec.id : null;
+  }, [etatsRecords, selectedSpectacleId, etatSpectacleLinkField, etatDateField, year, month]);
+
+  // IDs of Événements / Revenus already linked to the current month's État de compte.
+  // Used to show a ✓ marking items that are part of the saved report.
+  const currentEtatRecord = useMemo(
+    () => (etatsRecords || []).find((r) => r.id === currentEtatId) || null,
+    [etatsRecords, currentEtatId],
+  );
+  const reportedEventIds = useMemo(
+    () => new Set(resolveLinkedIds(currentEtatRecord, etatEvenementsLinkField)),
+    [currentEtatRecord, etatEvenementsLinkField],
+  );
+  const reportedRevenuIds = useMemo(
+    () => new Set(resolveLinkedIds(currentEtatRecord, etatRevenusLinkField)),
+    [currentEtatRecord, etatRevenusLinkField],
+  );
+
+  // IDs of Événements / Revenus linked to an État de compte OTHER than the current month's one.
+  // These are already reconciled elsewhere and must never be re-linked (prevents double-linking).
+  const reconciledEventIdsElsewhere = useMemo(() => {
     const set = new Set();
     if (!etatsRecords || !etatEvenementsLinkField) return set;
     for (const rec of etatsRecords) {
+      if (rec.id === currentEtatId) continue;
       const links = rec.getCellValue(etatEvenementsLinkField);
       if (Array.isArray(links)) for (const l of links) if (l && l.id) set.add(l.id);
     }
     return set;
-  }, [etatsRecords, etatEvenementsLinkField]);
+  }, [etatsRecords, etatEvenementsLinkField, currentEtatId]);
 
-  const reconciledRevenuIds = useMemo(() => {
+  const reconciledRevenuIdsElsewhere = useMemo(() => {
     const set = new Set();
     if (!etatsRecords || !etatRevenusLinkField) return set;
     for (const rec of etatsRecords) {
+      if (rec.id === currentEtatId) continue;
       const links = rec.getCellValue(etatRevenusLinkField);
       if (Array.isArray(links)) for (const l of links) if (l && l.id) set.add(l.id);
     }
     return set;
-  }, [etatsRecords, etatRevenusLinkField]);
+  }, [etatsRecords, etatRevenusLinkField, currentEtatId]);
 
   // --- Événements : filtrés par spectacle_id (lookup/formula) + date ---
   // On affiche les événements du mois sélectionné, PLUS les événements passés non encore
@@ -1250,12 +1321,14 @@ function ReportInner({ cfg }) {
       if (evenementDateField) {
         const d = readDateIso(rec, evenementDateField);
         const inPeriod = isInPeriod(d, year, month);
-        const pastUnreconciled = isBeforePeriod(d, year, month) && !reconciledEventIds.has(rec.id);
-        if (!inPeriod && !pastUnreconciled) return false;
+        const past = isBeforePeriod(d, year, month);
+        if (!inPeriod && !past) return false; // future → exclude
+        // Linked to another État de compte → already reconciled, do not carry forward.
+        if (reconciledEventIdsElsewhere.has(rec.id)) return false;
       }
       return true;
     });
-  }, [evenementsRecords, evenementSpectacleIdField, evenementDateField, selectedSpectacleId, year, month, reconciledEventIds]);
+  }, [evenementsRecords, evenementSpectacleIdField, evenementDateField, selectedSpectacleId, year, month, reconciledEventIdsElsewhere]);
 
   // Revenus filtrés par spectacle_id (lookup/formula) si configuré, puis par mois sélectionné.
   // Comme les événements, on ajoute les revenus passés non encore rattachés à un État de compte.
@@ -1270,12 +1343,14 @@ function ReportInner({ cfg }) {
       if (revenusDateField) {
         const d = readDateIso(rec, revenusDateField);
         const inPeriod = isInPeriod(d, year, month);
-        const pastUnreconciled = isBeforePeriod(d, year, month) && !reconciledRevenuIds.has(rec.id);
-        if (!inPeriod && !pastUnreconciled) return false;
+        const past = isBeforePeriod(d, year, month);
+        if (!inPeriod && !past) return false; // future → exclude
+        // Linked to another État de compte → already reconciled, do not carry forward.
+        if (reconciledRevenuIdsElsewhere.has(rec.id)) return false;
       }
       return true;
     });
-  }, [revenusRecords, revenusSpectacleIdField, revenusDateField, selectedSpectacleId, year, month, reconciledRevenuIds]);
+  }, [revenusRecords, revenusSpectacleIdField, revenusDateField, selectedSpectacleId, year, month, reconciledRevenuIdsElsewhere]);
 
   // Display-only filter: hide categories listed in revenusCategorieIgnore (already shown in the
   // Événements table). The KPIs continue to use spectacleRevenusAll so totals stay accurate.
@@ -1398,6 +1473,11 @@ function ReportInner({ cfg }) {
     setSavedMsg(null);
     try {
       const fallbackDate = monthIsoDate(year, month);
+      // Organisme to stamp on each Facture = the selected Spectacle's Producteur (fallback Organismes).
+      const selectedSpectacleRecord = (spectaclesRecords || []).find((r) => r.id === selectedSpectacleId) || null;
+      const organisationLinks = (selectedSpectacleRecord && spectacleProducteurField)
+        ? resolveLinkedIds(selectedSpectacleRecord, spectacleProducteurField).map((id) => ({ id }))
+        : [];
       let created = 0;
       for (const row of validRows) {
         const rawV = Math.abs(parseFloat(String(row.montant).replace(",", ".")));
@@ -1407,6 +1487,7 @@ function ReportInner({ cfg }) {
         if (factureDateWriteField) factureFields[factureDateWriteField.id] = row.date || fallbackDate;
         if (factureSpectacleLinkField) factureFields[factureSpectacleLinkField.id] = [{ id: selectedSpectacleId }];
         if (factureDescriptionField && row.description) factureFields[factureDescriptionField.id] = row.description;
+        if (factureOrganisationField && organisationLinks.length) factureFields[factureOrganisationField.id] = organisationLinks;
         const [factureId] = await facturesTable.createRecordsAsync([{ fields: factureFields }]);
 
         const revenuFields = {};
@@ -1573,6 +1654,26 @@ function ReportInner({ cfg }) {
             monthName={`${MONTHS_FR[month - 1]} ${year}`}
             defaultDate={monthIsoDate(year, month)}
           />
+          <div className="flex items-center justify-end gap-3 mt-3">
+            {savedMsg && (
+              <span className="text-sm text-gray-gray600 dark:text-gray-gray200">{savedMsg}</span>
+            )}
+            <button
+              onClick={handleSave}
+              disabled={saisies.length === 0 || saving}
+              className={`px-4 py-2 rounded text-sm font-medium ${
+                saisies.length === 0 || saving
+                  ? "bg-gray-gray200 text-gray-gray500 cursor-not-allowed"
+                  : "bg-blue-blue text-white hover:bg-blue-blueDark1"
+              }`}
+            >
+              {saving
+                ? "Sauvegarde…"
+                : saisies.length === 0
+                ? "Aucune saisie"
+                : `Sauvegarder ${saisies.length} saisie${saisies.length > 1 ? "s" : ""}`}
+            </button>
+          </div>
         </div>
         {etatsTable && (
           <div className="lg:col-span-1">
@@ -1594,6 +1695,14 @@ function ReportInner({ cfg }) {
               revenusIds={spectacleRevenusAll.map((r) => r.id)}
               kpis={{ revenus: totalRevenus, depenses: totalDepenses, solde: totalRevenus - totalDepenses }}
             />
+            <div className="flex justify-end mt-3">
+              <button
+                onClick={handleExport}
+                className="px-4 py-2 rounded text-sm font-medium bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 border border-gray-gray200 dark:border-gray-gray600 hover:bg-gray-gray50 dark:hover:bg-gray-gray800"
+              >
+                Télécharger Excel
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -1607,6 +1716,7 @@ function ReportInner({ cfg }) {
           evenementsTable={evenementsTable}
           fieldsConfig={evenementFieldsConfig}
           dateField={evenementDateField}
+          reportedIds={reportedEventIds}
         />
       </div>
 
@@ -1620,6 +1730,7 @@ function ReportInner({ cfg }) {
           categorieField={revenusCategorieField}
           descriptionField={revenusDescriptionField}
           revenusFactureDates={revenusFactureDates}
+          reportedIds={reportedRevenuIds}
           totalLabel="Total revenus"
         />
       </div>
@@ -1634,37 +1745,12 @@ function ReportInner({ cfg }) {
           categorieField={revenusCategorieField}
           descriptionField={revenusDescriptionField}
           revenusFactureDates={revenusFactureDates}
+          reportedIds={reportedRevenuIds}
           groupByCategory={false}
           totalLabel="Total dépenses"
         />
       </div>
 
-      <div className="flex items-center justify-end gap-3 sticky bottom-0 bg-gray-gray50 dark:bg-gray-gray800 py-3">
-        {savedMsg && (
-          <span className="text-sm text-gray-gray600 dark:text-gray-gray200">{savedMsg}</span>
-        )}
-        <button
-          onClick={handleExport}
-          className="px-4 py-2 rounded text-sm font-medium bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 border border-gray-gray200 dark:border-gray-gray600 hover:bg-gray-gray50 dark:hover:bg-gray-gray800"
-        >
-          Télécharger Excel
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={saisies.length === 0 || saving}
-          className={`px-4 py-2 rounded text-sm font-medium ${
-            saisies.length === 0 || saving
-              ? "bg-gray-gray200 text-gray-gray500 cursor-not-allowed"
-              : "bg-blue-blue text-white hover:bg-blue-blueDark1"
-          }`}
-        >
-          {saving
-            ? "Sauvegarde…"
-            : saisies.length === 0
-            ? "Aucune saisie"
-            : `Sauvegarder ${saisies.length} saisie${saisies.length > 1 ? "s" : ""}`}
-        </button>
-      </div>
     </div>
   );
 }
