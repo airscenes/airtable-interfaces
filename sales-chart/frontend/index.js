@@ -1066,6 +1066,371 @@ function SelectBadge({ value }) {
   );
 }
 
+// --- Shared sort: chronological by event date, then name ---
+
+function sortRepsByDate(reps) {
+  return [...reps].sort((a, b) => {
+    if (a.rawDate && b.rawDate) return a.rawDate - b.rawDate;
+    if (a.rawDate) return -1;
+    if (b.rawDate) return 1;
+    return a.name.localeCompare(b.name, "fr");
+  });
+}
+
+// --- Shared status/city/venue filtering for the events table ---
+// Used by both the per-spectacle detail page and the global all-events page.
+function useRepFilters(representations) {
+  const [showAll, setShowAll] = useState(false);
+  const [filterVille, setFilterVille] = useState("");
+  const [filterSalle, setFilterSalle] = useState("");
+
+  // Default filters: Statut = Confirmé/En vente, Site Web = En ligne, Date >= today
+  const filteredByStatus = useMemo(() => {
+    if (showAll) return representations;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return representations.filter((rep) => {
+      if (rep.rawDate && rep.rawDate < today) return false;
+      if (rep.rawStatus && rep.rawStatus.toLowerCase() !== "confirmé" && rep.rawStatus.toLowerCase() !== "en vente") return false;
+      if (rep.colSiteWeb?.text && rep.colSiteWeb.text.toLowerCase() !== "en ligne") return false;
+      if (rep.rawOnSale !== null && !rep.rawOnSale) return false;
+      return true;
+    });
+  }, [representations, showAll]);
+
+  const uniqueVilles = useMemo(() => {
+    const set = new Set(filteredByStatus.map((r) => r.colVille).filter(Boolean));
+    return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+  }, [filteredByStatus]);
+
+  const uniqueSalles = useMemo(() => {
+    const set = new Set(filteredByStatus.map((r) => r.colSalle).filter(Boolean));
+    return [...set].sort((a, b) => a.localeCompare(b, "fr"));
+  }, [filteredByStatus]);
+
+  const filteredReps = useMemo(() => {
+    let reps = filteredByStatus;
+    if (filterVille) reps = reps.filter((r) => r.colVille === filterVille);
+    if (filterSalle) reps = reps.filter((r) => r.colSalle === filterSalle);
+    return reps;
+  }, [filteredByStatus, filterVille, filterSalle]);
+
+  // Reset stale filters when options change
+  useEffect(() => {
+    if (filterVille && !uniqueVilles.includes(filterVille)) setFilterVille("");
+    if (filterSalle && !uniqueSalles.includes(filterSalle)) setFilterSalle("");
+  }, [uniqueVilles, uniqueSalles, filterVille, filterSalle]);
+
+  return {
+    showAll, setShowAll,
+    filterVille, setFilterVille,
+    filterSalle, setFilterSalle,
+    uniqueVilles, uniqueSalles,
+    filteredReps,
+  };
+}
+
+// --- Shared events table (header + filters + table card) ---
+// Selection (checkbox column + row click) is enabled only when setSelectedRepIds
+// is provided. showSpectacleCol adds a "Spectacle" column for the mixed all-events
+// view where rows span multiple shows.
+function RepresentationsTable({
+  title,
+  totalCount,
+  filteredReps,
+  uniqueVilles,
+  uniqueSalles,
+  filterVille,
+  setFilterVille,
+  filterSalle,
+  setFilterSalle,
+  showAll,
+  setShowAll,
+  selectedRepIds,
+  setSelectedRepIds,
+  repRecords,
+  showSpectacleCol = false,
+}) {
+  const selectable = !!setSelectedRepIds;
+  const minWidth = showSpectacleCol ? 1780 : 1600;
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-gray600 dark:text-gray-gray300">
+          {title} ({filteredReps.length}
+          {filteredReps.length !== totalCount ? ` / ${totalCount}` : ""})
+        </h3>
+        <label className="flex items-center gap-2 text-xs text-gray-gray500 dark:text-gray-gray400 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={showAll}
+            onChange={(e) => setShowAll(e.target.checked)}
+            className="rounded"
+          />
+          Afficher tout
+        </label>
+      </div>
+      {/* City and Venue filters */}
+      {(uniqueVilles.length > 1 || uniqueSalles.length > 1) && (
+        <div className="flex items-center gap-3 mb-3">
+          {uniqueVilles.length > 1 && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Ville:</label>
+              <select
+                value={filterVille}
+                onChange={(e) => setFilterVille(e.target.value)}
+                className="text-xs rounded border border-gray-gray200 dark:border-gray-gray500 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
+                style={{ fontSize: 11, padding: "3px 8px", minWidth: 120 }}
+              >
+                <option value="">Toutes</option>
+                {uniqueVilles.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          {uniqueSalles.length > 1 && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Salle:</label>
+              <select
+                value={filterSalle}
+                onChange={(e) => setFilterSalle(e.target.value)}
+                className="text-xs rounded border border-gray-gray200 dark:border-gray-gray500 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
+                style={{ fontSize: 11, padding: "3px 8px", minWidth: 120 }}
+              >
+                <option value="">Toutes</option>
+                {uniqueSalles.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm overflow-hidden border border-gray-gray100 dark:border-gray-gray600">
+        <div style={{ overflowX: "auto" }}>
+          <table className="w-full text-sm text-gray-gray700 dark:text-gray-gray200" style={{ minWidth }}>
+            <thead>
+              <tr className="bg-gray-gray75 dark:bg-gray-gray800 text-gray-gray600 dark:text-gray-gray300 text-left text-xs">
+                {selectable && (
+                  <th className="px-3 py-2 w-8">
+                    <input
+                      type="checkbox"
+                      checked={filteredReps.length > 0 && filteredReps.every((r) => selectedRepIds.has(r.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedRepIds(new Set(filteredReps.map((r) => r.id)));
+                        } else {
+                          setSelectedRepIds(new Set());
+                        }
+                      }}
+                      className="rounded"
+                    />
+                  </th>
+                )}
+                {showSpectacleCol && <th className="px-3 py-2 font-semibold">Spectacle</th>}
+                <th className="px-3 py-2 font-semibold">J. restants</th>
+                <th className="px-3 py-2 font-semibold">Date</th>
+                <th className="px-3 py-2 font-semibold">Salle</th>
+                <th className="px-3 py-2 font-semibold">Ville</th>
+                <th className="px-3 py-2 font-semibold text-right">Capacite</th>
+                <th className="px-3 py-2 font-semibold text-right">Places bloq.</th>
+                <th className="px-3 py-2 font-semibold text-right">Billets dispo</th>
+                <th className="px-3 py-2 font-semibold text-right">Total vendus</th>
+                <th className="px-3 py-2 font-semibold text-right">Total gratuits</th>
+                <th className="px-3 py-2 font-semibold text-right">Assistance</th>
+                <th className="px-3 py-2 font-semibold" style={{ minWidth: 120 }}>Taux remplissage</th>
+                <th className="px-3 py-2 font-semibold text-right">Revenus billetterie</th>
+                <th className="px-3 py-2 font-semibold">Statut rapport</th>
+                <th className="px-3 py-2 font-semibold text-right">Objectif revenus</th>
+                <th className="px-3 py-2 font-semibold">Mise a jour</th>
+                <th className="px-3 py-2 font-semibold">Priorisation</th>
+                <th className="px-3 py-2 font-semibold">Billetterie Salle</th>
+                <th className="px-3 py-2 font-semibold">Note</th>
+                <th className="px-3 py-2 font-semibold">Statut</th>
+                <th className="px-3 py-2 font-semibold">Site web</th>
+                <th className="px-3 py-2 w-8"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredReps.map((rep) => (
+                <tr
+                  key={rep.id}
+                  onClick={
+                    selectable
+                      ? () => {
+                          setSelectedRepIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(rep.id)) {
+                              next.delete(rep.id);
+                            } else {
+                              next.add(rep.id);
+                            }
+                            return next;
+                          });
+                        }
+                      : undefined
+                  }
+                  className={`border-t border-gray-gray100 dark:border-gray-gray600 transition-colors
+                              ${selectable ? "cursor-pointer" : ""}
+                              ${
+                                selectable && selectedRepIds.has(rep.id)
+                                  ? "bg-blue-blueLight3 dark:bg-blue-blueDark1 font-medium"
+                                  : "hover:bg-gray-gray25 dark:hover:bg-gray-gray600"
+                              }`}
+                >
+                  {selectable && (
+                    <td className="px-3 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedRepIds.has(rep.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          setSelectedRepIds((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) {
+                              next.add(rep.id);
+                            } else {
+                              next.delete(rep.id);
+                            }
+                            return next;
+                          });
+                        }}
+                        className="rounded"
+                      />
+                    </td>
+                  )}
+                  {showSpectacleCol && (
+                    <td className="px-3 py-2 font-medium text-gray-gray800 dark:text-gray-gray100">{rep.spectacleName || "—"}</td>
+                  )}
+                  <td className="px-3 py-2">{rep.colJoursRestants}</td>
+                  <td className="px-3 py-2">{rep.colDateRep}</td>
+                  <td className="px-3 py-2">{rep.colSalle}</td>
+                  <td className="px-3 py-2">{rep.colVille}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colCapacite)}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colPlacesBloques)}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colBilletsDispo)}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colTotalBilletsVendus)}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colTotalBilletsGratuits)}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colAssistance)}</td>
+                  <td className="px-3 py-2" style={{ minWidth: 120 }}>
+                    {rep.colTauxRemplissage !== null ? (() => {
+                      const pct = Math.min(100, Math.round(rep.colTauxRemplissage * 100));
+                      const barColor = pct >= 80 ? "#20c933" : pct >= 50 ? "#fcb400" : "#f82b60";
+                      return (
+                        <div className="flex items-center gap-1">
+                          <div className="flex-1 bg-gray-gray200 dark:bg-gray-gray600 rounded-full h-2" style={{ minWidth: 60 }}>
+                            <div
+                              className="rounded-full h-2"
+                              style={{ width: `${pct}%`, backgroundColor: barColor }}
+                            />
+                          </div>
+                          <span className="text-xs text-gray-gray500 dark:text-gray-gray400 whitespace-nowrap">
+                            {pct}%
+                          </span>
+                        </div>
+                      );
+                    })() : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right">{fmtCurrency(rep.colRevenus)}</td>
+                  <td className="px-3 py-2"><SelectBadge value={rep.colStatutRapport} /></td>
+                  <td className="px-3 py-2 text-right">{fmtCurrency(rep.colObjectifRevenus)}</td>
+                  <td className="px-3 py-2"><SelectBadge value={rep.colMiseAJour} /></td>
+                  <td className="px-3 py-2"><SelectBadge value={rep.colPriorisation} /></td>
+                  <td className="px-3 py-2"><SelectBadge value={rep.colBilleterieSalle} /></td>
+                  <td className="px-3 py-2"><SelectBadge value={rep.colNote} /></td>
+                  <td className="px-3 py-2"><SelectBadge value={rep.colStatut} /></td>
+                  <td className="px-3 py-2"><SelectBadge value={rep.colSiteWeb} /></td>
+                  <td className="px-3 py-2 text-center">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const record =
+                          repRecords &&
+                          repRecords.find((r) => r.id === rep.id);
+                        if (record) expandRecord(record);
+                      }}
+                      className="text-gray-gray400 hover:text-blue-blue dark:hover:text-blue-blueLight1 transition-colors"
+                      title="Ouvrir le detail"
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
+                        <polyline points="15 3 21 3 21 9" />
+                        <line x1="10" y1="14" x2="21" y2="3" />
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {filteredReps.length === 0 && (
+          <div className="flex items-center justify-center py-8">
+            <p className="text-sm text-gray-gray500 dark:text-gray-gray400">
+              Aucun evenement trouve.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- All-events page: every event across all shows, mixed ---
+
+function AllEventsPage({ allReps, repRecords, onBack }) {
+  const {
+    showAll, setShowAll,
+    filterVille, setFilterVille,
+    filterSalle, setFilterSalle,
+    uniqueVilles, uniqueSalles,
+    filteredReps,
+  } = useRepFilters(allReps);
+
+  return (
+    <div className="p-4 sm:p-6 min-h-screen bg-gray-gray50 dark:bg-gray-gray800 overflow-auto">
+      <div className="flex items-center gap-3 mb-5">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-sm font-medium text-blue-blue hover:text-blue-blueDark1
+                     dark:text-blue-blueLight1 dark:hover:text-blue-blueLight2 transition-colors"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+          Retour
+        </button>
+        <h2 className="text-xl font-display font-bold text-gray-gray700 dark:text-gray-gray200">
+          Tous les événements
+        </h2>
+      </div>
+      <RepresentationsTable
+        title="Événements"
+        totalCount={allReps.length}
+        filteredReps={filteredReps}
+        uniqueVilles={uniqueVilles}
+        uniqueSalles={uniqueSalles}
+        filterVille={filterVille}
+        setFilterVille={setFilterVille}
+        filterSalle={filterSalle}
+        setFilterSalle={setFilterSalle}
+        showAll={showAll}
+        setShowAll={setShowAll}
+        repRecords={repRecords}
+        showSpectacleCol
+      />
+    </div>
+  );
+}
+
 // --- Detail Page ---
 
 function DetailPage({
@@ -1082,13 +1447,19 @@ function DetailPage({
   const [salesData, setSalesData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [showAll, setShowAll] = useState(false);
   const [dateFrom, setDateFrom] = useState(() => defaultDateRange().from);
   const [dateTo, setDateTo] = useState(() => defaultDateRange().to);
-  const [filterVille, setFilterVille] = useState("");
-  const [filterSalle, setFilterSalle] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const cacheRef = useRef(new Map());
+
+  // City/venue/status filtering (shared with the all-events page)
+  const {
+    showAll, setShowAll,
+    filterVille, setFilterVille,
+    filterSalle, setFilterSalle,
+    uniqueVilles, uniqueSalles,
+    filteredReps,
+  } = useRepFilters(representations);
 
   // Stable string of selected rep IDs for useEffect dependency
   const selectedRepIdsStr = useMemo(
@@ -1096,50 +1467,11 @@ function DetailPage({
     [selectedRepIds],
   );
 
-  // Default filters: Statut = Confirmé, Site Web = En ligne, Date >= today
-  const filteredRepsByStatus = useMemo(() => {
-    if (showAll) return representations;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return representations.filter((rep) => {
-      if (rep.rawDate && rep.rawDate < today) return false;
-      if (rep.rawStatus && rep.rawStatus.toLowerCase() !== "confirmé" && rep.rawStatus.toLowerCase() !== "en vente") return false;
-      if (rep.colSiteWeb?.text && rep.colSiteWeb.text.toLowerCase() !== "en ligne") return false;
-      if (rep.rawOnSale !== null && !rep.rawOnSale) return false;
-      return true;
-    });
-  }, [representations, showAll]);
-
-  // Unique cities and venues for filter dropdowns
-  const uniqueVilles = useMemo(() => {
-    const set = new Set(filteredRepsByStatus.map((r) => r.colVille).filter(Boolean));
-    return [...set].sort((a, b) => a.localeCompare(b, "fr"));
-  }, [filteredRepsByStatus]);
-
-  const uniqueSalles = useMemo(() => {
-    const set = new Set(filteredRepsByStatus.map((r) => r.colSalle).filter(Boolean));
-    return [...set].sort((a, b) => a.localeCompare(b, "fr"));
-  }, [filteredRepsByStatus]);
-
-  // Apply city/venue filters
-  const filteredReps = useMemo(() => {
-    let reps = filteredRepsByStatus;
-    if (filterVille) reps = reps.filter((r) => r.colVille === filterVille);
-    if (filterSalle) reps = reps.filter((r) => r.colSalle === filterSalle);
-    return reps;
-  }, [filteredRepsByStatus, filterVille, filterSalle]);
-
   // Stable string of filtered rep IDs for cache key + useEffect dependency
   const allRepIds = useMemo(
     () => filteredReps.map((r) => r.id).join(","),
     [filteredReps],
   );
-
-  // Reset stale filters when options change
-  useEffect(() => {
-    if (filterVille && !uniqueVilles.includes(filterVille)) setFilterVille("");
-    if (filterSalle && !uniqueSalles.includes(filterSalle)) setFilterSalle("");
-  }, [uniqueVilles, uniqueSalles, filterVille, filterSalle]);
 
   // Fetch sales data from Supabase (total or individual)
   useEffect(() => {
@@ -1594,229 +1926,22 @@ function DetailPage({
       </div>
 
       {/* Representations table */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-gray600 dark:text-gray-gray300">
-            Representations ({filteredReps.length}
-            {filteredReps.length !== representations.length
-              ? ` / ${representations.length}`
-              : ""}
-            )
-          </h3>
-          <label className="flex items-center gap-2 text-xs text-gray-gray500 dark:text-gray-gray400 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={showAll}
-              onChange={(e) => setShowAll(e.target.checked)}
-              className="rounded"
-            />
-            Afficher tout
-          </label>
-        </div>
-        {/* City and Venue filters */}
-        {(uniqueVilles.length > 1 || uniqueSalles.length > 1) && (
-          <div className="flex items-center gap-3 mb-3">
-            {uniqueVilles.length > 1 && (
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Ville:</label>
-                <select
-                  value={filterVille}
-                  onChange={(e) => setFilterVille(e.target.value)}
-                  className="text-xs rounded border border-gray-gray200 dark:border-gray-gray500 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
-                  style={{ fontSize: 11, padding: "3px 8px", minWidth: 120 }}
-                >
-                  <option value="">Toutes</option>
-                  {uniqueVilles.map((v) => (
-                    <option key={v} value={v}>{v}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {uniqueSalles.length > 1 && (
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Salle:</label>
-                <select
-                  value={filterSalle}
-                  onChange={(e) => setFilterSalle(e.target.value)}
-                  className="text-xs rounded border border-gray-gray200 dark:border-gray-gray500 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
-                  style={{ fontSize: 11, padding: "3px 8px", minWidth: 120 }}
-                >
-                  <option value="">Toutes</option>
-                  {uniqueSalles.map((v) => (
-                    <option key={v} value={v}>{v}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-          </div>
-        )}
-        <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm overflow-hidden border border-gray-gray100 dark:border-gray-gray600">
-          <div style={{ overflowX: "auto" }}>
-            <table className="w-full text-sm text-gray-gray700 dark:text-gray-gray200" style={{ minWidth: 1600 }}>
-              <thead>
-                <tr className="bg-gray-gray75 dark:bg-gray-gray800 text-gray-gray600 dark:text-gray-gray300 text-left text-xs">
-                  <th className="px-3 py-2 w-8">
-                    <input
-                      type="checkbox"
-                      checked={filteredReps.length > 0 && filteredReps.every((r) => selectedRepIds.has(r.id))}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedRepIds(new Set(filteredReps.map((r) => r.id)));
-                        } else {
-                          setSelectedRepIds(new Set());
-                        }
-                      }}
-                      className="rounded"
-                    />
-                  </th>
-                  <th className="px-3 py-2 font-semibold">J. restants</th>
-                  <th className="px-3 py-2 font-semibold">Date</th>
-                  <th className="px-3 py-2 font-semibold">Salle</th>
-                  <th className="px-3 py-2 font-semibold">Ville</th>
-                  <th className="px-3 py-2 font-semibold text-right">
-                    Capacite
-                  </th>
-                  <th className="px-3 py-2 font-semibold text-right">
-                    Places bloq.
-                  </th>
-                  <th className="px-3 py-2 font-semibold text-right">
-                    Billets dispo
-                  </th>
-                  <th className="px-3 py-2 font-semibold text-right">Total vendus</th>
-                  <th className="px-3 py-2 font-semibold text-right">Total gratuits</th>
-                  <th className="px-3 py-2 font-semibold text-right">Assistance</th>
-                  <th className="px-3 py-2 font-semibold" style={{ minWidth: 120 }}>Taux remplissage</th>
-                  <th className="px-3 py-2 font-semibold text-right">Revenus billetterie</th>
-                  <th className="px-3 py-2 font-semibold">Statut rapport</th>
-                  <th className="px-3 py-2 font-semibold text-right">Objectif revenus</th>
-                  <th className="px-3 py-2 font-semibold">Mise a jour</th>
-                  <th className="px-3 py-2 font-semibold">Priorisation</th>
-                  <th className="px-3 py-2 font-semibold">Billetterie Salle</th>
-                  <th className="px-3 py-2 font-semibold">Note</th>
-                  <th className="px-3 py-2 font-semibold">Statut</th>
-                  <th className="px-3 py-2 font-semibold">Site web</th>
-                  <th className="px-3 py-2 w-8"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredReps.map((rep) => (
-                  <tr
-                    key={rep.id}
-                    onClick={() => {
-                      setSelectedRepIds((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(rep.id)) {
-                          next.delete(rep.id);
-                        } else {
-                          next.add(rep.id);
-                        }
-                        return next;
-                      });
-                    }}
-                    className={`cursor-pointer border-t border-gray-gray100 dark:border-gray-gray600 transition-colors
-                                            ${
-                                              selectedRepIds.has(rep.id)
-                                                ? "bg-blue-blueLight3 dark:bg-blue-blueDark1 font-medium"
-                                                : "hover:bg-gray-gray25 dark:hover:bg-gray-gray600"
-                                            }`}
-                  >
-                    <td className="px-3 py-2 text-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedRepIds.has(rep.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => {
-                          setSelectedRepIds((prev) => {
-                            const next = new Set(prev);
-                            if (e.target.checked) {
-                              next.add(rep.id);
-                            } else {
-                              next.delete(rep.id);
-                            }
-                            return next;
-                          });
-                        }}
-                        className="rounded"
-                      />
-                    </td>
-                    <td className="px-3 py-2">{rep.colJoursRestants}</td>
-                    <td className="px-3 py-2">{rep.colDateRep}</td>
-                    <td className="px-3 py-2">{rep.colSalle}</td>
-                    <td className="px-3 py-2">{rep.colVille}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colCapacite)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colPlacesBloques)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colBilletsDispo)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colTotalBilletsVendus)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colTotalBilletsGratuits)}</td>
-                    <td className="px-3 py-2 text-right">{fmtNumber(rep.colAssistance)}</td>
-                    <td className="px-3 py-2" style={{ minWidth: 120 }}>
-                      {rep.colTauxRemplissage !== null ? (() => {
-                        const pct = Math.min(100, Math.round(rep.colTauxRemplissage * 100));
-                        const barColor = pct >= 80 ? "#20c933" : pct >= 50 ? "#fcb400" : "#f82b60";
-                        return (
-                          <div className="flex items-center gap-1">
-                            <div className="flex-1 bg-gray-gray200 dark:bg-gray-gray600 rounded-full h-2" style={{ minWidth: 60 }}>
-                              <div
-                                className="rounded-full h-2"
-                                style={{ width: `${pct}%`, backgroundColor: barColor }}
-                              />
-                            </div>
-                            <span className="text-xs text-gray-gray500 dark:text-gray-gray400 whitespace-nowrap">
-                              {pct}%
-                            </span>
-                          </div>
-                        );
-                      })() : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right">{fmtCurrency(rep.colRevenus)}</td>
-                    <td className="px-3 py-2"><SelectBadge value={rep.colStatutRapport} /></td>
-                    <td className="px-3 py-2 text-right">{fmtCurrency(rep.colObjectifRevenus)}</td>
-                    <td className="px-3 py-2"><SelectBadge value={rep.colMiseAJour} /></td>
-                    <td className="px-3 py-2"><SelectBadge value={rep.colPriorisation} /></td>
-                    <td className="px-3 py-2"><SelectBadge value={rep.colBilleterieSalle} /></td>
-                    <td className="px-3 py-2"><SelectBadge value={rep.colNote} /></td>
-                    <td className="px-3 py-2"><SelectBadge value={rep.colStatut} /></td>
-                    <td className="px-3 py-2"><SelectBadge value={rep.colSiteWeb} /></td>
-                    <td className="px-3 py-2 text-center">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const record =
-                            repRecords &&
-                            repRecords.find((r) => r.id === rep.id);
-                          if (record) expandRecord(record);
-                        }}
-                        className="text-gray-gray400 hover:text-blue-blue dark:hover:text-blue-blueLight1 transition-colors"
-                        title="Ouvrir le detail"
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6" />
-                          <polyline points="15 3 21 3 21 9" />
-                          <line x1="10" y1="14" x2="21" y2="3" />
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {filteredReps.length === 0 && (
-            <div className="flex items-center justify-center py-8">
-              <p className="text-sm text-gray-gray500 dark:text-gray-gray400">
-                Aucune representation trouvee.
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
+      <RepresentationsTable
+        title="Representations"
+        totalCount={representations.length}
+        filteredReps={filteredReps}
+        uniqueVilles={uniqueVilles}
+        uniqueSalles={uniqueSalles}
+        filterVille={filterVille}
+        setFilterVille={setFilterVille}
+        filterSalle={filterSalle}
+        setFilterSalle={setFilterSalle}
+        showAll={showAll}
+        setShowAll={setShowAll}
+        selectedRepIds={selectedRepIds}
+        setSelectedRepIds={setSelectedRepIds}
+        repRecords={repRecords}
+      />
     </div>
   );
 }
@@ -1887,6 +2012,7 @@ function SalesChartApp() {
 
   const [selectedSpectacleId, setSelectedSpectacleId] = useState(null);
   const [search, setSearch] = useState("");
+  const [view, setView] = useState("gallery"); // "gallery" | "events"
 
   // Get KPI data for selected spectacle from configured fields
   const kpiFields = useMemo(
@@ -1981,18 +2107,17 @@ function SalesChartApp() {
     );
   }, [spectacles, search]);
 
-  // Get representations for selected spectacle (with table column values)
-  const representations = useMemo(() => {
-    if (!repRecords || !selectedSpectacleId || !spectacleLinkField) return [];
+  // Build every event (representation) across all shows, with table column
+  // values. The per-spectacle detail list and the mixed all-events list are
+  // both derived from this.
+  const allRepresentations = useMemo(() => {
+    if (!repRecords || !spectacleLinkField) return [];
 
     const getCol = (record, field) => safeCellString(record, field);
 
     return repRecords
-      .filter((record) => {
-        const links = extractLinkedRecords(safeCellValue(record, spectacleLinkField));
-        return links.some((link) => link.id === selectedSpectacleId);
-      })
       .map((record) => {
+        const links = extractLinkedRecords(safeCellValue(record, spectacleLinkField));
         let cap = null;
         if (capacityField) {
           const val = safeCellValue(record, capacityField);
@@ -2029,6 +2154,8 @@ function SalesChartApp() {
 
         return {
           id: record.id,
+          spectacleIds: links.map((l) => l.id),
+          spectacleName: links.map((l) => l.name).filter(Boolean).join(", "),
           name: repNameField
             ? safeCellString(record, repNameField)
             : record.name,
@@ -2060,17 +2187,10 @@ function SalesChartApp() {
           colSiteWeb: getColSelect(record, colSiteWeb, base),
         };
       })
-      .filter((r) => r.name)
-      .sort((a, b) => {
-        if (a.rawDate && b.rawDate) return a.rawDate - b.rawDate;
-        if (a.rawDate) return -1;
-        if (b.rawDate) return 1;
-        return a.name.localeCompare(b.name, "fr");
-      });
+      .filter((r) => r.name);
   }, [
     base,
     repRecords,
-    selectedSpectacleId,
     spectacleLinkField,
     repNameField,
     capacityField,
@@ -2097,6 +2217,20 @@ function SalesChartApp() {
     filterStatusField,
     colOnSale,
   ]);
+
+  // All events, sorted chronologically (for the mixed all-events page)
+  const allRepresentationsSorted = useMemo(
+    () => sortRepsByDate(allRepresentations),
+    [allRepresentations],
+  );
+
+  // Events for the selected spectacle only (for the detail page)
+  const representations = useMemo(() => {
+    if (!selectedSpectacleId) return [];
+    return sortRepsByDate(
+      allRepresentations.filter((r) => r.spectacleIds.includes(selectedSpectacleId)),
+    );
+  }, [allRepresentations, selectedSpectacleId]);
 
   // Get selected spectacle data
   const selectedSpectacle = useMemo(() => {
@@ -2134,6 +2268,17 @@ function SalesChartApp() {
     );
   }
 
+  // --- All-events Page ---
+  if (view === "events") {
+    return (
+      <AllEventsPage
+        allReps={allRepresentationsSorted}
+        repRecords={repRecords}
+        onBack={() => setView("gallery")}
+      />
+    );
+  }
+
   // --- Detail Page ---
   if (selectedSpectacle) {
     return (
@@ -2157,22 +2302,39 @@ function SalesChartApp() {
         <h2 className="text-xl font-display font-bold text-gray-gray700 dark:text-gray-gray200">
           Spectacles
         </h2>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Rechercher un spectacle ou un artiste..."
-          style={{
-            fontSize: 13,
-            padding: "6px 12px",
-            borderRadius: 6,
-            border: "2px solid #d0d5dd",
-            backgroundColor: "#fff",
-            color: "#333",
-            width: 260,
-            outline: "none",
-          }}
-        />
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setView("events")}
+            className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md
+                       bg-blue-blue text-white hover:bg-blue-blueDark1 transition-colors"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="8" y1="6" x2="21" y2="6" />
+              <line x1="8" y1="12" x2="21" y2="12" />
+              <line x1="8" y1="18" x2="21" y2="18" />
+              <line x1="3" y1="6" x2="3.01" y2="6" />
+              <line x1="3" y1="12" x2="3.01" y2="12" />
+              <line x1="3" y1="18" x2="3.01" y2="18" />
+            </svg>
+            Tous les événements
+          </button>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher un spectacle ou un artiste..."
+            style={{
+              fontSize: 13,
+              padding: "6px 12px",
+              borderRadius: 6,
+              border: "2px solid #d0d5dd",
+              backgroundColor: "#fff",
+              color: "#333",
+              width: 260,
+              outline: "none",
+            }}
+          />
+        </div>
       </div>
 
       {/* Overview: total sales across every representation */}
