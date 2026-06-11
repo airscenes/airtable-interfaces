@@ -556,6 +556,13 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
 
   // State
   const [expandedIds, setExpandedIds] = useState(new Set());
+  // Exclusion is kept in local UI state (instant) and only written to Airtable
+  // when the action button runs. Initialized once from the stored field values.
+  const [excludedIds, setExcludedIds] = useState(() => new Set());
+  const excludedInitRef = useRef(false);
+  // Selection for "date" mode — all selected by default, initialized once from factureRecords.
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const selectedInitRef = useRef(false);
   const [approving, setApproving] = useState(false);
   const [approveResult, setApproveResult] = useState(null);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -568,6 +575,24 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
   useEffect(() => {
     if (!selectedMode && modeChoices.length > 0) setSelectedMode(modeChoices[0].name);
   }, [modeChoices, selectedMode]);
+
+  // Seed local exclusion state from stored field values, once.
+  useEffect(() => {
+    if (excludedInitRef.current || !factureRecords || !exclureField) return;
+    const init = new Set();
+    for (const r of factureRecords) {
+      if (r.getCellValue(exclureField)) init.add(r.id);
+    }
+    setExcludedIds(init);
+    excludedInitRef.current = true;
+  }, [factureRecords, exclureField]);
+
+  // Initialize selection to all factures, once.
+  useEffect(() => {
+    if (selectedInitRef.current || !factureRecords) return;
+    setSelectedIds(new Set(factureRecords.map((r) => r.id)));
+    selectedInitRef.current = true;
+  }, [factureRecords]);
 
   // Toggle accordion
   const toggleExpand = useCallback((id) => {
@@ -585,11 +610,11 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
     return factureRecords.map((record) => {
       const totalNet = colTotalNet ? record.getCellValue(colTotalNet) : null;
       const totalBrut = colTotalBrut ? record.getCellValue(colTotalBrut) : null;
-      const isExcluded = exclureField ? !!record.getCellValue(exclureField) : false;
+      const isExcluded = excludedIds.has(record.id);
       const isApproved = colApprouvee ? !!record.getCellValue(colApprouvee) : false;
       return { id: record.id, record, totalNet: typeof totalNet === "number" ? totalNet : parseFloat(totalNet) || 0, totalBrut: typeof totalBrut === "number" ? totalBrut : parseFloat(totalBrut) || 0, isExcluded, isApproved };
     });
-  }, [factureRecords, colTotalNet, colTotalBrut, exclureField, colApprouvee]);
+  }, [factureRecords, colTotalNet, colTotalBrut, excludedIds, colApprouvee]);
 
   // Group by Fournisseur
   const groupedByFournisseur = useMemo(() => {
@@ -615,10 +640,10 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
     totalNet: factures.reduce((s, f) => s + f.totalNet, 0),
     totalBrut: factures.reduce((s, f) => s + f.totalBrut, 0),
     approvableCount: actionMode === "date"
-      ? factures.length
+      ? factures.filter((f) => selectedIds.has(f.id)).length
       : factures.filter((f) => !f.isExcluded && !f.isApproved).length,
     excludedCount: factures.filter((f) => f.isExcluded).length,
-  }), [factures, actionMode]);
+  }), [factures, actionMode, selectedIds]);
 
   // Get depenses for a facture
   const getDepensesForFacture = useCallback((factureId) => {
@@ -689,7 +714,7 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
     try {
       console.log("[DEBUG] actionMode:", actionMode, "| colApprouvee:", colApprouvee);
       const toApprove = actionMode === "date"
-        ? factures
+        ? factures.filter((f) => selectedIds.has(f.id))
         : factures.filter((f) => !f.isExcluded && !f.isApproved);
       if (toApprove.length === 0) {
         setApproveResult({ success: true, message: "Aucune facture a approuver." });
@@ -701,7 +726,14 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
         if (!canUpdate && !DRY_RUN) {
           throw new Error("Permission refusee. Activez 'Modifier les entrees dans le texte' dans les Actions d'utilisateur de la page.");
         }
-        const updates = toApprove.map((f) => ({ id: f.id, fields: { [colApprouvee.name]: true } }));
+        // Persist the local exclusion state and approve the non-excluded ones in one pass.
+        const approveIds = new Set(toApprove.map((f) => f.id));
+        const updates = factures.map((f) => {
+          const fields = {};
+          if (exclureField) fields[exclureField.name] = f.isExcluded;
+          if (approveIds.has(f.id)) fields[colApprouvee.name] = true;
+          return { id: f.id, fields };
+        }).filter((u) => Object.keys(u.fields).length > 0);
         if (DRY_RUN) {
           console.log("[DRY RUN] Mode: qb | Field:", colApprouvee.name);
           console.log("[DRY RUN] Records to update:", updates.length);
@@ -750,17 +782,38 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
       setApproveResult({ success: false, message: `Erreur: ${err.message}` });
     }
     setApproving(false);
-  }, [factures, facturesTable, colApprouvee, actionMode, selectedDate, selectedMode, canUpdate, canCreateTxn, transactionsTable, txnDateField, txnMontantField, txnLinkFactureField, txnModePaiementField]);
+  }, [factures, facturesTable, colApprouvee, exclureField, actionMode, selectedDate, selectedMode, selectedIds, canUpdate, canCreateTxn, transactionsTable, txnDateField, txnMontantField, txnLinkFactureField, txnModePaiementField]);
 
-  // Toggle exclure checkbox
-  const handleToggleExclure = useCallback(async (recordId, currentValue) => {
-    if (!exclureField || !facturesTable) return;
-    try {
-      await facturesTable.updateRecordAsync(recordId, { [exclureField.name]: !currentValue });
-    } catch (err) {
-      console.error("Toggle exclure error:", err);
-    }
-  }, [exclureField, facturesTable]);
+  // Toggle exclure checkbox (UI only — persisted on action button)
+  const handleToggleExclure = useCallback((recordId) => {
+    setExcludedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(recordId)) next.delete(recordId);
+      else next.add(recordId);
+      return next;
+    });
+  }, []);
+
+  // Toggle exclure for all visible factures: check all, or uncheck all if all already checked
+  const allExcluded = factures.length > 0 && factures.every((f) => f.isExcluded);
+  const handleToggleAllExclure = useCallback(() => {
+    setExcludedIds(allExcluded ? new Set() : new Set(factures.map((f) => f.id)));
+  }, [factures, allExcluded]);
+
+  // Toggle selection checkbox (date mode only — UI only)
+  const handleToggleSelected = useCallback((recordId) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(recordId)) next.delete(recordId);
+      else next.add(recordId);
+      return next;
+    });
+  }, []);
+
+  const allSelected = factures.length > 0 && factures.every((f) => selectedIds.has(f.id));
+  const handleToggleAllSelected = useCallback(() => {
+    setSelectedIds(allSelected ? new Set() : new Set(factures.map((f) => f.id)));
+  }, [factures, allSelected]);
 
   // Dismiss toast
   const dismissResult = useCallback(() => setApproveResult(null), []);
@@ -787,12 +840,10 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
           {actionMode === "date" && (
             <>
               <input
-                type="text"
+                type="date"
                 value={selectedDate}
                 onChange={(e) => setSelectedDate(e.target.value)}
-                placeholder="YYYY-MM-DD"
-                pattern="\d{4}-\d{2}-\d{2}"
-                className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-gray700 text-gray-800 dark:text-gray-100 text-sm w-[130px] font-mono"
+                className="px-3 py-1.5 rounded-md border border-gray-300 dark:border-gray-500 bg-white dark:bg-gray-gray700 text-gray-800 dark:text-gray-100 text-sm"
               />
               {modeChoices.length > 0 ? (
                 <select
@@ -837,7 +888,32 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
               const s = colSizing(col);
               return <div key={col.key} className={`px-3 py-2 ${s.className}`} style={s.style}>{col.label}</div>;
             })}
-            {exclureField && actionMode !== "date" && <div className="px-3 py-2 w-[80px] text-center">Exclure</div>}
+            {exclureField && actionMode !== "date" && (
+              <div className="px-3 py-2 w-[80px] flex items-center justify-center gap-1.5">
+                <span>Exclure</span>
+                <input
+                  type="checkbox"
+                  checked={allExcluded}
+                  onChange={handleToggleAllExclure}
+                  disabled={factures.length === 0}
+                  title={allExcluded ? "Tout décocher" : "Tout cocher"}
+                  className="w-3.5 h-3.5 accent-red-500 cursor-pointer disabled:opacity-50"
+                />
+              </div>
+            )}
+            {actionMode === "date" && (
+              <div className="px-3 py-2 w-[80px] flex items-center justify-center gap-1.5">
+                <span>Payer</span>
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={handleToggleAllSelected}
+                  disabled={factures.length === 0}
+                  title={allSelected ? "Tout décocher" : "Tout cocher"}
+                  className="w-3.5 h-3.5 accent-blue-500 cursor-pointer disabled:opacity-50"
+                />
+              </div>
+            )}
           </div>
 
           {/* Facture rows grouped by Fournisseur */}
@@ -859,6 +935,7 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
                       return <div key={col.key} className={`px-3 py-1.5 ${s.className}`} style={s.style} />;
                     })}
                     {exclureField && actionMode !== "date" && <div className="px-3 py-1.5 w-[80px]" />}
+                    {actionMode === "date" && <div className="px-3 py-1.5 w-[80px]" />}
                   </div>
                 )}
                 {/* Facture rows in this group */}
@@ -895,8 +972,18 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
                             <input
                               type="checkbox"
                               checked={facture.isExcluded}
-                              onChange={() => handleToggleExclure(facture.id, facture.isExcluded)}
+                              onChange={() => handleToggleExclure(facture.id)}
                               className="w-4 h-4 accent-red-500 cursor-pointer"
+                            />
+                          </div>
+                        )}
+                        {actionMode === "date" && (
+                          <div className="px-3 py-2.5 w-[80px] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(facture.id)}
+                              onChange={() => handleToggleSelected(facture.id)}
+                              className="w-4 h-4 accent-blue-500 cursor-pointer"
                             />
                           </div>
                         )}

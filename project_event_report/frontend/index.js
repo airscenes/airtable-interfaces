@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, Fragment } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import {
   initializeBlock,
   useBase,
@@ -584,18 +584,23 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
         : ""}
     </td>
   );
+  // Hide zero-amount entries (no useful information to display).
+  const visibleRevenus = useMemo(
+    () => (revenus || []).filter((r) => (Number(r.getCellValue(montantField)) || 0) !== 0),
+    [revenus, montantField],
+  );
   const groups = useMemo(() => {
     if (!groupByCategory) return null;
     const map = new Map();
-    for (const r of revenus) {
+    for (const r of visibleRevenus) {
       const key = categorieField ? r.getCellValueAsString(categorieField) || "—" : "—";
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(r);
     }
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b, "fr"));
-  }, [revenus, categorieField, groupByCategory]);
+  }, [visibleRevenus, categorieField, groupByCategory]);
 
-  if (!revenus || revenus.length === 0) {
+  if (visibleRevenus.length === 0) {
     return (
       <div className="text-sm text-gray-gray500 italic">
         Aucune entrée pour cette période.
@@ -603,7 +608,7 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
     );
   }
 
-  const grandTotal = revenus.reduce((s, r) => s + (Number(r.getCellValue(montantField)) || 0), 0);
+  const grandTotal = visibleRevenus.reduce((s, r) => s + (Number(r.getCellValue(montantField)) || 0), 0);
 
   const rowFor = (r) => {
     const dateIso = revenusFactureDates.get(r.id) || "";
@@ -658,7 +663,7 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
               );
             })
           ) : (
-            [...revenus]
+            [...visibleRevenus]
               .map(rowFor)
               .sort((a, b) => (a.dateIso || "").localeCompare(b.dateIso || ""))
               .map((row) => (
@@ -705,12 +710,10 @@ function EtatDeCompteUpload({
   evenementIds,
   revenusIds,
   kpis,
+  onBeforeSnapshot,
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
-  // Keep latest records visible inside async callbacks (the closure captures a stale snapshot otherwise).
-  const etatsRecordsRef = useRef(etatsRecords);
-  etatsRecordsRef.current = etatsRecords;
 
   // Find the existing État de compte for this spectacle + this month.
   const existing = useMemo(() => {
@@ -736,6 +739,14 @@ function EtatDeCompteUpload({
     setError(null);
     setBusy(true);
     try {
+      // Run the Excel download + saisies save first; errors there must not block the snapshot.
+      if (onBeforeSnapshot) {
+        try {
+          await onBeforeSnapshot();
+        } catch (e) {
+          console.error("Pre-snapshot actions failed:", e);
+        }
+      }
       const isoDate = monthIsoDate(year, month);
       const baseFields = {};
       if (etatDateField) baseFields[etatDateField.id] = isoDate;
@@ -750,17 +761,10 @@ function EtatDeCompteUpload({
       }
       if (existing) {
         await etatsTable.updateRecordsAsync([{ id: existing.id, fields: baseFields }]);
-        expandRecord(existing);
       } else {
-        const ids = await etatsTable.createRecordsAsync([{ fields: baseFields }]);
-        // useRecords needs a beat to propagate the new record; poll the ref briefly.
-        const tryExpand = (attempt) => {
-          const rec = (etatsRecordsRef.current || []).find((r) => r.id === ids[0]);
-          if (rec) expandRecord(rec);
-          else if (attempt < 10) setTimeout(() => tryExpand(attempt + 1), 100);
-        };
-        tryExpand(0);
+        await etatsTable.createRecordsAsync([{ fields: baseFields }]);
       }
+      // The record is opened by clicking the card itself (see the wrapper onClick), not from here.
     } catch (err) {
       console.error("État de compte snapshot failed:", err);
       setError(`Erreur : ${err.message || err}`);
@@ -770,18 +774,20 @@ function EtatDeCompteUpload({
   };
 
   return (
-    <div className="rounded-lg border border-gray-gray200 dark:border-gray-gray600 bg-white dark:bg-gray-gray700 p-4">
+    <div
+      onClick={existing ? () => expandRecord(existing) : undefined}
+      title={existing ? "Ouvrir le record" : undefined}
+      className={`rounded-lg border border-gray-gray200 dark:border-gray-gray600 bg-white dark:bg-gray-gray700 p-4 ${
+        existing ? "cursor-pointer hover:bg-gray-gray50 dark:hover:bg-gray-gray800" : ""
+      }`}
+    >
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="text-sm">
           <div className="font-semibold text-gray-gray700 dark:text-gray-gray200">
             État de compte · {MONTHS_FR[month - 1]} {year}
           </div>
           {existingAttachment ? (
-            <div
-              onClick={() => expandRecord(existing)}
-              className="mt-2 flex items-start gap-3 cursor-pointer rounded p-1 -m-1 hover:bg-gray-gray50 dark:hover:bg-gray-gray800"
-              title="Ouvrir le record"
-            >
+            <div className="mt-2 flex items-start gap-3">
               {existingAttachment.thumbnails?.large?.url ? (
                 <img
                   src={existingAttachment.thumbnails.large.url}
@@ -814,16 +820,19 @@ function EtatDeCompteUpload({
             </div>
           ) : existing ? (
             <div className="text-xs text-gray-gray500 mt-1">
-              Snapshot enregistré · attache le .xlsx dans la cellule Airtable
+              Rapport enregistré · attache le .xlsx dans la cellule Airtable
             </div>
           ) : (
             <div className="text-xs text-gray-gray500 mt-1">
-              Aucun snapshot pour cette période
+              Aucun rapport pour cette période
             </div>
           )}
         </div>
         <button
-          onClick={snapshot}
+          onClick={(e) => {
+            e.stopPropagation();
+            snapshot();
+          }}
           disabled={busy}
           className={`px-4 py-2 rounded text-sm font-medium ${
             busy
@@ -940,10 +949,9 @@ function buildEventsSection(records, fieldsConfig, evenementsTable, dateField) {
     ? [...records].sort((a, b) => (readDateIso(a, dateField) || "").localeCompare(readDateIso(b, dateField) || ""))
     : records;
 
-  const visible = cols.filter((c) => sorted.some((r) => {
-    const v = r.getCellValueAsString(c.field);
-    return v && v.trim() !== "";
-  }));
+  // Keep every configured column, even if empty across all records: the template reserves a
+  // fixed column for each, so dropping empty ones would shift everything to its right.
+  const visible = cols;
 
   if (visible.length === 0) return { headers: [], rows: [], totals: null };
   const headers = visible.map((c) => c.label);
@@ -999,27 +1007,31 @@ function makeDepensesRow(cat, date, desc, montant) {
 const REVENUS_HEADERS = makeRevenusRow("Catégorie", "Date", "Description", "Montant");
 const DEPENSES_HEADERS = makeDepensesRow("Catégorie", "Date", "Description", "Montant");
 
-function buildRevenusSection(records, montantField, categorieField, descField, dates) {
-  if (!records.length) return { headers: [], rows: [] };
+// `extraEntries` = in-memory saisies not yet persisted to Airtable, shaped as
+// { cat, date, desc, amt } so the just-downloaded Excel reflects them immediately.
+function buildRevenusSection(records, montantField, categorieField, descField, dates, extraEntries = []) {
+  const items = records.map((r) => ({
+    cat: categorieField ? r.getCellValueAsString(categorieField) || "—" : "—",
+    date: dates.get(r.id) || "",
+    desc: descField ? r.getCellValueAsString(descField) : "",
+    amt: Number(r.getCellValue(montantField)) || 0,
+  }));
+  for (const e of extraEntries) {
+    items.push({ cat: e.cat || "—", date: e.date || "", desc: e.desc || "", amt: e.amt });
+  }
+  if (!items.length) return { headers: [], rows: [] };
   const groups = new Map();
-  for (const r of records) {
-    const cat = categorieField ? r.getCellValueAsString(categorieField) || "—" : "—";
-    if (!groups.has(cat)) groups.set(cat, []);
-    groups.get(cat).push(r);
+  for (const it of items) {
+    if (!groups.has(it.cat)) groups.set(it.cat, []);
+    groups.get(it.cat).push(it);
   }
   const sorted = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b, "fr"));
   const rows = [];
   let grandTotal = 0;
-  for (const [cat, recs] of sorted) {
-    for (const r of recs) {
-      const amt = Number(r.getCellValue(montantField)) || 0;
-      grandTotal += amt;
-      rows.push(makeRevenusRow(
-        cat,
-        dates.get(r.id) || "",
-        descField ? r.getCellValueAsString(descField) : "",
-        amt,
-      ));
+  for (const [cat, its] of sorted) {
+    for (const it of its) {
+      grandTotal += it.amt;
+      rows.push(makeRevenusRow(cat, it.date, it.desc, it.amt));
     }
   }
   const totals = makeRevenusRow("Total revenus", "", "", grandTotal);
@@ -1029,19 +1041,22 @@ function buildRevenusSection(records, montantField, categorieField, descField, d
 // "Dépenses" = Revenus items with a negative montant. Flat list (matches the UI which renders them
 // with groupByCategory={false}), sorted by date, with absolute amounts. Uses the same wide layout
 // as buildRevenusSection (col 1=Cat, col 3=Date, col 6=Desc, col 10=Montant).
-function buildDepensesSection(records, montantField, categorieField, descField, dates) {
-  if (!records.length) return { headers: [], rows: [] };
-  const sorted = [...records].sort((a, b) => (dates.get(a.id) || "").localeCompare(dates.get(b.id) || ""));
+function buildDepensesSection(records, montantField, categorieField, descField, dates, extraEntries = []) {
+  const items = records.map((r) => ({
+    cat: categorieField ? r.getCellValueAsString(categorieField) : "",
+    date: dates.get(r.id) || "",
+    desc: descField ? r.getCellValueAsString(descField) : "",
+    amt: Math.abs(Number(r.getCellValue(montantField)) || 0),
+  }));
+  for (const e of extraEntries) {
+    items.push({ cat: e.cat || "", date: e.date || "", desc: e.desc || "", amt: e.amt });
+  }
+  if (!items.length) return { headers: [], rows: [] };
+  items.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   let total = 0;
-  const rows = sorted.map((r) => {
-    const amt = Math.abs(Number(r.getCellValue(montantField)) || 0);
-    total += amt;
-    return makeDepensesRow(
-      categorieField ? r.getCellValueAsString(categorieField) : "",
-      dates.get(r.id) || "",
-      descField ? r.getCellValueAsString(descField) : "",
-      amt,
-    );
+  const rows = items.map((it) => {
+    total += it.amt;
+    return makeDepensesRow(it.cat, it.date, it.desc, it.amt);
   });
   const totalsRow = makeDepensesRow("Total dépenses", "", "", total);
   return { headers: DEPENSES_HEADERS, rows, totals: totalsRow };
@@ -1051,7 +1066,7 @@ async function exportFromTemplate({
   templateUrl, spectacleName, year, month, totals,
   evenements, evenementFieldsConfig, evenementsTable, evenementDateField,
   revenus, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusFactureDates,
-  depenses,
+  depenses, saisies,
 }) {
   const { default: ExcelJS } = await import("exceljs");
   const periodLabel = `${MONTHS_FR[month - 1]} ${year}`;
@@ -1094,10 +1109,24 @@ async function exportFromTemplate({
     });
   });
 
-  // 2. Build the 3 sections.
+  // 2. Build the 3 sections. Unsaved saisies (typically 0, occasionally 1-2 rows) are injected
+  //    in-memory so this download already reflects them, before they are persisted to Airtable.
+  let revenuSaisies = [];
+  let depenseSaisies = [];
+  if (saisies && saisies.length) {
+    for (const r of saisies) {
+      const raw = parseFloat(String(r.montant || "").replace(",", "."));
+      if (!r.categorieId || isNaN(raw) || raw === 0) continue;
+      const catName =
+        revenusCategorieField?.options?.choices?.find((c) => c.id === r.categorieId)?.name || "—";
+      const entry = { cat: catName, date: r.date || "", desc: r.description || "", amt: Math.abs(raw) };
+      if (r.type === "depense") depenseSaisies.push(entry);
+      else revenuSaisies.push(entry);
+    }
+  }
   const eventsSection = buildEventsSection(evenements, evenementFieldsConfig, evenementsTable, evenementDateField);
-  const revenusSection = buildRevenusSection(revenus, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusFactureDates);
-  const depensesSection = buildDepensesSection(depenses, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusFactureDates);
+  const revenusSection = buildRevenusSection(revenus, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusFactureDates, revenuSaisies);
+  const depensesSection = buildDepensesSection(depenses, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusFactureDates, depenseSaisies);
 
   // 3. Find marker rows AFTER tag replacement.
   // Process them bottom-up so earlier insertions don't shift later marker rows.
@@ -1557,12 +1586,27 @@ function ReportInner({ cfg }) {
         revenusDescriptionField,
         revenusFactureDates,
         depenses: spectacleDepenses,
+        saisies,
       });
       setSavedMsg("Rapport téléchargé.");
     } catch (err) {
       console.error("Export failed:", err);
       setSavedMsg(`Erreur export : ${err.message || err}`);
     }
+  };
+
+  // Combined "Créer/Recalculer le rapport" action, run before the État de compte snapshot:
+  //   1. Download the Excel (with any unsaved saisies injected), then
+  //   2. Persist the saisies to Airtable (only when there is at least one valid row).
+  // Both steps swallow their own errors (handleExport/handleSave never throw), so a failure in
+  // one does not block the others — matching the "continue anyway" behavior.
+  const handleReportActions = async () => {
+    await handleExport();
+    const hasValidSaisies = saisies.some((r) => {
+      const v = parseFloat(String(r.montant || "").replace(",", "."));
+      return r.categorieId && !isNaN(v) && v !== 0;
+    });
+    if (hasValidSaisies) await handleSave();
   };
 
   // --- Render ---
@@ -1654,26 +1698,11 @@ function ReportInner({ cfg }) {
             monthName={`${MONTHS_FR[month - 1]} ${year}`}
             defaultDate={monthIsoDate(year, month)}
           />
-          <div className="flex items-center justify-end gap-3 mt-3">
-            {savedMsg && (
+          {savedMsg && (
+            <div className="flex items-center justify-end mt-3">
               <span className="text-sm text-gray-gray600 dark:text-gray-gray200">{savedMsg}</span>
-            )}
-            <button
-              onClick={handleSave}
-              disabled={saisies.length === 0 || saving}
-              className={`px-4 py-2 rounded text-sm font-medium ${
-                saisies.length === 0 || saving
-                  ? "bg-gray-gray200 text-gray-gray500 cursor-not-allowed"
-                  : "bg-blue-blue text-white hover:bg-blue-blueDark1"
-              }`}
-            >
-              {saving
-                ? "Sauvegarde…"
-                : saisies.length === 0
-                ? "Aucune saisie"
-                : `Sauvegarder ${saisies.length} saisie${saisies.length > 1 ? "s" : ""}`}
-            </button>
-          </div>
+            </div>
+          )}
         </div>
         {etatsTable && (
           <div className="lg:col-span-1">
@@ -1694,15 +1723,8 @@ function ReportInner({ cfg }) {
               evenementIds={spectacleEvenements.map((r) => r.id)}
               revenusIds={spectacleRevenusAll.map((r) => r.id)}
               kpis={{ revenus: totalRevenus, depenses: totalDepenses, solde: totalRevenus - totalDepenses }}
+              onBeforeSnapshot={handleReportActions}
             />
-            <div className="flex justify-end mt-3">
-              <button
-                onClick={handleExport}
-                className="px-4 py-2 rounded text-sm font-medium bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 border border-gray-gray200 dark:border-gray-gray600 hover:bg-gray-gray50 dark:hover:bg-gray-gray800"
-              >
-                Télécharger Excel
-              </button>
-            </div>
           </div>
         )}
       </div>
@@ -1721,7 +1743,7 @@ function ReportInner({ cfg }) {
       </div>
 
       <h2 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100 mt-2 mb-3">
-        Revenus (par catégorie)
+        Revenus
       </h2>
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
         <RevenusByCategory
@@ -1731,6 +1753,7 @@ function ReportInner({ cfg }) {
           descriptionField={revenusDescriptionField}
           revenusFactureDates={revenusFactureDates}
           reportedIds={reportedRevenuIds}
+          groupByCategory={false}
           totalLabel="Total revenus"
         />
       </div>

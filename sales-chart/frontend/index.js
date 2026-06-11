@@ -499,6 +499,70 @@ function aggregateSalesByDate(rows) {
   return formatted;
 }
 
+// Bounds of the last *complete* Monday→Monday week relative to `ref`:
+// end = most recent Monday on/before `ref`, start = the Monday before that.
+function lastCompleteWeekBounds(ref = new Date()) {
+  const iso = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const d = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  const dow = (d.getDay() + 6) % 7; // 0 = Monday
+  const end = new Date(d);
+  end.setDate(d.getDate() - dow);
+  const start = new Date(end);
+  start.setDate(end.getDate() - 7);
+  return { start: iso(start), end: iso(end) };
+}
+
+// Per-representation weekly deltas. rows: [{ record_id, date, sold, total }].
+// - sold delta = cumulative `sold` at endISO minus at startISO (running max; sold
+//   is maintained live).
+// - revenue = sold delta × net unit price, where net price = avg(total/sold) over
+//   rows that have both filled. We DON'T use the `total` delta: `total` is filled
+//   by a manual batch script (calculate-totals.mjs) so recent rows are 0/NULL and
+//   would crush the weekly revenue to ~0. Pricing the sold delta mirrors that
+//   same backfill logic (total = sold × prix_effectif) and stays reliable.
+// Returns { recordId: { sold, revenue } } (revenue null when no price is known).
+function computeWeekDeltas(rows, startISO, endISO) {
+  const byRec = {};
+  for (const r of rows) {
+    const day = r.date ? r.date.split("T")[0] : r.date;
+    (byRec[r.record_id] = byRec[r.record_id] || []).push({
+      day,
+      sold: Number(r.sold) || 0,
+      total: parseFloat(r.total) || 0,
+    });
+  }
+  const out = {};
+  for (const rid in byRec) {
+    const list = byRec[rid].sort((a, b) => a.day.localeCompare(b.day));
+    // Cumulative sold at a bound = running max over rows on/before it.
+    const soldAt = (target) => {
+      let sold = 0;
+      for (const e of list) {
+        if (e.day > target) break;
+        if (e.sold > sold) sold = e.sold;
+      }
+      return sold;
+    };
+    const soldDelta = soldAt(endISO) - soldAt(startISO);
+    // Net unit price = avg(total/sold) over rows where both are positive.
+    let ratioSum = 0;
+    let ratioCount = 0;
+    for (const e of list) {
+      if (e.total > 0 && e.sold > 0) {
+        ratioSum += e.total / e.sold;
+        ratioCount += 1;
+      }
+    }
+    const prixNet = ratioCount > 0 ? ratioSum / ratioCount : null;
+    out[rid] = {
+      sold: soldDelta,
+      revenue: prixNet != null ? soldDelta * prixNet : null,
+    };
+  }
+  return out;
+}
+
 // Synthesize a cumulative budget-target curve over the given sorted ISO dates:
 // a single convex (accelerating) ramp from 0 at the first date to totalObjective
 // at the last date (right edge / today). Returns { isoDate: value }.
@@ -1134,6 +1198,55 @@ function useRepFilters(representations) {
 // Selection (checkbox column + row click) is enabled only when setSelectedRepIds
 // is provided. showSpectacleCol adds a "Spectacle" column for the mixed all-events
 // view where rows span multiple shows.
+// Export the table rows (already filtered) to a CSV matching the displayed
+// columns. Semicolon-delimited + comma decimals + UTF-8 BOM for French Excel.
+function downloadRepsCsv(reps, weekDeltas, showSpectacleCol, title) {
+  const num = (v) =>
+    v == null || (typeof v === "number" && isNaN(v)) ? "" : String(v).replace(".", ",");
+  const sel = (v) => (v && v.text) || "";
+  const columns = [
+    ...(showSpectacleCol ? [["Spectacle", (r) => r.spectacleName || ""]] : []),
+    ["J. restants", (r) => r.colJoursRestants || ""],
+    ["Date", (r) => r.colDateRep || ""],
+    ["Salle", (r) => r.colSalle || ""],
+    ["Ville", (r) => r.colVille || ""],
+    ["Capacite", (r) => num(r.colCapacite)],
+    ["Places bloquees", (r) => num(r.colPlacesBloques)],
+    ["Billets dispo", (r) => num(r.colBilletsDispo)],
+    ["Total vendus", (r) => num(r.colTotalBilletsVendus)],
+    ["Total gratuits", (r) => num(r.colTotalBilletsGratuits)],
+    ["Vendus (sem.)", (r) => num(weekDeltas[r.id]?.sold)],
+    ["Revenus (sem.)", (r) => num(weekDeltas[r.id]?.revenue)],
+    ["Assistance", (r) => num(r.colAssistance)],
+    ["Taux remplissage (%)", (r) => (r.colTauxRemplissage != null ? num(Math.round(r.colTauxRemplissage * 100)) : "")],
+    ["Revenus billetterie", (r) => num(r.colRevenus)],
+    ["Statut rapport", (r) => sel(r.colStatutRapport)],
+    ["Objectif revenus", (r) => num(r.colObjectifRevenus)],
+    ["Mise a jour", (r) => sel(r.colMiseAJour)],
+    ["Priorisation", (r) => sel(r.colPriorisation)],
+    ["Billetterie Salle", (r) => sel(r.colBilleterieSalle)],
+    ["Note", (r) => sel(r.colNote)],
+    ["Statut", (r) => sel(r.colStatut)],
+    ["Site web", (r) => sel(r.colSiteWeb)],
+  ];
+  const esc = (s) => {
+    const str = String(s ?? "");
+    return /[";\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  };
+  const lines = [columns.map((c) => esc(c[0])).join(";")];
+  for (const r of reps) lines.push(columns.map((c) => esc(c[1](r))).join(";"));
+  const csv = "﻿" + lines.join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${(title || "representations").toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function RepresentationsTable({
   title,
   totalCount,
@@ -1150,9 +1263,10 @@ function RepresentationsTable({
   setSelectedRepIds,
   repRecords,
   showSpectacleCol = false,
+  weekDeltas = {},
 }) {
   const selectable = !!setSelectedRepIds;
-  const minWidth = showSpectacleCol ? 1780 : 1600;
+  const minWidth = (showSpectacleCol ? 1780 : 1600) + 180;
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -1160,15 +1274,28 @@ function RepresentationsTable({
           {title} ({filteredReps.length}
           {filteredReps.length !== totalCount ? ` / ${totalCount}` : ""})
         </h3>
-        <label className="flex items-center gap-2 text-xs text-gray-gray500 dark:text-gray-gray400 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={showAll}
-            onChange={(e) => setShowAll(e.target.checked)}
-            className="rounded"
-          />
-          Afficher tout
-        </label>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => downloadRepsCsv(filteredReps, weekDeltas, showSpectacleCol, title)}
+            className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded border border-gray-gray200 dark:border-gray-gray500
+                       text-gray-gray600 dark:text-gray-gray300 hover:bg-gray-gray100 dark:hover:bg-gray-gray600 transition-colors"
+            title="Exporter le tableau en CSV"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" />
+            </svg>
+            Exporter CSV
+          </button>
+          <label className="flex items-center gap-2 text-xs text-gray-gray500 dark:text-gray-gray400 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={showAll}
+              onChange={(e) => setShowAll(e.target.checked)}
+              className="rounded"
+            />
+            Afficher tout
+          </label>
+        </div>
       </div>
       {/* City and Venue filters */}
       {(uniqueVilles.length > 1 || uniqueSalles.length > 1) && (
@@ -1238,6 +1365,8 @@ function RepresentationsTable({
                 <th className="px-3 py-2 font-semibold text-right">Billets dispo</th>
                 <th className="px-3 py-2 font-semibold text-right">Total vendus</th>
                 <th className="px-3 py-2 font-semibold text-right">Total gratuits</th>
+                <th className="px-3 py-2 font-semibold text-right" title="Dernière semaine complète (lundi → lundi)">Vendus (sem.)</th>
+                <th className="px-3 py-2 font-semibold text-right" title="Dernière semaine complète (lundi → lundi)">Revenus (sem.)</th>
                 <th className="px-3 py-2 font-semibold text-right">Assistance</th>
                 <th className="px-3 py-2 font-semibold" style={{ minWidth: 120 }}>Taux remplissage</th>
                 <th className="px-3 py-2 font-semibold text-right">Revenus billetterie</th>
@@ -1312,6 +1441,8 @@ function RepresentationsTable({
                   <td className="px-3 py-2 text-right">{fmtNumber(rep.colBilletsDispo)}</td>
                   <td className="px-3 py-2 text-right">{fmtNumber(rep.colTotalBilletsVendus)}</td>
                   <td className="px-3 py-2 text-right">{fmtNumber(rep.colTotalBilletsGratuits)}</td>
+                  <td className="px-3 py-2 text-right">{fmtNumber(weekDeltas[rep.id]?.sold)}</td>
+                  <td className="px-3 py-2 text-right">{fmtCurrency(weekDeltas[rep.id]?.revenue)}</td>
                   <td className="px-3 py-2 text-right">{fmtNumber(rep.colAssistance)}</td>
                   <td className="px-3 py-2" style={{ minWidth: 120 }}>
                     {rep.colTauxRemplissage !== null ? (() => {
@@ -1450,6 +1581,7 @@ function DetailPage({
   const [dateFrom, setDateFrom] = useState(() => defaultDateRange().from);
   const [dateTo, setDateTo] = useState(() => defaultDateRange().to);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [salesRows, setSalesRows] = useState([]);
   const cacheRef = useRef(new Map());
 
   // City/venue/status filtering (shared with the all-events page)
@@ -1565,6 +1697,65 @@ function DetailPage({
     };
   }, [selectedRepIdsStr, supabaseUrl, supabaseAnonKey, baseId, allRepIds, refreshKey]);
 
+  // Raw per-representation sales rows for all filtered reps (regardless of chart
+  // selection). Used to derive both the weekly table columns and the period KPI
+  // revenue (priced via average net price, consistent with the columns).
+  useEffect(() => {
+    if (!supabaseUrl || !supabaseAnonKey || !allRepIds) {
+      setSalesRows([]);
+      return;
+    }
+    let didCancel = false;
+    const run = async () => {
+      try {
+        const ids = allRepIds.split(",");
+        const chunkSize = 150;
+        const pageSize = 1000;
+        let rows = [];
+        for (let i = 0; i < ids.length; i += chunkSize) {
+          const chunk = ids.slice(i, i + chunkSize).join(",");
+          const url =
+            `${supabaseUrl}/rest/v1/sales_report` +
+            `?base_id=eq.${baseId}` +
+            `&record_id=in.(${chunk})` +
+            `&order=date.asc` +
+            `&select=record_id,date,sold,total`;
+          let offset = 0;
+          while (true) {
+            const resp = await fetch(url + `&limit=${pageSize}&offset=${offset}`, {
+              headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`,
+                "Content-Type": "application/json",
+              },
+            });
+            if (!resp.ok) throw new Error(`Supabase ${resp.status}`);
+            const page = await resp.json();
+            rows = rows.concat(page);
+            if (page.length < pageSize) break;
+            offset += pageSize;
+            if (didCancel) return;
+          }
+        }
+        if (didCancel) return;
+        setSalesRows(rows);
+      } catch {
+        if (!didCancel) setSalesRows([]);
+      }
+    };
+    run();
+    return () => {
+      didCancel = true;
+    };
+  }, [allRepIds, supabaseUrl, supabaseAnonKey, baseId, refreshKey]);
+
+  // Weekly table columns: per-rep deltas over the last complete Mon→Mon week.
+  const weekDeltas = useMemo(() => {
+    if (!salesRows.length) return {};
+    const { start, end } = lastCompleteWeekBounds();
+    return computeWeekDeltas(salesRows, start, end);
+  }, [salesRows]);
+
   const localDateStr = (d) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -1606,11 +1797,23 @@ function DetailPage({
       baseIndex > 0
         ? salesData[baseIndex - 1]
         : { ventes: 0, gratuits: 0, total_dollars: 0 };
-    return {
-      ventesInPeriod: last.ventes - base.ventes,
-      revenusInPeriod: last.total_dollars - base.total_dollars,
-    };
-  }, [filteredSalesData, salesData]);
+    const ventesInPeriod = last.ventes - base.ventes;
+    // Revenue is priced via average net price (same method as the table
+    // columns), not the raw `total` delta: `total` is only refreshed
+    // periodically and lags `sold`, so its delta collapses on recent days.
+    let revenusInPeriod = 0;
+    if (salesRows.length && dateFrom) {
+      const activeIds =
+        selectedRepIds.size === 0
+          ? new Set(filteredReps.map((r) => r.id))
+          : selectedRepIds;
+      const activeRows = salesRows.filter((r) => activeIds.has(r.record_id));
+      const end = dateTo || localDateStr(new Date());
+      const deltas = computeWeekDeltas(activeRows, dateFrom, end);
+      for (const id in deltas) revenusInPeriod += deltas[id].revenue || 0;
+    }
+    return { ventesInPeriod, revenusInPeriod };
+  }, [filteredSalesData, salesData, salesRows, dateFrom, dateTo, selectedRepIds, filteredReps]);
 
   // Fixed KPIs: Ventes and Revenus (always shown, context-dependent values)
   const hasFilter = !!(dateFrom || dateTo);
@@ -1941,6 +2144,7 @@ function DetailPage({
         selectedRepIds={selectedRepIds}
         setSelectedRepIds={setSelectedRepIds}
         repRecords={repRecords}
+        weekDeltas={weekDeltas}
       />
     </div>
   );
