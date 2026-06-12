@@ -439,9 +439,13 @@ function CustomXAxisTick({ x, y, payload }) {
 
 // --- Sales Chart Component ---
 
-// Aggregate raw sales_report rows into one cumulative point per calendar day.
-// Cumulative values never decrease (Math.max); each record carries its last
-// known value forward to fill gap days. String-based date math avoids UTC shift.
+// Aggregate raw sales_report rows into one point per calendar day.
+// `sold`/`total` are genuinely cumulative so we clamp them monotonic (Math.max)
+// to absorb transient dips. `free` (faveurs) is NOT monotonic — it gets corrected
+// downward and occasionally has bad spikes (e.g. a one-off 5908 between two 7s),
+// so we carry the LAST reported value, never the max, to avoid locking a glitch.
+// Each record carries its last known value forward to fill gap days. String-based
+// date math avoids UTC shift.
 function aggregateSalesByDate(rows) {
   const byRecord = {};
   const allDatesSet = new Set();
@@ -479,7 +483,7 @@ function aggregateSalesByDate(rows) {
         const entry = byRecord[rid][day];
         if (!lastKnown[rid]) lastKnown[rid] = { sold: 0, free: 0, total: 0 };
         lastKnown[rid].sold = Math.max(lastKnown[rid].sold, entry.sold);
-        lastKnown[rid].free = Math.max(lastKnown[rid].free, entry.free);
+        lastKnown[rid].free = entry.free; // last reported, not max (see note above)
         lastKnown[rid].total = Math.max(lastKnown[rid].total, entry.total);
       }
       if (lastKnown[rid]) {
@@ -584,21 +588,6 @@ function buildObjectiveSeries(dates, totalObjective) {
   return out;
 }
 
-// Fit an axis to [min, max] with a 5% margin so the line stays off the edges.
-// Falls back to a small fixed pad when the range is flat (single value).
-function padDomain(min, max) {
-  if (!isFinite(min) || !isFinite(max)) return [0, "auto"];
-  // Keep the floor at 0 when the data is non-negative (revenue/objective never
-  // go below 0); only allow a negative lower bound if the data itself is.
-  const floor = (lo) => (min >= 0 ? Math.max(0, lo) : lo);
-  if (min === max) {
-    const pad = Math.max(1, Math.abs(min) * 0.05);
-    return [floor(min - pad), max + pad];
-  }
-  const margin = (max - min) * 0.05;
-  return [floor(min - margin), max + margin];
-}
-
 function SalesChart({ data, capacity, revenueCapacity, zoom = false, height = 500 }) {
   if (!data || data.length === 0) {
     return (
@@ -610,23 +599,51 @@ function SalesChart({ data, capacity, revenueCapacity, zoom = false, height = 50
     );
   }
 
-  // Single $ axis shared by real revenue and the budget-target curve.
-  // Full view: 0→auto. When a date filter is active (zoom), fit the axis to the
-  // visible range of BOTH curves so the objective ramp stays fully on-screen
-  // (no clipping) while revenue variation is still emphasized. On charts without
-  // an objective (e.g. the global overview) only revenue drives the bounds.
-  let dollarDomain = [0, "auto"];
-  if (zoom) {
-    let lo = Infinity, hi = -Infinity;
-    for (const d of data) {
-      for (const v of [d.total_dollars, d.objectif]) {
-        if (v == null) continue;
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
-      }
+  // The two axes are LOCKED together via the ACTUAL average ticket price
+  // (revenue ÷ sold), so the revenue line lands exactly on the number of tickets
+  // on the left axis — a "sold" line would trace the revenue line. The left
+  // (tickets) axis spans 0→capacity; the right ($) axis spans 0→capacity×price
+  // (= revenue if the hall sold out at the real average price). We don't use the
+  // configured "Potentiel en salle" here because its implied price (potentiel ÷
+  // capacity) often differs from what's actually realized. When capacity is
+  // unknown (e.g. the aggregate "Total" view) we anchor on the max tickets seen
+  // in the data so the lock still holds; revenueCapacity is a last-resort fallback.
+  let price = null;
+  for (let i = data.length - 1; i >= 0; i--) {
+    if (data[i].ventes > 0 && data[i].total_dollars > 0) {
+      price = data[i].total_dollars / data[i].ventes;
+      break;
     }
-    if (isFinite(lo)) dollarDomain = padDomain(lo, hi);
   }
+  let capMax = capacity || null;
+  if (!capMax) {
+    let t = 0;
+    for (const d of data) {
+      if ((d.ventes || 0) > t) t = d.ventes || 0;
+      if ((d.gratuits || 0) > t) t = d.gratuits || 0;
+    }
+    capMax = t || null;
+  }
+  // Crop the top down to 50% of capacity when the data never reaches that high,
+  // so low-fill charts use more vertical space (but never crop past half — we
+  // always keep at least the lower 50% of the hall visible for context). Only
+  // applies when a real capacity is known; the right ($) axis is cropped in
+  // lockstep so the two axes stay synced.
+  let ticketTop = capMax;
+  if (capacity && capMax && price != null) {
+    let dataTickets = 0;
+    for (const d of data) {
+      const revTickets = (d.total_dollars || 0) / price; // revenue in ticket-equiv
+      if (revTickets > dataTickets) dataTickets = revTickets;
+      if ((d.gratuits || 0) > dataTickets) dataTickets = d.gratuits || 0;
+    }
+    if (dataTickets < capMax * 0.5) ticketTop = capMax * 0.5;
+  }
+  const ticketDomain = [0, ticketTop || "auto"];
+  const dollarDomain = [
+    0,
+    price && ticketTop ? ticketTop * price : revenueCapacity || "auto",
+  ];
 
   return (
     <div className="bg-white dark:bg-gray-gray700 rounded-lg p-4 shadow-sm">
@@ -648,8 +665,28 @@ function SalesChart({ data, capacity, revenueCapacity, zoom = false, height = 50
               height={50}
             />
             <YAxis
-              yAxisId="dollars"
+              yAxisId="billets"
               orientation="left"
+              stroke="#cc0000"
+              tick={{ fontSize: 10 }}
+              allowDecimals={false}
+              tickFormatter={(v) =>
+                v >= 1000 ? `${Math.round(v / 100) / 10}k` : Math.round(v)
+              }
+              domain={ticketDomain}
+              allowDataOverflow={zoom}
+              padding={{ top: 20, bottom: 10 }}
+              label={{
+                value: "Nombre de billets",
+                angle: -90,
+                position: "insideLeft",
+                offset: -25,
+                style: { fontSize: 11, fill: "#cc0000", fontWeight: 600 },
+              }}
+            />
+            <YAxis
+              yAxisId="dollars"
+              orientation="right"
               stroke="#6aa84f"
               tick={{ fontSize: 10 }}
               tickFormatter={(v) =>
@@ -660,8 +697,8 @@ function SalesChart({ data, capacity, revenueCapacity, zoom = false, height = 50
               padding={{ top: 20, bottom: 10 }}
               label={{
                 value: "Revenus ($)",
-                angle: -90,
-                position: "insideLeft",
+                angle: 90,
+                position: "insideRight",
                 offset: -25,
                 style: { fontSize: 11, fill: "#6aa84f", fontWeight: 600 },
               }}
@@ -674,12 +711,39 @@ function SalesChart({ data, capacity, revenueCapacity, zoom = false, height = 50
                 boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
               }}
               labelFormatter={formatDate}
-              formatter={(value, name) => [
-                `${Number(value).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} $`,
-                name,
-              ]}
+              formatter={(value, name, props) => {
+                const isTickets =
+                  props?.dataKey === "gratuits" || props?.dataKey === "ventes";
+                const num = Number(value).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
+                return [isTickets ? num : `${num} $`, name];
+              }}
             />
             <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+            {/* Invisible series: feeds the tooltip with "Billets vendus" without
+                drawing a line or appearing in the legend. */}
+            <Line
+              yAxisId="billets"
+              type="monotone"
+              dataKey="ventes"
+              name="Billets vendus"
+              stroke="#333333"
+              strokeWidth={0}
+              dot={false}
+              activeDot={false}
+              legendType="none"
+              isAnimationActive={false}
+            />
+            <Line
+              yAxisId="billets"
+              type="monotone"
+              dataKey="gratuits"
+              name="Billets gratuits"
+              stroke="#cc0000"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{ r: 4 }}
+              strokeDasharray="5 5"
+            />
             <Line
               yAxisId="dollars"
               type="monotone"
