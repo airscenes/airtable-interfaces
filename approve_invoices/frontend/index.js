@@ -392,6 +392,16 @@ function buildCustomProperties(base, valuesRef) {
       defaultValue: findField(facturesTable, (f) => isCheckbox(f) && f.name.toLowerCase().includes("exclu")),
     }),
 
+    // Status value written on the facture when paid (mode "date"). String so it
+    // matches the single-select option name (or free text). Auto-detect a "pay*" choice.
+    (() => {
+      const choices = getFieldChoices(current.colStatut, base) || [];
+      const payeChoice = choices.find((c) => c.name.toLowerCase().includes("pay"));
+      const prop = { key: "statutPayeValue", label: "Statut: valeur quand payée", type: "string" };
+      if (payeChoice) prop.defaultValue = payeChoice.name;
+      return prop;
+    })(),
+
     // Depenses columns
     fieldProp("colDepName", "Depense: Nom", depensesTable, {
       defaultValue: depensesTable?.fields[0] || undefined,
@@ -531,6 +541,7 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
   const colApprouvee = customPropertyValueByKey.colApprouvee;
   const colUrlDropbox = customPropertyValueByKey.colUrlDropbox;
   const exclureField = customPropertyValueByKey.exclureField;
+  const statutPayeValue = customPropertyValueByKey.statutPayeValue;
 
   // Fields - Depenses
   const colDepName = customPropertyValueByKey.colDepName;
@@ -763,16 +774,37 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
           }
           return { fields };
         });
+        // Batch update the paid factures' Statut so the list reflects it immediately.
+        // SINGLE_SELECT expects { name }, otherwise write the raw string.
+        const statutIsSelect = (() => { try { return colStatut?.config?.type === FieldType.SINGLE_SELECT; } catch { return false; } })();
+        const statutUpdates = (colStatut && statutPayeValue)
+          ? toApprove.map((f) => ({
+              id: f.id,
+              fields: { [colStatut.name]: statutIsSelect ? { name: statutPayeValue } : statutPayeValue },
+            }))
+          : [];
         if (DRY_RUN) {
           console.log("[DRY RUN] Mode: date (creer transactions) | Date:", selectedDate, "| Mode paiement:", selectedMode);
           console.log("[DRY RUN] Transactions a creer:", creates.length);
           console.table(creates.map((c) => c.fields));
+          if (statutUpdates.length) {
+            console.log("[DRY RUN] Statut a mettre a jour:", colStatut.name, "=>", statutPayeValue, "sur", statutUpdates.length, "facture(s)");
+            console.table(statutUpdates.map((u) => ({ id: u.id, ...u.fields })));
+          }
           setApproveResult({ success: true, message: `[DRY RUN] ${creates.length} transaction(s) seraient creee(s). Voir console.` });
         } else {
           for (let i = 0; i < creates.length; i += 50) {
             await transactionsTable.createRecordsAsync(creates.slice(i, i + 50));
           }
-          setApproveResult({ success: true, message: `${creates.length} transaction(s) creee(s).` });
+          if (statutUpdates.length) {
+            if (!canUpdate) {
+              throw new Error("Transactions creees, mais permission refusee pour mettre a jour le Statut des factures. Activez 'Modifier les entrees' dans les Actions d'utilisateur de la page.");
+            }
+            for (let i = 0; i < statutUpdates.length; i += 50) {
+              await facturesTable.updateRecordsAsync(statutUpdates.slice(i, i + 50));
+            }
+          }
+          setApproveResult({ success: true, message: `${creates.length} transaction(s) creee(s).${statutUpdates.length ? ` Statut mis a jour sur ${statutUpdates.length} facture(s).` : ""}` });
         }
       } else {
         throw new Error("Configuration incomplete : verifiez le mode et les champs configures.");
@@ -782,7 +814,7 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
       setApproveResult({ success: false, message: `Erreur: ${err.message}` });
     }
     setApproving(false);
-  }, [factures, facturesTable, colApprouvee, exclureField, actionMode, selectedDate, selectedMode, selectedIds, canUpdate, canCreateTxn, transactionsTable, txnDateField, txnMontantField, txnLinkFactureField, txnModePaiementField]);
+  }, [factures, facturesTable, colApprouvee, colStatut, statutPayeValue, exclureField, actionMode, selectedDate, selectedMode, selectedIds, canUpdate, canCreateTxn, transactionsTable, txnDateField, txnMontantField, txnLinkFactureField, txnModePaiementField]);
 
   // Toggle exclure checkbox (UI only — persisted on action button)
   const handleToggleExclure = useCallback((recordId) => {
