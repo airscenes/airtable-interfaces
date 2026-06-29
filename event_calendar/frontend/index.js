@@ -127,7 +127,7 @@ function CalendarApp() {
   const cellProps = { nameField1, nameField2, colorField, base, onEventClick: handleEventClick };
 
   return (
-    <div className="p-3 bg-white dark:bg-gray-gray900 text-gray-gray800 dark:text-gray-gray100">
+    <div className="p-3 bg-white dark:bg-gray-gray900 text-gray-gray800 dark:text-gray-gray100" style={{ zoom: 1.25 }}>
       <CalendarHeader
         title={getHeaderTitle()}
         viewMode={viewMode}

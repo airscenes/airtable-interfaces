@@ -62,7 +62,7 @@ export function ThreeDaysView({
       <div
         ref={timeGridRef}
         className="border border-gray-gray200 dark:border-gray-gray700 rounded-b-md overflow-auto"
-        style={{ maxHeight: "calc(100vh - 140px)" }}
+        style={{ maxHeight: "calc(80vh - 140px)" }}
       >
         <div className="flex">
           {/* Hour labels */}
