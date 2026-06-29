@@ -684,12 +684,12 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
     { key: "num", label: "Facture", field: colFactureNum },
     { key: "date", label: "Date de la facture", field: colDateFacture, width: 110 },
     { key: "fournisseur", label: "Fournisseur", field: colFournisseur },
-    { key: "totalNet", label: "Total net", field: colTotalNet, width: 100 },
-    { key: "totalBrut", label: "Total brute", field: colTotalBrut, width: 100 },
+    { key: "totalNet", label: "Total net", field: colTotalNet, width: 100, align: "right" },
+    { key: "totalBrut", label: "Total brute", field: colTotalBrut, width: 100, align: "right" },
     { key: "statut", label: "Statut", field: colStatut, width: 110 },
     { key: "datePaiement", label: "Date de paiement", field: colDatePaiement, width: 110 },
-    { key: "totalPaiements", label: "Total paiements", field: colTotalPaiements, width: 110 },
-    { key: "solde", label: "Solde", field: colSolde, width: 100 },
+    { key: "totalPaiements", label: "Total paiements", field: colTotalPaiements, width: 110, align: "right" },
+    { key: "solde", label: "Solde", field: colSolde, width: 100, align: "right" },
     { key: "attachment", label: "Facture", field: colFactureAttachment, width: 70 },
     { key: "approuvee", label: "Approuvee", field: colApprouvee, width: 80 },
     { key: "notes", label: "Notes", field: colNotes },
@@ -862,7 +862,7 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
     <div className="p-4 min-h-screen bg-gray-gray50 dark:bg-gray-gray800">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-5">
-        <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100">Approbation Factures</h1>
+        <h1 className="text-xl font-bold text-gray-800 dark:text-gray-100">{actionMode === "date" ? "Payables" : "Approbation Factures"}</h1>
         <div className="flex items-center gap-4 flex-1 justify-center">
           <KpiCard label="Factures" value={fmtNumber(kpis.count)} />
           <KpiCard label="Total net" value={fmtCurrency(kpis.totalNet)} />
@@ -914,14 +914,14 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
         {/* Header */}
         <div className="min-w-[1200px]">
           <div className="flex items-center text-sm uppercase text-gray-500 dark:text-gray-400 font-medium border-b border-gray-200 dark:border-gray-600 px-2">
-            <div className="w-[30px]" /> {/* open record button space */}
-            <div className="w-8" /> {/* chevron space */}
+            <div className="flex-shrink-0 w-[30px]" /> {/* open record button space */}
+            <div className="flex-shrink-0 w-8" /> {/* chevron space */}
             {factureColumns.map((col) => {
               const s = colSizing(col);
-              return <div key={col.key} className={`px-3 py-2 ${s.className}`} style={s.style}>{col.label}</div>;
+              return <div key={col.key} className={`px-3 py-2 ${col.align === "right" ? "text-right" : ""} ${s.className}`} style={s.style}>{col.label}</div>;
             })}
             {exclureField && actionMode !== "date" && (
-              <div className="px-3 py-2 w-[80px] flex items-center justify-center gap-1.5">
+              <div className="flex-shrink-0 px-3 py-2 w-[80px] flex items-center justify-center gap-1.5">
                 <span>Exclure</span>
                 <input
                   type="checkbox"
@@ -934,7 +934,7 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
               </div>
             )}
             {actionMode === "date" && (
-              <div className="px-3 py-2 w-[80px] flex items-center justify-center gap-1.5">
+              <div className="flex-shrink-0 px-3 py-2 w-[80px] flex items-center justify-center gap-1.5">
                 <span>Payer</span>
                 <input
                   type="checkbox"
@@ -957,17 +957,25 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
                 {/* Group header — subtle separator */}
                 {colFournisseur && (
                   <div className="flex items-center border-b border-gray-200 dark:border-gray-600 px-2 bg-gray-50 dark:bg-gray-600/20">
-                    <div className="w-[30px]" />
-                    <div className="w-8" />
-                    {factureColumns.map((col) => {
+                    <div className="flex-shrink-0 w-[30px]" />
+                    <div className="flex-shrink-0 w-8" />
+                    {/* Every cell is sized exactly like a detail-row cell, so the sums align perfectly.
+                        The supplier name is absolutely positioned (out of flow) over the first cell,
+                        so it can overflow to the right without shifting any column. */}
+                    {factureColumns.map((col, idx) => {
                       const s = colSizing(col);
-                      if (col.key === "fournisseur") return <div key={col.key} className={`px-3 py-1.5 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 ${s.className}`} style={s.style}>{group.supplier} &middot; {group.count}</div>;
-                      if (col.key === "totalNet") return <div key={col.key} className={`px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 ${s.className}`} style={s.style}>Somme {fmtCurrency(group.totalNet)}</div>;
-                      if (col.key === "totalBrut") return <div key={col.key} className={`px-3 py-1.5 text-xs text-gray-500 dark:text-gray-400 ${s.className}`} style={s.style}>Somme {fmtCurrency(group.totalBrut)}</div>;
-                      return <div key={col.key} className={`px-3 py-1.5 ${s.className}`} style={s.style} />;
+                      const alignCls = col.align === "right" ? "text-right" : "";
+                      if (idx === 0) return (
+                        <div key={col.key} className={`relative px-3 py-2.5 ${s.className}`} style={s.style}>
+                          <div className="absolute inset-y-0 left-0 flex items-center px-3 text-lg font-bold text-gray-700 dark:text-gray-200 whitespace-nowrap pointer-events-none">{group.supplier} &middot; {group.count}</div>
+                        </div>
+                      );
+                      if (col.key === "totalNet") return <div key={col.key} className={`px-2 py-2.5 text-sm font-bold tracking-tight text-gray-700 dark:text-gray-200 truncate ${alignCls} ${s.className}`} style={s.style}>{fmtCurrency(group.totalNet)}</div>;
+                      if (col.key === "totalBrut") return <div key={col.key} className={`px-2 py-2.5 text-sm font-bold tracking-tight text-gray-700 dark:text-gray-200 truncate ${alignCls} ${s.className}`} style={s.style}>{fmtCurrency(group.totalBrut)}</div>;
+                      return <div key={col.key} className={`px-3 py-2.5 ${s.className}`} style={s.style} />;
                     })}
-                    {exclureField && actionMode !== "date" && <div className="px-3 py-1.5 w-[80px]" />}
-                    {actionMode === "date" && <div className="px-3 py-1.5 w-[80px]" />}
+                    {exclureField && actionMode !== "date" && <div className="flex-shrink-0 px-3 py-2.5 w-[80px]" />}
+                    {actionMode === "date" && <div className="flex-shrink-0 px-3 py-2.5 w-[80px]" />}
                   </div>
                 )}
                 {/* Facture rows in this group */}
@@ -982,10 +990,10 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
                         }`}
                         onClick={() => toggleExpand(facture.id)}
                       >
-                        <div className="px-1 py-2.5 w-[30px] flex items-center justify-center" onClick={(e) => { e.stopPropagation(); try { expandRecord(facture.record); } catch (err) { console.error("expandRecord error:", err); } }}>
+                        <div className="flex-shrink-0 px-1 py-2.5 w-[30px] flex items-center justify-center" onClick={(e) => { e.stopPropagation(); try { expandRecord(facture.record); } catch (err) { console.error("expandRecord error:", err); } }}>
                           <ArrowSquareOutIcon size={16} className="text-gray-400 hover:text-blue-500 cursor-pointer" />
                         </div>
-                        <div className="w-8 flex items-center justify-center">
+                        <div className="flex-shrink-0 w-8 flex items-center justify-center">
                           <CaretRightIcon
                             size={14}
                             className={`text-gray-400 transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`}
@@ -994,13 +1002,13 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
                         {factureColumns.map((col) => {
                           const s = colSizing(col);
                           return (
-                            <div key={col.key} className={`px-3 py-2.5 text-base text-gray-700 dark:text-gray-200 truncate ${s.className}`} style={s.style}>
+                            <div key={col.key} className={`px-3 py-2.5 text-base text-gray-700 dark:text-gray-200 truncate ${col.align === "right" ? "text-right" : ""} ${s.className}`} style={s.style}>
                               <CellValue record={facture.record} field={col.field} base={base} />
                             </div>
                           );
                         })}
                         {exclureField && actionMode !== "date" && (
-                          <div className="px-3 py-2.5 w-[80px] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex-shrink-0 px-3 py-2.5 w-[80px] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
                               checked={facture.isExcluded}
@@ -1010,7 +1018,7 @@ function ApprobationContent({ base, customPropertyValueByKey, facturesTable, dep
                           </div>
                         )}
                         {actionMode === "date" && (
-                          <div className="px-3 py-2.5 w-[80px] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex-shrink-0 px-3 py-2.5 w-[80px] flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
                               checked={selectedIds.has(facture.id)}
