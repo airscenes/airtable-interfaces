@@ -399,6 +399,17 @@ function getCustomProperties(base, selectedSpectaclesTableId, selectedRepsTableI
       table: repsTable,
       shouldFieldBeAllowed: isAnyField,
     },
+    // --- Fenetre des colonnes de ventes (Vendus / Revenus) ---
+    {
+      key: "salesWindow",
+      label: "Fenetre Vendus/Revenus (colonnes)",
+      type: "enum",
+      possibleValues: [
+        { value: "7d", label: "7 jours (derniere semaine complete)" },
+        { value: "24h", label: "24h (derniere journee complete)" },
+      ],
+      defaultValue: "7d",
+    },
     // --- Supabase ---
     {
       key: "supabaseUrl",
@@ -514,6 +525,21 @@ function lastCompleteWeekBounds(ref = new Date()) {
   end.setDate(d.getDate() - dow);
   const start = new Date(end);
   start.setDate(end.getDate() - 7);
+  return { start: iso(start), end: iso(end) };
+}
+
+// Bounds of the last *complete* day relative to `ref` (today is still in
+// progress, so the last complete day is yesterday): end = yesterday,
+// start = the day before. computeWeekDeltas then yields the sales accrued
+// during yesterday — the 24h analog of lastCompleteWeekBounds.
+function lastCompleteDayBounds(ref = new Date()) {
+  const iso = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const d = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  const end = new Date(d);
+  end.setDate(d.getDate() - 1);
+  const start = new Date(d);
+  start.setDate(d.getDate() - 2);
   return { start: iso(start), end: iso(end) };
 }
 
@@ -1264,7 +1290,7 @@ function useRepFilters(representations) {
 // view where rows span multiple shows.
 // Export the table rows (already filtered) to a CSV matching the displayed
 // columns. Semicolon-delimited + comma decimals + UTF-8 BOM for French Excel.
-function downloadRepsCsv(reps, weekDeltas, showSpectacleCol, title) {
+function downloadRepsCsv(reps, weekDeltas, showSpectacleCol, title, deltaLabel = "sem.") {
   const num = (v) =>
     v == null || (typeof v === "number" && isNaN(v)) ? "" : String(v).replace(".", ",");
   const sel = (v) => (v && v.text) || "";
@@ -1279,8 +1305,8 @@ function downloadRepsCsv(reps, weekDeltas, showSpectacleCol, title) {
     ["Billets dispo", (r) => num(r.colBilletsDispo)],
     ["Total vendus", (r) => num(r.colTotalBilletsVendus)],
     ["Total gratuits", (r) => num(r.colTotalBilletsGratuits)],
-    ["Vendus (sem.)", (r) => num(weekDeltas[r.id]?.sold)],
-    ["Revenus (sem.)", (r) => num(weekDeltas[r.id]?.revenue)],
+    [`Vendus (${deltaLabel})`, (r) => num(weekDeltas[r.id]?.sold)],
+    [`Revenus (${deltaLabel})`, (r) => num(weekDeltas[r.id]?.revenue)],
     ["Assistance", (r) => num(r.colAssistance)],
     ["Taux remplissage (%)", (r) => (r.colTauxRemplissage != null ? num(Math.round(r.colTauxRemplissage * 100)) : "")],
     ["Revenus billetterie", (r) => num(r.colRevenus)],
@@ -1328,6 +1354,8 @@ function RepresentationsTable({
   repRecords,
   showSpectacleCol = false,
   weekDeltas = {},
+  deltaLabel = "sem.",
+  deltaTitle = "Dernière semaine complète (lundi → lundi)",
 }) {
   const selectable = !!setSelectedRepIds;
   const minWidth = (showSpectacleCol ? 1780 : 1600) + 180;
@@ -1340,7 +1368,7 @@ function RepresentationsTable({
         </h3>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => downloadRepsCsv(filteredReps, weekDeltas, showSpectacleCol, title)}
+            onClick={() => downloadRepsCsv(filteredReps, weekDeltas, showSpectacleCol, title, deltaLabel)}
             className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded border border-gray-gray200 dark:border-gray-gray500
                        text-gray-gray600 dark:text-gray-gray300 hover:bg-gray-gray100 dark:hover:bg-gray-gray600 transition-colors"
             title="Exporter le tableau en CSV"
@@ -1429,8 +1457,8 @@ function RepresentationsTable({
                 <th className="px-3 py-2 font-semibold text-right">Billets dispo</th>
                 <th className="px-3 py-2 font-semibold text-right">Total vendus</th>
                 <th className="px-3 py-2 font-semibold text-right">Total gratuits</th>
-                <th className="px-3 py-2 font-semibold text-right" title="Dernière semaine complète (lundi → lundi)">Vendus (sem.)</th>
-                <th className="px-3 py-2 font-semibold text-right" title="Dernière semaine complète (lundi → lundi)">Revenus (sem.)</th>
+                <th className="px-3 py-2 font-semibold text-right" title={deltaTitle}>Vendus ({deltaLabel})</th>
+                <th className="px-3 py-2 font-semibold text-right" title={deltaTitle}>Revenus ({deltaLabel})</th>
                 <th className="px-3 py-2 font-semibold text-right">Assistance</th>
                 <th className="px-3 py-2 font-semibold" style={{ minWidth: 120 }}>Taux remplissage</th>
                 <th className="px-3 py-2 font-semibold text-right">Revenus billetterie</th>
@@ -1637,6 +1665,7 @@ function DetailPage({
   baseId,
   onBack,
   repRecords,
+  salesWindow = "7d",
 }) {
   const [selectedRepIds, setSelectedRepIds] = useState(new Set());
   const [salesData, setSalesData] = useState([]);
@@ -1813,12 +1842,21 @@ function DetailPage({
     };
   }, [allRepIds, supabaseUrl, supabaseAnonKey, baseId, refreshKey]);
 
-  // Weekly table columns: per-rep deltas over the last complete Mon→Mon week.
+  // Per-rep deltas for the "Vendus"/"Revenus" table columns. Window is
+  // configurable: "7d" = last complete Mon→Mon week, "24h" = last complete day.
   const weekDeltas = useMemo(() => {
     if (!salesRows.length) return {};
-    const { start, end } = lastCompleteWeekBounds();
+    const { start, end } =
+      salesWindow === "24h" ? lastCompleteDayBounds() : lastCompleteWeekBounds();
     return computeWeekDeltas(salesRows, start, end);
-  }, [salesRows]);
+  }, [salesRows, salesWindow]);
+
+  // Column suffix + header tooltip reflect the active window.
+  const deltaLabel = salesWindow === "24h" ? "jour" : "sem.";
+  const deltaTitle =
+    salesWindow === "24h"
+      ? "Dernière journée complète (hier)"
+      : "Dernière semaine complète (lundi → lundi)";
 
   const localDateStr = (d) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -2209,6 +2247,8 @@ function DetailPage({
         setSelectedRepIds={setSelectedRepIds}
         repRecords={repRecords}
         weekDeltas={weekDeltas}
+        deltaLabel={deltaLabel}
+        deltaTitle={deltaTitle}
       />
     </div>
   );
@@ -2266,6 +2306,7 @@ function SalesChartApp() {
   const colOnSale = repsTable?.fields.find((f) => f.name.toLowerCase().includes("on_sale") || f.name.toLowerCase().includes("on sale") || f.name.toLowerCase().includes("en vente")) || null;
   const supabaseUrl = customPropertyValueByKey.supabaseUrl;
   const supabaseAnonKey = customPropertyValueByKey.supabaseAnonKey;
+  const salesWindow = customPropertyValueByKey.salesWindow || "7d";
 
   if (!spectaclesTable || !repsTable) {
     return (
@@ -2559,6 +2600,7 @@ function SalesChartApp() {
         baseId={base.id}
         onBack={() => setSelectedSpectacleId(null)}
         repRecords={repRecords}
+        salesWindow={salesWindow}
       />
     );
   }
