@@ -29,3 +29,25 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* ============================================================================
+ * Print / PDF rules
+ * One event per page (page break handled inline via `print:break-before-page`).
+ * ========================================================================== */
+@media print {
+    /* Force background colors and borders to print (badges, value pills, etc.). */
+    html {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    /* Clean sheet: white page, no app gray background. */
+    body {
+        background: #fff !important;
+    }
+
+    /* Page size / margins for the PDF. */
+    @page {
+        margin: 12mm;
+    }
+}
