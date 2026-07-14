@@ -1,4 +1,4 @@
-import {useMemo, useState} from 'react';
+import {useCallback, useMemo, useState} from 'react';
 import {
     initializeBlock,
     useBase,
@@ -22,6 +22,30 @@ const EVENTS_ROW_LABEL = 'Événements';
 const CATEGORY_PRIORITY_ORDER = ['Placiers', 'Placiers seniors', 'Merch'];
 
 const MS_PER_DAY = 86400000;
+const SECONDS_PER_DAY = 86400;
+
+// Airtable caps createRecordsAsync/updateRecordsAsync at 50 records per call.
+const MAX_RECORDS_PER_CALL = 50;
+const MAX_SHIFT_QUANTITY = 50;
+
+// Diffusion modes hidden by default (the venue is only rented out: nothing to staff).
+const DEFAULT_HIDDEN_MODES = 'Location';
+
+// Only front-of-house roles are offered when creating shifts.
+const DEFAULT_ROLE_CATEGORY = 'accueil';
+
+// Shifts created in bulk are overwhelmingly usher shifts, so preselect that role.
+const DEFAULT_ROLE_NEEDLE = 'placier';
+
+// Only employees can be assigned to a shift (Contacts also holds producers, venue staff, etc.).
+const DEFAULT_CONTACT_CATEGORY = 'Employés';
+
+// The three In/Out duration pairs, keyed by their custom-property keys.
+const SHIFT_PAIRS = [
+    {key: 'montage', label: 'Montage', inKey: 'montageInField', outKey: 'montageOutField'},
+    {key: 'showcall', label: 'Show call', inKey: 'showcallInField', outKey: 'showcallOutField'},
+    {key: 'demontage', label: 'Démontage', inKey: 'demontageInField', outKey: 'demontageOutField'},
+];
 
 // === HELPERS ===
 
@@ -113,6 +137,140 @@ function fmtDuration(seconds) {
     const h = Math.floor(totalMin / 60);
     const m = totalMin % 60;
     return `${h}:${String(m).padStart(2, '0')}`;
+}
+
+// Zero-padded HH:MM, as <input type="time"> requires (fmtDuration yields "9:05", not "09:05").
+// An overnight Out stored as 25:00 comes back as "01:00"; saving it re-wraps it to 25:00.
+function fmtHHMM(seconds) {
+    if (seconds === null || seconds === undefined) return '';
+    const totalMin = Math.round(seconds / 60) % (24 * 60);
+    const h = Math.floor(totalMin / 60);
+    const m = totalMin % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+// "17:00" -> 61200 seconds. Null when the string is not a valid HH:MM.
+function parseHHMM(str) {
+    const m = /^(\d{1,2}):(\d{2})$/.exec(String(str ?? '').trim());
+    if (!m) return null;
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    if (h > 23 || min > 59) return null;
+    return h * 3600 + min * 60;
+}
+
+// A shift ending at or before it starts runs past midnight: 23:00 -> 01:00 becomes 25:00 (90000s).
+// This matches how fmtDuration and the hours total already treat out-of-day durations.
+function endSecondsWithWrap(startSeconds, endSeconds) {
+    return endSeconds <= startSeconds ? endSeconds + SECONDS_PER_DAY : endSeconds;
+}
+
+function normalizeToken(value) {
+    return String(value ?? '').trim().toLowerCase();
+}
+
+// "Location, Privé" -> Set {"location", "privé"}.
+function parseCsvSet(str) {
+    return new Set(
+        String(str ?? '')
+            .split(',')
+            .map(normalizeToken)
+            .filter(Boolean),
+    );
+}
+
+// Flatten any cell value into plain strings. Covers the shapes getCellValue actually returns:
+// a string; {name}; [{name}]; and MULTIPLE_LOOKUP_VALUES' [{linkedRecordId, value}] where `value`
+// may itself be a string, an object or an array.
+function flattenCellStrings(value, depth = 0) {
+    if (value === null || value === undefined || depth > 4) return [];
+    if (typeof value === 'string') return value.trim() ? [value.trim()] : [];
+    if (typeof value === 'number' || typeof value === 'boolean') return [String(value)];
+    if (Array.isArray(value)) return value.flatMap((v) => flattenCellStrings(v, depth + 1));
+    if (typeof value === 'object') {
+        if ('value' in value) return flattenCellStrings(value.value, depth + 1);
+        if ('name' in value) return flattenCellStrings(value.name, depth + 1);
+    }
+    return [];
+}
+
+// Read a cell as a list of strings, falling back to the formatted string for exotic field types.
+function readTextValues(record, field) {
+    if (!record || !field) return [];
+    const values = flattenCellStrings(record.getCellValue(field));
+    if (values.length) return values;
+    return record
+        .getCellValueAsString(field)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+}
+
+// Linked record ids of a MULTIPLE_RECORD_LINKS cell: [{id, name}] -> ["recX"].
+function readLinkedIds(record, field) {
+    if (!record || !field) return [];
+    const raw = record.getCellValue(field);
+    return Array.isArray(raw) ? raw.map((link) => link?.id).filter(Boolean) : [];
+}
+
+function chunkArray(arr, size) {
+    const out = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+}
+
+// Free text is only meaningful for an actual text field. For a link, a typed name has no id and
+// would either be ignored or (in a naive implementation) create a record in the linked table.
+function isRoleFreeText(field) {
+    const type = field?.config?.type;
+    return type === FieldType.SINGLE_LINE_TEXT || type === FieldType.MULTILINE_TEXT;
+}
+
+// True when the category field can be written at all (i.e. is not a formula/rollup/lookup).
+function isRoleWritable(field) {
+    const type = field?.config?.type;
+    return (
+        type === FieldType.SINGLE_SELECT ||
+        type === FieldType.MULTIPLE_SELECTS ||
+        type === FieldType.MULTIPLE_RECORD_LINKS ||
+        type === FieldType.SINGLE_LINE_TEXT ||
+        type === FieldType.MULTILINE_TEXT
+    );
+}
+
+// Cell-write value for the category field, shaped to its own type. Returns undefined when the
+// field cannot be written (formula / rollup / lookup), so the caller omits it entirely.
+// `choice` is {id, name}: a select option id, or a linked record id when the field is a link.
+function roleWriteValue(field, choice, text) {
+    const type = field?.config?.type;
+    if (type === FieldType.SINGLE_SELECT) return choice ? {id: choice.id} : undefined;
+    if (type === FieldType.MULTIPLE_SELECTS) return choice ? [{id: choice.id}] : undefined;
+    // A linked cell must carry an `id`: a bare {name} would CREATE a record in the linked table.
+    if (type === FieldType.MULTIPLE_RECORD_LINKS) return choice ? [{id: choice.id}] : undefined;
+    if (type === FieldType.SINGLE_LINE_TEXT || type === FieldType.MULTILINE_TEXT) {
+        const value = choice ? choice.name : String(text ?? '').trim();
+        return value || undefined;
+    }
+    return undefined;
+}
+
+// Locate the Rôles table: the staff table's category field may link to it, otherwise match by name.
+// getCustomProperties only receives `base`, so a `field` property's table must be resolved from the
+// base itself — it cannot depend on a table the user picked in another property.
+function findRolesTable(base, staffTable) {
+    const categoryGuess = staffTable?.fields.find((f) => {
+        const n = f.name.toLowerCase();
+        return ['rôle', 'role', 'categor', 'catégor', 'poste'].some((x) => n.includes(x));
+    });
+    const linkedTableId = categoryGuess?.config?.options?.linkedTableId;
+    return (
+        base.tables.find((t) => t.id === linkedTableId) ||
+        base.tables.find((t) => {
+            const n = t.name.toLowerCase();
+            return n.includes('rôle') || n.includes('role');
+        }) ||
+        null
+    );
 }
 
 function compareCategories(a, b) {
@@ -277,6 +435,13 @@ function getCustomProperties(base) {
         field.config.type === FieldType.DURATION ||
         field.config.type === FieldType.MULTIPLE_LOOKUP_VALUES;
 
+    const isLinkedRecord = (field) => field.config.type === FieldType.MULTIPLE_RECORD_LINKS;
+
+    // date_courte is a rollup of the linked event's date, so it cannot be written. Creating a shift
+    // before it is dispatched to an event therefore needs a date field of its own.
+    const isWritableDate = (field) =>
+        field.config.type === FieldType.DATE || field.config.type === FieldType.DATE_TIME;
+
     const byName = (table, predicate, ...needles) =>
         table.fields.find(
             (f) => predicate(f) && needles.some((n) => f.name.toLowerCase().includes(n)),
@@ -292,6 +457,16 @@ function getCustomProperties(base) {
                 !excludes.some((x) => n.includes(x))
             );
         });
+
+    // Derive the Contacts table from the staff->Contacts link rather than from its name: that
+    // guarantees the table we offer actually matches the link we write to.
+    const contactLinkGuess = byName(staffTable, isLinkedRecord, 'contact');
+    const linkedContactsTableId = contactLinkGuess?.config?.options?.linkedTableId;
+    const contactsTable =
+        base.tables.find((t) => t.id === linkedContactsTableId) ||
+        base.tables.find((t) => t.name.toLowerCase().includes('contact'));
+
+    const rolesTable = findRolesTable(base, staffTable);
 
     return [
         {
@@ -335,6 +510,21 @@ function getCustomProperties(base) {
             defaultValue: byName(
                 eventsTable, isCategoryLike, 'salle', 'lieu', 'venue', 'théâtre', 'theatre', 'room',
             ),
+        },
+        // Optional. Left unset, nothing is ever hidden and the grid behaves exactly as before.
+        {
+            key: 'diffusionField',
+            label: 'Mode de diffusion (pour masquer des événements)',
+            type: 'field',
+            table: eventsTable,
+            shouldFieldBeAllowed: isCategoryLike,
+            defaultValue: byName(eventsTable, isCategoryLike, 'mode_diffusion', 'diffusion'),
+        },
+        {
+            key: 'hiddenModes',
+            label: 'Modes de diffusion à masquer (séparés par des virgules)',
+            type: 'string',
+            defaultValue: DEFAULT_HIDDEN_MODES,
         },
         {
             key: 'contactField',
@@ -422,6 +612,83 @@ function getCustomProperties(base) {
                 findAll(staffTable, isTimeLike, ['démontage', 'out']) ||
                 findAll(staffTable, isTimeLike, ['demontage', 'out']),
         },
+        // --- Write features. All optional: unset, the grid stays strictly read-only. ---
+        {
+            key: 'staffEventLinkField',
+            label: 'Lien Événement (sur les quarts)',
+            type: 'field',
+            table: staffTable,
+            shouldFieldBeAllowed: isLinkedRecord,
+            defaultValue: byName(staffTable, isLinkedRecord, 'événement', 'evenement', 'event'),
+        },
+        {
+            key: 'contactLinkField',
+            label: 'Lien Contact (sur les quarts)',
+            type: 'field',
+            table: staffTable,
+            shouldFieldBeAllowed: isLinkedRecord,
+            defaultValue: contactLinkGuess,
+        },
+        {
+            key: 'contactsTable',
+            label: 'Table Contacts',
+            type: 'table',
+            defaultValue: contactsTable,
+        },
+        // Contacts holds far more than staff, so the assignment list is narrowed to one category.
+        // Declared only when the table is known: a `field` property with no table breaks the panel.
+        ...(contactsTable
+            ? [
+                {
+                    key: 'contactCategoryField',
+                    label: 'Catégorie de contact (sur la table Contacts)',
+                    type: 'field',
+                    table: contactsTable,
+                    shouldFieldBeAllowed: isCategoryLike,
+                    defaultValue: byName(
+                        contactsTable, isCategoryLike, 'catégorie de contact', 'catégor', 'categor', 'type',
+                    ),
+                },
+                {
+                    key: 'contactCategoryValue',
+                    label: 'Catégorie de contact à proposer',
+                    type: 'string',
+                    defaultValue: DEFAULT_CONTACT_CATEGORY,
+                },
+            ]
+            : []),
+        {
+            key: 'staffDateWriteField',
+            label: 'Date du quart — champ inscriptible (requis pour créer)',
+            type: 'field',
+            table: staffTable,
+            shouldFieldBeAllowed: isWritableDate,
+            defaultValue: byName(staffTable, isWritableDate, 'date_quart', 'date'),
+        },
+        // The role dropdown is fed by the Rôles table, narrowed to one category (e.g. "accueil"),
+        // so the dispatcher is not offered roles belonging to other teams. Declared only when that
+        // table exists: a `field` property with an undefined table breaks the settings panel.
+        ...(rolesTable
+            ? [
+                {
+                    key: 'roleCategoryField',
+                    label: 'Catégorie du rôle (sur la table Rôles)',
+                    type: 'field',
+                    table: rolesTable,
+                    shouldFieldBeAllowed: isCategoryLike,
+                    defaultValue: byName(
+                        rolesTable, isCategoryLike,
+                        'catégor', 'categor', 'type', 'équipe', 'equipe',
+                    ),
+                },
+                {
+                    key: 'roleCategoryValue',
+                    label: 'Catégorie de rôle à proposer',
+                    type: 'string',
+                    defaultValue: DEFAULT_ROLE_CATEGORY,
+                },
+            ]
+            : []),
     ];
 }
 
@@ -445,6 +712,29 @@ function ScheduleGridApp() {
     const montageOutField = customPropertyValueByKey.montageOutField;
     const showcallOutField = customPropertyValueByKey.showcallOutField;
     const demontageOutField = customPropertyValueByKey.demontageOutField;
+    const diffusionField = customPropertyValueByKey.diffusionField;
+    const hiddenModesRaw = customPropertyValueByKey.hiddenModes;
+    const staffEventLinkField = customPropertyValueByKey.staffEventLinkField;
+    const contactLinkField = customPropertyValueByKey.contactLinkField;
+    const contactsTable = customPropertyValueByKey.contactsTable;
+    const contactCategoryField = customPropertyValueByKey.contactCategoryField;
+    const contactCategoryValue = customPropertyValueByKey.contactCategoryValue;
+    const staffDateWriteField = customPropertyValueByKey.staffDateWriteField;
+    const roleCategoryField = customPropertyValueByKey.roleCategoryField;
+    const roleCategoryValue = customPropertyValueByKey.roleCategoryValue;
+    const rolesTable = useMemo(
+        () => (staffTable ? findRolesTable(base, staffTable) : null),
+        [base, staffTable],
+    );
+
+    // A shift's day comes from its event (the date_courte rollup). A shift created before being
+    // dispatched to an event has no event yet, so it falls back to its own date field.
+    const readShiftDate = useCallback(
+        (record) =>
+            readDate(record, staffDateField) ??
+            (staffDateWriteField ? readDate(record, staffDateWriteField) : null),
+        [staffDateField, staffDateWriteField],
+    );
 
     const inFields = useMemo(
         () => [montageInField, showcallInField, demontageInField].filter(Boolean),
@@ -457,9 +747,17 @@ function ScheduleGridApp() {
 
     const eventRecords = useRecords(eventsTable);
     const staffRecords = useRecords(staffTable);
+    // useRecords throws on an undefined table, and contactsTable is optional: fall back to a
+    // table that always exists and ignore the result when Contacts is not configured.
+    const contactRecords = useRecords(contactsTable || staffTable);
+    const roleRecords = useRecords(rolesTable || staffTable);
 
     const [selectedWeekMs, setSelectedWeekMs] = useState(null);
     const [numWeeks, setNumWeeks] = useState(1);
+    // One panel, two modes ('create' | 'assign'); null when closed.
+    const [panel, setPanel] = useState(null);
+    const [saving, setSaving] = useState(false);
+    const [feedback, setFeedback] = useState(null);
 
     const configured =
         eventsTable && staffTable && eventLabelField && eventDateField &&
@@ -474,14 +772,14 @@ function ScheduleGridApp() {
                 if (d) set.add(weekStart(d).getTime());
             }
             for (const r of staffRecords) {
-                const d = readDate(r, staffDateField);
+                const d = readShiftDate(r);
                 if (d) set.add(weekStart(d).getTime());
             }
         }
         const today = new Date();
         set.add(weekStart(today).getTime());
         return Array.from(set).sort((a, b) => a - b);
-    }, [configured, eventRecords, staffRecords, eventDateField, staffDateField]);
+    }, [configured, eventRecords, staffRecords, eventDateField, readShiftDate]);
 
     // The selected week always wins (so ◀ ▶ can reach weeks with no data); otherwise default to
     // the week containing today, then the most recent week with data.
@@ -508,14 +806,35 @@ function ScheduleGridApp() {
         return Array.from({length: 7 * numWeeks}, (_, i) => addDays(start, i));
     }, [effectiveWeekMs, numWeeks]);
 
+    const hiddenModes = useMemo(
+        () => parseCsvSet(hiddenModesRaw ?? DEFAULT_HIDDEN_MODES),
+        [hiddenModesRaw],
+    );
+
+    // Events whose diffusion mode is hidden (e.g. "Location": the venue is rented out, so the
+    // Espace does not staff it). Computed over ALL events, not just the displayed week, so that a
+    // shift linked to an off-week event is still filtered out.
+    const hiddenEventIds = useMemo(() => {
+        const set = new Set();
+        if (!diffusionField || hiddenModes.size === 0) return set;
+        for (const r of eventRecords) {
+            const modes = readTextValues(r, diffusionField);
+            if (modes.some((m) => hiddenModes.has(normalizeToken(m)))) set.add(r.id);
+        }
+        return set;
+    }, [eventRecords, diffusionField, hiddenModes]);
+
     // Build: rowKey -> dayIndex -> CellEntry[], the ordered category rows, and per-day totals.
     const {grid, categoryRows, dayTotals} = useMemo(() => {
         const map = new Map();
         const categories = new Set();
         const start = new Date(effectiveWeekMs);
         const numDays = 7 * numWeeks;
-        // Per day: staff shift count, open (unassigned) shift count, total hours.
-        const dayTotals = Array.from({length: numDays}, () => ({shifts: 0, open: 0, hours: 0}));
+        // Per day: staff shift count, open (unassigned) shift count, total hours, event count.
+        const dayTotals = Array.from(
+            {length: numDays},
+            () => ({shifts: 0, open: 0, hours: 0, events: 0, orphans: 0}),
+        );
 
         const ensureRow = (key) => {
             if (!map.has(key)) map.set(key, Array.from({length: numDays}, () => []));
@@ -525,6 +844,7 @@ function ScheduleGridApp() {
         if (configured) {
             // Événements row
             for (const r of eventRecords) {
+                if (hiddenEventIds.has(r.id)) continue;
                 const date = readDate(r, eventDateField);
                 if (!date) continue;
                 const idx = dayDiff(start, date);
@@ -543,10 +863,22 @@ function ScheduleGridApp() {
 
             // Staff category rows
             for (const r of staffRecords) {
-                const date = readDate(r, staffDateField);
+                const date = readShiftDate(r);
                 if (!date) continue;
                 const idx = dayDiff(start, date);
                 if (idx < 0 || idx >= numDays) continue;
+
+                // Drop shifts belonging to a hidden event. Skipping before the dayTotals
+                // increments below is what keeps the footer consistent with what is displayed.
+                // A shift shared with a visible event is kept: it still has to be staffed.
+                const linkedEventIds = staffEventLinkField ? readLinkedIds(r, staffEventLinkField) : [];
+                if (staffEventLinkField && hiddenEventIds.size && linkedEventIds.length) {
+                    if (linkedEventIds.every((id) => hiddenEventIds.has(id))) continue;
+                }
+
+                // A shift created for a day but never dispatched to an event: its date_courte rollup
+                // stays empty, so it is dated here and nowhere else. Flag it rather than lose it.
+                const orphan = Boolean(staffEventLinkField) && linkedEventIds.length === 0;
 
                 const category = r.getCellValueAsString(categoryField).trim() || 'Autres';
                 categories.add(category);
@@ -576,11 +908,13 @@ function ScheduleGridApp() {
                     text,
                     sortKey: minIn !== null ? minIn : timeSortKey(text),
                     highlight: !contact, // yellow when no contact assigned
+                    orphan,
                     record: r,
                 });
 
                 dayTotals[idx].shifts++;
                 if (!contact) dayTotals[idx].open++;
+                if (orphan) dayTotals[idx].orphans++;
                 if (minIn !== null && maxOut !== null) dayTotals[idx].hours += (maxOut - minIn) / 3600;
             }
         }
@@ -596,9 +930,405 @@ function ScheduleGridApp() {
         };
     }, [
         configured, effectiveWeekMs, numWeeks, eventRecords, staffRecords,
-        eventDateField, eventLabelField, staffDateField, categoryField,
+        eventDateField, eventLabelField, readShiftDate, categoryField,
         contactField, inFields, outFields, salleField, base,
+        hiddenEventIds, staffEventLinkField,
     ]);
+
+    // Visible (non-hidden) events keyed by YYYY-MM-DD, for the event pickers of both panels.
+    const eventsByDayIso = useMemo(() => {
+        const map = new Map();
+        if (!configured) return map;
+        for (const r of eventRecords) {
+            if (hiddenEventIds.has(r.id)) continue;
+            const date = readDate(r, eventDateField);
+            if (!date) continue;
+            const iso = fmtDate(date);
+            if (!map.has(iso)) map.set(iso, []);
+            map.get(iso).push({
+                id: r.id,
+                label: r.getCellValueAsString(eventLabelField).trim() || r.name,
+            });
+        }
+        return map;
+    }, [configured, eventRecords, eventDateField, eventLabelField, hiddenEventIds]);
+
+    // Role options come from the Rôles table, narrowed to one category (default "accueil"), so the
+    // dispatcher is never offered a role from another team. Falls back to the field's own select
+    // choices when no Rôles table is configured.
+    const roleChoices = useMemo(() => {
+        // Best case: the Rôles table is exposed to the interface, so it can be filtered by category.
+        if (rolesTable) {
+            const wanted = normalizeToken(roleCategoryValue ?? DEFAULT_ROLE_CATEGORY);
+            return roleRecords
+                .filter((r) => {
+                    if (!roleCategoryField || !wanted) return true;
+                    return readTextValues(r, roleCategoryField).some(
+                        (v) => normalizeToken(v) === wanted,
+                    );
+                })
+                .map((r) => ({id: r.id, name: r.name}))
+                .sort((a, b) => compareCategories(a.name, b.name));
+        }
+
+        // Usual case: Rôles is a link to a table the interface does not expose, so it cannot be read
+        // — and fetchForeignRecordsAsync would return every role in the base, category included.
+        // The roles already linked from equipe_accueil ARE the front-of-house ones, by construction.
+        if (categoryField?.config.type === FieldType.MULTIPLE_RECORD_LINKS) {
+            const byId = new Map();
+            for (const r of staffRecords) {
+                const links = r.getCellValue(categoryField);
+                if (!Array.isArray(links)) continue;
+                for (const link of links) {
+                    if (link?.id && link.name && !byId.has(link.id)) {
+                        byId.set(link.id, {id: link.id, name: link.name});
+                    }
+                }
+            }
+            return [...byId.values()].sort((a, b) => compareCategories(a.name, b.name));
+        }
+
+        return getFieldChoices(categoryField, base) ?? [];
+    }, [
+        rolesTable, roleRecords, roleCategoryField, roleCategoryValue,
+        categoryField, staffRecords, base,
+    ]);
+
+    // Why the role dropdown is empty. Both "no Rôles table" and "no record matches the category"
+    // fall back to a free-text input, so say which one it is.
+    const roleDiagnostic = useMemo(() => {
+        if (!rolesTable) {
+            if (categoryField?.config.type === FieldType.MULTIPLE_RECORD_LINKS) {
+                return (
+                    'la table Rôles n’est pas exposée à l’interface, et aucun quart existant n’est ' +
+                    'encore rattaché à un rôle : il n’y a donc rien à proposer. Rattachez un rôle à ' +
+                    'un quart dans Airtable, ou ajoutez la table Rôles aux sources de l’interface.'
+                );
+            }
+            return `champ Catégorie « ${categoryField?.name} » sans valeurs proposables.`;
+        }
+        const wanted = roleCategoryValue ?? DEFAULT_ROLE_CATEGORY;
+        if (!roleCategoryField) {
+            return `« Catégorie du rôle » n’est pas renseigné dans les réglages : impossible de filtrer les ${roleRecords.length} rôles de « ${rolesTable.name} ».`;
+        }
+        const seen = new Set(
+            roleRecords.flatMap((r) => readTextValues(r, roleCategoryField)),
+        );
+        return `aucun des ${roleRecords.length} rôles de « ${rolesTable.name} » n’a la catégorie « ${wanted} » (champ « ${roleCategoryField.name} » ; valeurs trouvées : ${[...seen].join(', ') || 'aucune'}).`;
+    }, [rolesTable, roleRecords, roleCategoryField, roleCategoryValue, categoryField]);
+
+    // Only the In/Out pairs that are configured AND are real DURATION fields can be written.
+    const writablePairs = useMemo(
+        () =>
+            SHIFT_PAIRS.filter((p) => {
+                const fIn = customPropertyValueByKey[p.inKey];
+                const fOut = customPropertyValueByKey[p.outKey];
+                return (
+                    fIn?.config.type === FieldType.DURATION &&
+                    fOut?.config.type === FieldType.DURATION
+                );
+            }),
+        [customPropertyValueByKey],
+    );
+
+    // Contacts also holds producers, venue teams, etc.: only employees can take a shift.
+    const contactOptions = useMemo(() => {
+        if (!contactsTable) return [];
+        const wanted = normalizeToken(contactCategoryValue ?? DEFAULT_CONTACT_CATEGORY);
+        return contactRecords
+            .filter((r) => {
+                if (!contactCategoryField || !wanted) return true;
+                return readTextValues(r, contactCategoryField).some(
+                    (v) => normalizeToken(v) === wanted,
+                );
+            })
+            .map((r) => ({id: r.id, name: r.name}))
+            .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    }, [contactsTable, contactRecords, contactCategoryField, contactCategoryValue]);
+
+    // Two silent failures to surface: the filter never applied (property unset — every contact is
+    // offered), or it applied and matched nothing (which looks like "no contacts at all").
+    const contactDiagnostic = useMemo(() => {
+        if (!contactsTable) return null;
+        if (!contactCategoryField) {
+            return 'filtre inactif : la propriété « Catégorie de contact » n’est pas renseignée dans les réglages de l’extension — tous les contacts sont proposés.';
+        }
+        if (contactOptions.length) return null;
+        const seen = new Set(
+            contactRecords.flatMap((r) => readTextValues(r, contactCategoryField)),
+        );
+        const wanted = contactCategoryValue ?? DEFAULT_CONTACT_CATEGORY;
+        return `aucun des ${contactRecords.length} contacts n’a la catégorie « ${wanted} » (champ « ${contactCategoryField.name} » ; valeurs trouvées : ${[...seen].join(', ') || 'aucune'}).`;
+    }, [contactsTable, contactOptions, contactRecords, contactCategoryField, contactCategoryValue]);
+
+    // Coarse checks: they decide whether the affordance is shown at all. The precise, field-aware
+    // check happens right before each write (field-level restrictions only surface there).
+    // Why creation is unavailable. Surfaced in the UI: a silently missing button is impossible to
+    // diagnose, and every one of these causes is fixed in the settings panel or in Airtable.
+    const createBlockers = useMemo(() => {
+        if (!configured) return ['Extension non configurée.'];
+        const reasons = [];
+        // Shifts are created for a day and dispatched to an event later, so their date cannot come
+        // from the event rollup: they need a date field of their own.
+        if (!staffDateWriteField) {
+            reasons.push(
+                'aucun champ « Date du quart — champ inscriptible ». `date_courte` est un cumul de ' +
+                    'la date de l’événement : tant qu’un quart n’est rattaché à aucun événement, il ' +
+                    'n’a pas de date. Ajoutez un champ de type Date sur la table des quarts, puis ' +
+                    'sélectionnez-le dans les réglages.',
+            );
+        }
+        if (!writablePairs.length) {
+            const pairs = SHIFT_PAIRS.map((p) => {
+                const fIn = customPropertyValueByKey[p.inKey];
+                const fOut = customPropertyValueByKey[p.outKey];
+                const describe = (f) => (f ? `${f.name} [${f.config.type}]` : 'non configuré');
+                return `${p.label} → In: ${describe(fIn)} / Out: ${describe(fOut)}`;
+            });
+            reasons.push(
+                'aucune paire In/Out de type Durée. Les heures ne peuvent être écrites que dans ' +
+                    `des champs « Duration ». État actuel — ${pairs.join(' ; ')}.`,
+            );
+        }
+        // Permissions are decided by Airtable, not by the SDK: surface its own reason verbatim
+        // rather than a generic message.
+        const check = staffTable.checkPermissionsForCreateRecords();
+        if (!check.hasPermission) {
+            reasons.push(
+                `création refusée par Airtable — ${check.reasonDisplayString ?? 'raison non fournie'}`,
+            );
+        }
+        return reasons;
+    }, [configured, staffDateWriteField, writablePairs, customPropertyValueByKey, staffTable]);
+
+    const canCreate = createBlockers.length === 0;
+    // Editing a shift covers its hours, its contact and its event. Hours only need write permission
+    // and a DURATION pair; the contact select additionally needs the Contacts table and its link.
+    const editBlockers = useMemo(() => {
+        if (!configured) return ['Extension non configurée.'];
+        const reasons = [];
+        if (!writablePairs.length) {
+            reasons.push('aucune paire In/Out de type Durée : les horaires ne sont pas modifiables.');
+        }
+        const check = staffTable.checkPermissionsForUpdateRecord();
+        if (!check.hasPermission) {
+            reasons.push(
+                `modification refusée par Airtable — ${check.reasonDisplayString ?? 'raison non fournie'}`,
+            );
+        }
+        return reasons;
+    }, [configured, writablePairs, staffTable]);
+
+    const canEdit = editBlockers.length === 0;
+    const canAssignContact = Boolean(contactsTable && contactLinkField);
+
+    // Preselect the plain usher role: "senior" variants also contain "placier", so exclude them.
+    const defaultRoleId = useMemo(() => {
+        const matches = roleChoices.filter((c) =>
+            normalizeToken(c.name).includes(DEFAULT_ROLE_NEEDLE),
+        );
+        const plain = matches.find((c) => !normalizeToken(c.name).includes('senior'));
+        return (plain ?? matches[0] ?? roleChoices[0])?.id ?? '';
+    }, [roleChoices]);
+
+    const openCreatePanel = () => {
+        setFeedback(null);
+        setPanel({
+            mode: 'create',
+            dayIso: fmtDate(new Date(effectiveWeekMs)),
+            roleId: defaultRoleId,
+            roleText: '',
+            pair: writablePairs.some((p) => p.key === 'showcall')
+                ? 'showcall'
+                : writablePairs[0]?.key,
+            start: '18:00',
+            end: '22:00',
+            quantity: 1,
+        });
+    };
+
+    // A shift may have several pairs filled at once (Montage AND Show call AND Démontage), so the
+    // panel prefills all of them rather than guessing which single range the user meant.
+    const openEditPanel = (record) => {
+        setFeedback(null);
+        const date = readShiftDate(record);
+        const times = {};
+        for (const pair of writablePairs) {
+            times[pair.key] = {
+                start: fmtHHMM(readDurationSeconds(record, customPropertyValueByKey[pair.inKey])),
+                end: fmtHHMM(readDurationSeconds(record, customPropertyValueByKey[pair.outKey])),
+            };
+        }
+        setPanel({
+            mode: 'edit',
+            recordId: record.id,
+            dayIso: date ? fmtDate(date) : '',
+            times,
+            contactId: canAssignContact ? readLinkedIds(record, contactLinkField)[0] ?? '' : '',
+            eventId: readLinkedIds(record, staffEventLinkField)[0] ?? '',
+        });
+    };
+
+    const handleCreate = async () => {
+        const startSec = parseHHMM(panel.start);
+        const rawEnd = parseHHMM(panel.end);
+        if (startSec === null || rawEnd === null) {
+            setFeedback({type: 'error', message: 'Heures invalides (format attendu : HH:MM).'});
+            return;
+        }
+        const pair = writablePairs.find((p) => p.key === panel.pair);
+        if (!pair) {
+            setFeedback({type: 'error', message: 'Aucun bloc de travail inscriptible.'});
+            return;
+        }
+        const quantity = Math.max(1, Math.min(MAX_SHIFT_QUANTITY, Number(panel.quantity) || 1));
+        const endSec = endSecondsWithWrap(startSec, rawEnd);
+
+        const fields = {};
+        fields[staffDateWriteField.id] = panel.dayIso; // DATE/DATE_TIME accept a YYYY-MM-DD string
+        fields[customPropertyValueByKey[pair.inKey].id] = startSec; // DURATION = seconds
+        fields[customPropertyValueByKey[pair.outKey].id] = endSec;
+        // No event here: the shift is dispatched to one later, from the assignment panel.
+
+        const choice = roleChoices.find((c) => c.id === panel.roleId) ?? null;
+        const roleValue = roleWriteValue(categoryField, choice, panel.roleText);
+        if (roleValue !== undefined) fields[categoryField.id] = roleValue;
+
+        // The contact is deliberately left empty: these are open shifts, rendered yellow.
+
+        const defs = Array.from({length: quantity}, () => ({fields: {...fields}}));
+        const check = staffTable.checkPermissionsForCreateRecords(defs);
+        if (!check.hasPermission) {
+            setFeedback({type: 'error', message: check.reasonDisplayString ?? 'Création refusée.'});
+            return;
+        }
+
+        setSaving(true);
+        let created = 0;
+        try {
+            // Airtable rejects more than 50 records per call, and nothing is rolled back on a
+            // partial failure, so report how many actually made it through.
+            for (const batch of chunkArray(defs, MAX_RECORDS_PER_CALL)) {
+                await staffTable.createRecordsAsync(batch);
+                created += batch.length;
+            }
+            setPanel(null);
+            setFeedback({
+                type: 'success',
+                message: `${created} quart${created > 1 ? 's' : ''} créé${created > 1 ? 's' : ''}.`,
+            });
+        } catch (err) {
+            setFeedback({
+                type: 'error',
+                message: `Échec après ${created} quart(s) créé(s) : ${err.message}`,
+            });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    // Deleting is irreversible and Airtable asks for no confirmation of its own, so the button
+    // arms itself first (`confirmDelete`) and only deletes on a second, deliberate click.
+    const handleDelete = async () => {
+        const record = staffRecords.find((r) => r.id === panel.recordId);
+        if (!record) {
+            setFeedback({type: 'error', message: 'Quart introuvable.'});
+            return;
+        }
+        if (!panel.confirmDelete) {
+            setPanel({...panel, confirmDelete: true});
+            return;
+        }
+
+        const check = staffTable.checkPermissionsForDeleteRecord(record);
+        if (!check.hasPermission) {
+            setFeedback({
+                type: 'error',
+                message: check.reasonDisplayString ?? 'Suppression refusée.',
+            });
+            return;
+        }
+
+        setSaving(true);
+        try {
+            await staffTable.deleteRecordAsync(record);
+            setPanel(null);
+            setFeedback({type: 'success', message: 'Quart supprimé.'});
+        } catch (err) {
+            setFeedback({type: 'error', message: `Échec de la suppression : ${err.message}`});
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleEdit = async () => {
+        const record = staffRecords.find((r) => r.id === panel.recordId);
+        if (!record) {
+            setFeedback({type: 'error', message: 'Quart introuvable.'});
+            return;
+        }
+
+        const fields = {};
+
+        for (const pair of writablePairs) {
+            const {start = '', end = ''} = panel.times[pair.key] ?? {};
+            const inField = customPropertyValueByKey[pair.inKey];
+            const outField = customPropertyValueByKey[pair.outKey];
+
+            // Both empty: clear the pair. Otherwise both are required — a lone In or Out would
+            // make the min-In/max-Out range meaningless.
+            if (!start && !end) {
+                fields[inField.id] = null;
+                fields[outField.id] = null;
+                continue;
+            }
+            const startSec = parseHHMM(start);
+            const endSec = parseHHMM(end);
+            if (startSec === null || endSec === null) {
+                setFeedback({
+                    type: 'error',
+                    message: `${pair.label} : renseignez le début ET la fin (format HH:MM), ou videz les deux.`,
+                });
+                return;
+            }
+            fields[inField.id] = startSec;
+            fields[outField.id] = endSecondsWithWrap(startSec, endSec);
+        }
+
+        if (Object.values(fields).every((v) => v === null)) {
+            setFeedback({type: 'error', message: 'Un quart doit avoir au moins une plage horaire.'});
+            return;
+        }
+
+        // An empty selection must CLEAR the link, so always write the field: an empty array unlinks,
+        // and skipping it would silently keep the previous value ("Non assigné" would do nothing).
+        if (canAssignContact) {
+            fields[contactLinkField.id] = panel.contactId ? [{id: panel.contactId}] : [];
+        }
+        if (staffEventLinkField) {
+            fields[staffEventLinkField.id] = panel.eventId ? [{id: panel.eventId}] : [];
+        }
+
+        const check = staffTable.checkPermissionsForUpdateRecord(record, fields);
+        if (!check.hasPermission) {
+            setFeedback({
+                type: 'error',
+                message: check.reasonDisplayString ?? 'Modification refusée.',
+            });
+            return;
+        }
+
+        setSaving(true);
+        try {
+            await staffTable.updateRecordAsync(record, fields);
+            setPanel(null);
+            setFeedback({type: 'success', message: 'Quart mis à jour.'});
+        } catch (err) {
+            setFeedback({type: 'error', message: `Échec de la modification : ${err.message}`});
+        } finally {
+            setSaving(false);
+        }
+    };
 
     if (errorState) {
         return (
@@ -687,7 +1417,86 @@ function ScheduleGridApp() {
                         </button>
                     ))}
                 </div>
+                {canCreate && (
+                    <button
+                        type="button"
+                        onClick={openCreatePanel}
+                        className="ml-auto rounded border border-blue-blue bg-blue-blue px-2 py-1 text-sm font-medium text-white hover:opacity-90"
+                    >
+                        + Créer des quarts
+                    </button>
+                )}
             </div>
+
+            {feedback && (
+                <div
+                    className={
+                        'mb-3 rounded border px-3 py-2 text-sm ' +
+                        (feedback.type === 'error'
+                            ? 'border-red-red bg-red-redLight2 text-gray-gray900'
+                            : 'border-green-green bg-green-greenLight2 text-gray-gray900')
+                    }
+                >
+                    {feedback.message}
+                </div>
+            )}
+
+            {(!canCreate || !canEdit) && (
+                <div className="mb-3 rounded border border-yellow-yellow bg-yellow-yellowLight2 px-3 py-2 text-xs text-gray-gray900">
+                    {!canCreate && (
+                        <>
+                            <span className="font-semibold">Création de quarts indisponible :</span>
+                            <ul className="mb-1 ml-4 list-disc">
+                                {createBlockers.map((reason, i) => (
+                                    <li key={i}>{reason}</li>
+                                ))}
+                            </ul>
+                        </>
+                    )}
+                    {!canEdit && (
+                        <>
+                            <span className="font-semibold">Modification indisponible :</span>
+                            <ul className="ml-4 list-disc">
+                                {editBlockers.map((reason, i) => (
+                                    <li key={i}>{reason}</li>
+                                ))}
+                            </ul>
+                        </>
+                    )}
+                </div>
+            )}
+
+            {panel?.mode === 'create' && (
+                <CreateShiftsPanel
+                    panel={panel}
+                    setPanel={setPanel}
+                    saving={saving}
+                    onSubmit={handleCreate}
+                    onCancel={() => setPanel(null)}
+                    roleChoices={roleChoices}
+                    roleDiagnostic={roleDiagnostic}
+                    categoryField={categoryField}
+                    writablePairs={writablePairs}
+                />
+            )}
+
+            {panel?.mode === 'edit' && (
+                <EditShiftPanel
+                    panel={panel}
+                    setPanel={setPanel}
+                    saving={saving}
+                    onSubmit={handleEdit}
+                    onCancel={() => setPanel(null)}
+                    onDelete={handleDelete}
+                    canDelete={staffTable.hasPermissionToDeleteRecord()}
+                    writablePairs={writablePairs}
+                    canAssignContact={canAssignContact}
+                    contactOptions={contactOptions}
+                    contactDiagnostic={contactDiagnostic}
+                    dayEvents={eventsByDayIso.get(panel.dayIso) ?? []}
+                    hasEventLink={Boolean(staffEventLinkField)}
+                />
+            )}
 
             <h1 className="mb-3 text-center font-display text-base font-semibold">
                 Horaire du {fmtDate(new Date(effectiveWeekMs))} au {fmtDate(weekEnd)}
@@ -729,30 +1538,47 @@ function ScheduleGridApp() {
                                             className="border border-gray-gray200 p-1 align-top dark:border-gray-gray700"
                                         >
                                             <div className="flex flex-col gap-1">
-                                                {entries.map((entry, j) => (
-                                                    <div
-                                                        key={j}
-                                                        onClick={() =>
-                                                            canExpand(table) && expandRecord(entry.record)
-                                                        }
-                                                        className={
-                                                            'rounded border px-1.5 py-1 leading-tight ' +
-                                                            (canExpand(table) ? 'cursor-pointer ' : '') +
-                                                            (entry.color
-                                                                ? 'border-transparent '
-                                                                : entry.highlight
-                                                                    ? 'border-yellow-yellow bg-yellow-yellowLight1 text-gray-gray900 min-h-[1.5rem] '
-                                                                    : 'border-gray-gray200 bg-white dark:border-gray-gray600 dark:bg-gray-gray800')
-                                                        }
-                                                        style={
-                                                            entry.color
-                                                                ? {backgroundColor: entry.color.bg, color: entry.color.text}
-                                                                : undefined
-                                                        }
-                                                    >
-                                                        {entry.text}
-                                                    </div>
-                                                ))}
+                                                {entries.map((entry, j) => {
+                                                    // Any shift opens the edit panel (hours, contact,
+                                                    // event). Events keep expanding their record.
+                                                    const editable = canEdit && key !== EVENTS_ROW_KEY;
+                                                    const clickable = editable || canExpand(table);
+                                                    const onClick = () => {
+                                                        if (editable) openEditPanel(entry.record);
+                                                        else if (canExpand(table)) expandRecord(entry.record);
+                                                    };
+                                                    return (
+                                                        <div
+                                                            key={j}
+                                                            onClick={onClick}
+                                                            title={editable ? 'Modifier le quart' : undefined}
+                                                            className={
+                                                                'rounded border px-1.5 py-1 leading-tight ' +
+                                                                (clickable ? 'cursor-pointer ' : '') +
+                                                                (entry.color
+                                                                    ? 'border-transparent '
+                                                                    : entry.highlight
+                                                                        ? 'border-yellow-yellow bg-yellow-yellowLight1 text-gray-gray900 min-h-[1.5rem] '
+                                                                        : 'border-gray-gray200 bg-white dark:border-gray-gray600 dark:bg-gray-gray800')
+                                                            }
+                                                            style={
+                                                                entry.color
+                                                                    ? {backgroundColor: entry.color.bg, color: entry.color.text}
+                                                                    : undefined
+                                                            }
+                                                        >
+                                                            {entry.orphan && (
+                                                                <span
+                                                                    className="mr-1 font-semibold text-orange-orange"
+                                                                    title="Aucun événement : ce quart n’est daté que dans cette extension"
+                                                                >
+                                                                    ⚠
+                                                                </span>
+                                                            )}
+                                                            {entry.text}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </td>
                                     ))}
@@ -770,19 +1596,33 @@ function ScheduleGridApp() {
                                     key={i}
                                     className="border border-gray-gray200 bg-gray-gray50 p-2 text-center align-top text-[11px] dark:border-gray-gray700 dark:bg-gray-gray800"
                                 >
-                                    {t.shifts === 0 ? (
+                                    {t.shifts === 0 && t.events === 0 ? (
                                         <span className="text-gray-gray400">—</span>
                                     ) : (
                                         <div className="flex flex-col leading-tight">
-                                            <span className="font-semibold">
-                                                {t.shifts} quart{t.shifts > 1 ? 's' : ''}
-                                            </span>
-                                            <span className="text-gray-gray600 dark:text-gray-gray400">
-                                                {(Math.round(t.hours * 10) / 10).toLocaleString('fr-FR')} h
-                                            </span>
+                                            {t.shifts > 0 && (
+                                                <>
+                                                    <span className="font-semibold">
+                                                        {t.shifts} quart{t.shifts > 1 ? 's' : ''}
+                                                    </span>
+                                                    <span className="text-gray-gray600 dark:text-gray-gray400">
+                                                        {(Math.round(t.hours * 10) / 10).toLocaleString('fr-FR')} h
+                                                    </span>
+                                                </>
+                                            )}
                                             {t.open > 0 && (
                                                 <span className="font-medium text-orange-orange">
                                                     {t.open} ouvert{t.open > 1 ? 's' : ''}
+                                                </span>
+                                            )}
+                                            {t.events > 0 && (
+                                                <span className="text-gray-gray600 dark:text-gray-gray400">
+                                                    {t.events} évén.
+                                                </span>
+                                            )}
+                                            {t.orphans > 0 && (
+                                                <span className="font-medium text-orange-orange">
+                                                    ⚠ {t.orphans} sans évén.
                                                 </span>
                                             )}
                                         </div>
@@ -794,6 +1634,268 @@ function ScheduleGridApp() {
                 </table>
             </div>
         </div>
+    );
+}
+
+// === PANELS ===
+//
+// Rendered in normal flow rather than as a fixed-position modal: the root carries zoom: 1.25 and
+// the extension runs in a height-constrained iframe, both of which misplace/clip a fixed overlay.
+
+const FIELD_LABEL = 'mb-1 block text-xs font-medium text-gray-gray700 dark:text-gray-gray300';
+const FIELD_INPUT =
+    'w-full rounded border border-gray-gray300 bg-white px-2 py-1 text-sm dark:border-gray-gray600 dark:bg-gray-gray800 dark:text-gray-gray100';
+
+// The action buttons sit at the end of the same row as the inputs, not on a line of their own.
+function PanelShell({
+    title, saving, submitLabel, onSubmit, onCancel, onDelete, deleteArmed, children,
+}) {
+    return (
+        <div className="mb-3 rounded border border-gray-gray300 bg-gray-gray50 p-3 dark:border-gray-gray600 dark:bg-gray-gray800">
+            <h2 className="mb-2 text-sm font-semibold">{title}</h2>
+            <div className="flex flex-wrap items-end gap-3">
+                {children}
+                <div className="flex gap-2">
+                    <button
+                        type="button"
+                        disabled={saving}
+                        onClick={onSubmit}
+                        className="rounded border border-blue-blue bg-blue-blue px-3 py-1 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                    >
+                        {saving ? 'Enregistrement…' : submitLabel}
+                    </button>
+                    <button
+                        type="button"
+                        disabled={saving}
+                        onClick={onCancel}
+                        className="rounded border border-gray-gray300 bg-white px-3 py-1 text-sm disabled:opacity-50 dark:border-gray-gray600 dark:bg-gray-gray800 dark:text-gray-gray100"
+                    >
+                        Annuler
+                    </button>
+                    {onDelete && (
+                        <button
+                            type="button"
+                            disabled={saving}
+                            onClick={onDelete}
+                            className={
+                                'ml-4 rounded border px-3 py-1 text-sm disabled:opacity-50 ' +
+                                (deleteArmed
+                                    ? 'border-red-red bg-red-red font-medium text-white'
+                                    : 'border-red-red bg-white text-red-red dark:bg-gray-gray800')
+                            }
+                        >
+                            {deleteArmed ? 'Confirmer la suppression' : 'Supprimer'}
+                        </button>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function EventSelect({value, onChange, dayEvents, hasEventLink}) {
+    if (!hasEventLink) return null;
+    return (
+        <div>
+            <label className={FIELD_LABEL}>Événement</label>
+            <select className={FIELD_INPUT} value={value} onChange={(e) => onChange(e.target.value)}>
+                <option value="">— Aucun —</option>
+                {dayEvents.map((ev) => (
+                    <option key={ev.id} value={ev.id}>
+                        {ev.label}
+                    </option>
+                ))}
+            </select>
+        </div>
+    );
+}
+
+function CreateShiftsPanel({
+    panel, setPanel, saving, onSubmit, onCancel,
+    roleChoices, roleDiagnostic, categoryField, writablePairs,
+}) {
+    const set = (patch) => setPanel({...panel, ...patch});
+    const roleIsFreeText = isRoleFreeText(categoryField);
+
+    return (
+        <PanelShell
+            title="Créer des quarts"
+            saving={saving}
+            submitLabel="Créer"
+            onSubmit={onSubmit}
+            onCancel={onCancel}
+        >
+            <div>
+                <label className={FIELD_LABEL}>Date</label>
+                <input
+                    type="date"
+                    className={FIELD_INPUT}
+                    value={panel.dayIso}
+                    onChange={(e) => set({dayIso: e.target.value, eventId: ''})}
+                />
+            </div>
+
+            <div>
+                <label className={FIELD_LABEL}>Rôle</label>
+                {roleChoices.length > 0 ? (
+                    <select
+                        className={FIELD_INPUT}
+                        value={panel.roleId}
+                        onChange={(e) => set({roleId: e.target.value})}
+                    >
+                        {roleChoices.map((c) => (
+                            <option key={c.id} value={c.id}>
+                                {c.name}
+                            </option>
+                        ))}
+                    </select>
+                ) : roleIsFreeText ? (
+                    <>
+                        <input
+                            type="text"
+                            className={FIELD_INPUT}
+                            value={panel.roleText}
+                            onChange={(e) => set({roleText: e.target.value})}
+                        />
+                        <p className="mt-1 max-w-[16rem] text-xs text-orange-orange">
+                            Menu indisponible — {roleDiagnostic}
+                        </p>
+                    </>
+                ) : (
+                    <p className="max-w-[16rem] text-xs text-orange-orange">
+                        {isRoleWritable(categoryField)
+                            ? `Aucun rôle disponible — ${roleDiagnostic}`
+                            : `Champ Catégorie non inscriptible (${categoryField?.config.type}) : le rôle ne sera pas renseigné.`}
+                    </p>
+                )}
+            </div>
+
+            <div>
+                <label className={FIELD_LABEL}>Bloc de travail</label>
+                <select
+                    className={FIELD_INPUT}
+                    value={panel.pair}
+                    onChange={(e) => set({pair: e.target.value})}
+                >
+                    {writablePairs.map((p) => (
+                        <option key={p.key} value={p.key}>
+                            {p.label}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            <div>
+                <label className={FIELD_LABEL}>Début</label>
+                <input
+                    type="time"
+                    className={FIELD_INPUT}
+                    value={panel.start}
+                    onChange={(e) => set({start: e.target.value})}
+                />
+            </div>
+
+            <div>
+                <label className={FIELD_LABEL}>Fin</label>
+                <input
+                    type="time"
+                    className={FIELD_INPUT}
+                    value={panel.end}
+                    onChange={(e) => set({end: e.target.value})}
+                />
+            </div>
+
+            <div>
+                <label className={FIELD_LABEL}>Nombre de quarts</label>
+                <input
+                    type="number"
+                    min="1"
+                    max={MAX_SHIFT_QUANTITY}
+                    className={FIELD_INPUT}
+                    value={panel.quantity}
+                    onChange={(e) => set({quantity: e.target.value})}
+                />
+            </div>
+
+            {/* No event picker here: shifts are created for a day and dispatched to an event later,
+                from the assignment panel. */}
+        </PanelShell>
+    );
+}
+
+function EditShiftPanel({
+    panel, setPanel, saving, onSubmit, onCancel, onDelete, canDelete, writablePairs,
+    canAssignContact, contactOptions, contactDiagnostic, dayEvents, hasEventLink,
+}) {
+    // Any edit disarms a pending delete confirmation: the armed button must not survive a change
+    // of mind that lands on it.
+    const set = (patch) => setPanel({...panel, ...patch, confirmDelete: false});
+    const setTime = (pairKey, patch) =>
+        set({times: {...panel.times, [pairKey]: {...panel.times[pairKey], ...patch}}});
+
+    return (
+        <PanelShell
+            title="Modifier le quart"
+            saving={saving}
+            submitLabel="Enregistrer"
+            onSubmit={onSubmit}
+            onCancel={onCancel}
+            onDelete={canDelete ? onDelete : undefined}
+            deleteArmed={Boolean(panel.confirmDelete)}
+        >
+            {/* All three pairs are shown: a shift can legitimately have more than one filled.
+                Clearing both ends of a pair erases it. */}
+            {writablePairs.map((pair) => (
+                <div key={pair.key}>
+                    <label className={FIELD_LABEL}>{pair.label}</label>
+                    <div className="flex items-center gap-1">
+                        <input
+                            type="time"
+                            className={FIELD_INPUT}
+                            value={panel.times[pair.key]?.start ?? ''}
+                            onChange={(e) => setTime(pair.key, {start: e.target.value})}
+                        />
+                        <span className="text-xs text-gray-gray500">→</span>
+                        <input
+                            type="time"
+                            className={FIELD_INPUT}
+                            value={panel.times[pair.key]?.end ?? ''}
+                            onChange={(e) => setTime(pair.key, {end: e.target.value})}
+                        />
+                    </div>
+                </div>
+            ))}
+
+            {canAssignContact && (
+                <div>
+                    <label className={FIELD_LABEL}>Contact</label>
+                    <select
+                        className={FIELD_INPUT}
+                        value={panel.contactId}
+                        onChange={(e) => set({contactId: e.target.value})}
+                    >
+                        <option value="">— Non assigné —</option>
+                        {contactOptions.map((c) => (
+                            <option key={c.id} value={c.id}>
+                                {c.name}
+                            </option>
+                        ))}
+                    </select>
+                    {contactDiagnostic && (
+                        <p className="mt-1 max-w-[16rem] text-xs text-orange-orange">
+                            {contactDiagnostic}
+                        </p>
+                    )}
+                </div>
+            )}
+
+            <EventSelect
+                value={panel.eventId}
+                onChange={(eventId) => set({eventId})}
+                dayEvents={dayEvents}
+                hasEventLink={hasEventLink}
+            />
+        </PanelShell>
     );
 }
 
