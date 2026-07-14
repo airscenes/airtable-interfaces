@@ -273,6 +273,27 @@ function findRolesTable(base, staffTable) {
     );
 }
 
+// Airtable record-detail URLs carry a base64 `detail` payload holding the row id plus page and
+// element ids specific to the interface. Those cannot be guessed, so the builder pastes one real
+// URL and we swap only its rowId. The raw query string is edited in place: re-serialising it would
+// percent-encode the base64 and the trailing `&rsbzG=…`-style params.
+function buildRecordDetailUrl(template, recordId) {
+    if (!template || !recordId) return null;
+    const match = /([?&]detail=)([^&]+)/.exec(template);
+    if (!match) return null;
+    try {
+        const padded = match[2] + '='.repeat((4 - (match[2].length % 4)) % 4);
+        const payload = JSON.parse(atob(padded));
+        payload.rowId = recordId;
+        // Airtable emits unpadded base64; mirror that rather than relying on it tolerating `=`.
+        const encoded = btoa(JSON.stringify(payload)).replace(/=+$/, '');
+        return template.slice(0, match.index) + match[1] + encoded +
+            template.slice(match.index + match[0].length);
+    } catch {
+        return null; // malformed template: the caller falls back to expandRecord
+    }
+}
+
 function compareCategories(a, b) {
     const ai = CATEGORY_PRIORITY_ORDER.indexOf(a);
     const bi = CATEGORY_PRIORITY_ORDER.indexOf(b);
@@ -526,6 +547,31 @@ function getCustomProperties(base) {
             type: 'string',
             defaultValue: DEFAULT_HIDDEN_MODES,
         },
+        // Clicking an event opens the Projet side-sheet of the interface. Paste one such URL: only
+        // its rowId is swapped, so the page and element ids stay yours.
+        // Airtable truncates a `string` custom property at 255 characters and these URLs are longer
+        // (the base64 `detail` payload alone is ~250), so the value is split across two properties
+        // and concatenated back. Cutting the base64 in half would otherwise corrupt it silently.
+        {
+            key: 'detailUrlPart1',
+            label: 'URL du side-sheet Projet — partie 1/2 (255 car. max)',
+            type: 'string',
+            defaultValue: '',
+        },
+        {
+            key: 'detailUrlPart2',
+            label: 'URL du side-sheet Projet — partie 2/2 (la suite, sans espace)',
+            type: 'string',
+            defaultValue: '',
+        },
+        {
+            key: 'detailLinkField',
+            label: 'Lien Projet (sur Événements)',
+            type: 'field',
+            table: eventsTable,
+            shouldFieldBeAllowed: isLinkedRecord,
+            defaultValue: byName(eventsTable, isLinkedRecord, 'projet'),
+        },
         {
             key: 'contactField',
             label: 'Nom du contact (ex. nom_contact)',
@@ -629,6 +675,18 @@ function getCustomProperties(base) {
             shouldFieldBeAllowed: isLinkedRecord,
             defaultValue: contactLinkGuess,
         },
+        // The Projet interface page lists shifts by their Projets link, which equipe_accueil carries
+        // but does not derive: it stays empty on a shift created here. We copy it from the event's
+        // own Projets link whenever an event is set. Requires the field to be exposed to this
+        // extension in the interface builder — a hidden field has no id and cannot be written.
+        {
+            key: 'staffProjectLinkField',
+            label: 'Lien Projet (sur les quarts)',
+            type: 'field',
+            table: staffTable,
+            shouldFieldBeAllowed: isLinkedRecord,
+            defaultValue: byName(staffTable, isLinkedRecord, 'projet'),
+        },
         {
             key: 'contactsTable',
             label: 'Table Contacts',
@@ -713,6 +771,12 @@ function ScheduleGridApp() {
     const showcallOutField = customPropertyValueByKey.showcallOutField;
     const demontageOutField = customPropertyValueByKey.demontageOutField;
     const diffusionField = customPropertyValueByKey.diffusionField;
+    // Rejoin the two halves Airtable's 255-char limit forced us to split the URL into.
+    const detailUrlTemplate =
+        String(customPropertyValueByKey.detailUrlPart1 ?? '').trim() +
+        String(customPropertyValueByKey.detailUrlPart2 ?? '').trim();
+    const detailLinkField = customPropertyValueByKey.detailLinkField;
+    const staffProjectLinkField = customPropertyValueByKey.staffProjectLinkField;
     const hiddenModesRaw = customPropertyValueByKey.hiddenModes;
     const staffEventLinkField = customPropertyValueByKey.staffEventLinkField;
     const contactLinkField = customPropertyValueByKey.contactLinkField;
@@ -851,11 +915,17 @@ function ScheduleGridApp() {
                 if (idx < 0 || idx >= numDays) continue;
                 const text = r.getCellValueAsString(eventLabelField).trim();
                 if (!text) continue;
+                // The detail URL opens a Projet side-sheet, so its rowId must be a Projet record —
+                // never the event's own id, which would render an empty sheet. No link, no URL: the
+                // click falls back to expanding the event record.
+                const detailRowId = detailLinkField ? readLinkedIds(r, detailLinkField)[0] ?? null : null;
+
                 ensureRow(EVENTS_ROW_KEY)[idx].push({
                     text,
                     sortKey: timeSortKey(text),
                     highlight: false,
                     color: salleField ? getSalleColor(r, salleField, base) : null,
+                    detailUrl: buildRecordDetailUrl(detailUrlTemplate, detailRowId),
                     record: r,
                 });
                 dayTotals[idx].events++;
@@ -932,7 +1002,7 @@ function ScheduleGridApp() {
         configured, effectiveWeekMs, numWeeks, eventRecords, staffRecords,
         eventDateField, eventLabelField, readShiftDate, categoryField,
         contactField, inFields, outFields, salleField, base,
-        hiddenEventIds, staffEventLinkField,
+        hiddenEventIds, staffEventLinkField, detailUrlTemplate, detailLinkField,
     ]);
 
     // Visible (non-hidden) events keyed by YYYY-MM-DD, for the event pickers of both panels.
@@ -1120,6 +1190,18 @@ function ScheduleGridApp() {
     }, [configured, writablePairs, staffTable]);
 
     const canEdit = editBlockers.length === 0;
+
+    // The event link is silent when misconfigured: the chip just falls back to expandRecord. Say so.
+    const detailUrlWarning = useMemo(() => {
+        if (!detailUrlTemplate) return null;
+        if (!detailLinkField) {
+            return 'Fiche projet : la propriété « Lien Projet (sur Événements) » n’est pas renseignée.';
+        }
+        if (!buildRecordDetailUrl(detailUrlTemplate, 'recXXXXXXXXXXXXXX')) {
+            return `Fiche projet : URL non exploitable (${detailUrlTemplate.length} caractères recollés). Airtable coupe chaque propriété à 255 caractères : vérifiez que la partie 2/2 reprend exactement là où la partie 1/2 s’arrête, sans espace ni caractère perdu.`;
+        }
+        return null;
+    }, [detailUrlTemplate, detailLinkField]);
     const canAssignContact = Boolean(contactsTable && contactLinkField);
 
     // Preselect the plain usher role: "senior" variants also contain "placier", so exclude them.
@@ -1308,6 +1390,15 @@ function ScheduleGridApp() {
         if (staffEventLinkField) {
             fields[staffEventLinkField.id] = panel.eventId ? [{id: panel.eventId}] : [];
         }
+        // The shift's project is the project of its event: derive it rather than ask for it.
+        // Without it, the Projet interface page does not list the shift at all.
+        if (staffProjectLinkField && detailLinkField) {
+            const eventRecord = panel.eventId
+                ? eventRecords.find((r) => r.id === panel.eventId)
+                : null;
+            const projectIds = eventRecord ? readLinkedIds(eventRecord, detailLinkField) : [];
+            fields[staffProjectLinkField.id] = projectIds.map((id) => ({id}));
+        }
 
         const check = staffTable.checkPermissionsForUpdateRecord(record, fields);
         if (!check.hasPermission) {
@@ -1441,6 +1532,12 @@ function ScheduleGridApp() {
                 </div>
             )}
 
+            {detailUrlWarning && (
+                <div className="mb-3 rounded border border-yellow-yellow bg-yellow-yellowLight2 px-3 py-2 text-xs text-gray-gray900">
+                    {detailUrlWarning}
+                </div>
+            )}
+
             {(!canCreate || !canEdit) && (
                 <div className="mb-3 rounded border border-yellow-yellow bg-yellow-yellowLight2 px-3 py-2 text-xs text-gray-gray900">
                     {!canCreate && (
@@ -1539,34 +1636,33 @@ function ScheduleGridApp() {
                                         >
                                             <div className="flex flex-col gap-1">
                                                 {entries.map((entry, j) => {
-                                                    // Any shift opens the edit panel (hours, contact,
-                                                    // event). Events keep expanding their record.
-                                                    const editable = canEdit && key !== EVENTS_ROW_KEY;
-                                                    const clickable = editable || canExpand(table);
+                                                    // A shift opens the edit panel; an event opens its
+                                                    // detail page in the interface, falling back to
+                                                    // expandRecord when no URL template is configured.
+                                                    const isEvent = key === EVENTS_ROW_KEY;
+                                                    const editable = canEdit && !isEvent;
+                                                    const detailUrl = isEvent ? entry.detailUrl : null;
+                                                    const clickable =
+                                                        editable || Boolean(detailUrl) || canExpand(table);
                                                     const onClick = () => {
                                                         if (editable) openEditPanel(entry.record);
-                                                        else if (canExpand(table)) expandRecord(entry.record);
+                                                        else if (!detailUrl && canExpand(table)) {
+                                                            expandRecord(entry.record);
+                                                        }
                                                     };
-                                                    return (
-                                                        <div
-                                                            key={j}
-                                                            onClick={onClick}
-                                                            title={editable ? 'Modifier le quart' : undefined}
-                                                            className={
-                                                                'rounded border px-1.5 py-1 leading-tight ' +
-                                                                (clickable ? 'cursor-pointer ' : '') +
-                                                                (entry.color
-                                                                    ? 'border-transparent '
-                                                                    : entry.highlight
-                                                                        ? 'border-yellow-yellow bg-yellow-yellowLight1 text-gray-gray900 min-h-[1.5rem] '
-                                                                        : 'border-gray-gray200 bg-white dark:border-gray-gray600 dark:bg-gray-gray800')
-                                                            }
-                                                            style={
-                                                                entry.color
-                                                                    ? {backgroundColor: entry.color.bg, color: entry.color.text}
-                                                                    : undefined
-                                                            }
-                                                        >
+                                                    const className =
+                                                        'block rounded border px-1.5 py-1 leading-tight no-underline ' +
+                                                        (clickable ? 'cursor-pointer ' : '') +
+                                                        (entry.color
+                                                            ? 'border-transparent '
+                                                            : entry.highlight
+                                                                ? 'border-yellow-yellow bg-yellow-yellowLight1 text-gray-gray900 min-h-[1.5rem] '
+                                                                : 'border-gray-gray200 bg-white dark:border-gray-gray600 dark:bg-gray-gray800');
+                                                    const style = entry.color
+                                                        ? {backgroundColor: entry.color.bg, color: entry.color.text}
+                                                        : undefined;
+                                                    const content = (
+                                                        <>
                                                             {entry.orphan && (
                                                                 <span
                                                                     className="mr-1 font-semibold text-orange-orange"
@@ -1576,6 +1672,31 @@ function ScheduleGridApp() {
                                                                 </span>
                                                             )}
                                                             {entry.text}
+                                                        </>
+                                                    );
+                                                    // A real anchor, not window.open: the extension runs
+                                                    // in a sandboxed iframe where popups are blocked.
+                                                    return detailUrl ? (
+                                                        <a
+                                                            key={j}
+                                                            href={detailUrl}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            title="Ouvrir la fiche du projet"
+                                                            className={className}
+                                                            style={style}
+                                                        >
+                                                            {content}
+                                                        </a>
+                                                    ) : (
+                                                        <div
+                                                            key={j}
+                                                            onClick={onClick}
+                                                            title={editable ? 'Modifier le quart' : undefined}
+                                                            className={className}
+                                                            style={style}
+                                                        >
+                                                            {content}
                                                         </div>
                                                     );
                                                 })}

@@ -46,12 +46,30 @@ property must be pointed at its field once, by hand, in the settings panel.
   `nom_contact` is the lookup of this link, so an assigned shift stops being yellow on its own.
 - **Catégorie de contact** + **Catégorie de contact à proposer** (default `Employés`) — Contacts also
   holds producers and venue teams, so the assignment list is narrowed to one category.
+- **Lien Projet (sur les quarts)** + **Lien Projet (sur Événements)** — `equipe_accueil` carries a
+  `Projets` link but does not derive it, and the Projet interface page lists shifts by it: a shift
+  without it is simply absent there. It is copied from the event's own `Projets` link whenever an
+  event is set, and cleared when the event is removed, so the two never diverge.
+- **URL du side-sheet Projet — parties 1/2 and 2/2** — clicking an event opens its project's
+  side-sheet. Paste one such URL and only its `rowId` is swapped, so the page and element ids stay
+  yours. It is split across two properties because **Airtable truncates a string property at 255
+  characters** and these URLs are longer — a silent truncation that corrupts the base64 payload.
 
 **Créer des quarts** (toolbar button) creates N identical open shifts: a date, a role, a work block
 (Montage / Show call / Démontage) whose In/Out pair receives the hours, a start and end time, and a
 quantity. An overnight shift (e.g. `23:00 → 01:00`) is stored as `25:00`, consistent with how
 durations are already totalled. The contact and the event are left empty on purpose: the shift is
-open, and gets dispatched later from the assignment panel.
+open, and gets dispatched later.
+
+**Clicking a shift** opens the edit panel: the three In/Out pairs (a shift may legitimately have
+more than one filled — clearing both ends of a pair erases it), the contact, and the event. It also
+carries a **Supprimer** button, armed by a first click and only destructive on the second.
+
+**Shifts with no event** are flagged with a ⚠ and counted per day. Their `date_courte` rollup is
+empty, so they are correctly dated *in this extension only*: any Airtable view grouping by
+`date_courte` will not show them, and the Projet page will not list them either. The clean fix is to
+turn `date_courte` into a formula — the event's date when there is one, the shift's own date
+otherwise.
 
 **The role dropdown.** `Rôles` is a link to a table the interface does not expose, so it cannot be
 read — and `fetchForeignRecordsAsync` would return every role in the base, categories included. The
@@ -61,13 +79,16 @@ table to the interface removes that limitation — the code then switches on its
 **Catégorie du rôle** / **Catégorie de rôle à proposer** (default `accueil`), and those two properties
 appear in the settings panel.
 
-Record creation and editing must also be enabled on the extension element in the Airtable interface
-builder (they are two separate toggles). Otherwise Airtable refuses the write, and the extension
-reports its reason verbatim instead of hiding the button silently.
+### Two limits of the Interface Extensions SDK you will hit
 
-**Assigning**: clicking an open (yellow) shift opens the assignment panel (contact + event of that
-day). Clicking an already-assigned shift expands the Airtable record, as before. Both affordances
-disappear when the collaborator lacks write permission.
+**An interface extension sees only the tables and fields the page exposes to it.** A field it cannot
+see has no id and cannot be written — silently. That is why `Projets` and `statut_portail` were
+invisible until they were exposed on the extension element, and why the Rôles table still is. When a
+value refuses to be written, check this before suspecting the code.
+
+**Record creation, editing and deletion are three separate toggles** on the extension element in the
+interface builder. Otherwise Airtable refuses the write; the extension reports its reason verbatim
+rather than hiding the affordance silently.
 
 ## Development
 
