@@ -458,6 +458,8 @@ function getCustomProperties(base) {
 
     const isLinkedRecord = (field) => field.config.type === FieldType.MULTIPLE_RECORD_LINKS;
 
+    const isCheckbox = (field) => field.config.type === FieldType.CHECKBOX;
+
     // date_courte is a rollup of the linked event's date, so it cannot be written. Creating a shift
     // before it is dispatched to an event therefore needs a date field of its own.
     const isWritableDate = (field) =>
@@ -546,6 +548,16 @@ function getCustomProperties(base) {
             label: 'Modes de diffusion à masquer (séparés par des virgules)',
             type: 'string',
             defaultValue: DEFAULT_HIDDEN_MODES,
+        },
+        // A checkbox on Événements, toggled straight from the events row. Must be exposed to the
+        // extension in the interface builder — a hidden field has no id and cannot be written.
+        {
+            key: 'portalField',
+            label: 'Case Portail (sur les événements)',
+            type: 'field',
+            table: eventsTable,
+            shouldFieldBeAllowed: isCheckbox,
+            defaultValue: byName(eventsTable, isCheckbox, 'portail', 'portal'),
         },
         // Clicking an event opens the Projet side-sheet of the interface. Paste one such URL: only
         // its rowId is swapped, so the page and element ids stay yours.
@@ -777,6 +789,7 @@ function ScheduleGridApp() {
         String(customPropertyValueByKey.detailUrlPart2 ?? '').trim();
     const detailLinkField = customPropertyValueByKey.detailLinkField;
     const staffProjectLinkField = customPropertyValueByKey.staffProjectLinkField;
+    const portalField = customPropertyValueByKey.portalField;
     const hiddenModesRaw = customPropertyValueByKey.hiddenModes;
     const staffEventLinkField = customPropertyValueByKey.staffEventLinkField;
     const contactLinkField = customPropertyValueByKey.contactLinkField;
@@ -926,6 +939,7 @@ function ScheduleGridApp() {
                     highlight: false,
                     color: salleField ? getSalleColor(r, salleField, base) : null,
                     detailUrl: buildRecordDetailUrl(detailUrlTemplate, detailRowId),
+                    portal: portalField ? Boolean(r.getCellValue(portalField)) : null,
                     record: r,
                 });
                 dayTotals[idx].events++;
@@ -1002,7 +1016,7 @@ function ScheduleGridApp() {
         configured, effectiveWeekMs, numWeeks, eventRecords, staffRecords,
         eventDateField, eventLabelField, readShiftDate, categoryField,
         contactField, inFields, outFields, salleField, base,
-        hiddenEventIds, staffEventLinkField, detailUrlTemplate, detailLinkField,
+        hiddenEventIds, staffEventLinkField, detailUrlTemplate, detailLinkField, portalField,
     ]);
 
     // Visible (non-hidden) events keyed by YYYY-MM-DD, for the event pickers of both panels.
@@ -1203,6 +1217,33 @@ function ScheduleGridApp() {
         return null;
     }, [detailUrlTemplate, detailLinkField]);
     const canAssignContact = Boolean(contactsTable && contactLinkField);
+    const canTogglePortal = Boolean(portalField) && eventsTable.hasPermissionToUpdateRecord();
+
+    // The checkbox is hidden by any one of several conditions; name the missing one.
+    const portalWarning = useMemo(() => {
+        if (!portalField) {
+            return 'Portail : la propriété « Case Portail (sur les événements) » n’est pas renseignée (ou le champ n’est pas exposé à l’extension).';
+        }
+        const check = eventsTable.checkPermissionsForUpdateRecord();
+        if (!check.hasPermission) {
+            return `Portail : Airtable refuse la modification des événements — ${check.reasonDisplayString ?? 'raison non fournie'}. Activez la modification des enregistrements Événements sur l’élément d’extension.`;
+        }
+        return null;
+    }, [portalField, eventsTable]);
+
+    const togglePortal = async (record, next) => {
+        const fields = {[portalField.id]: next};
+        const check = eventsTable.checkPermissionsForUpdateRecord(record, fields);
+        if (!check.hasPermission) {
+            setFeedback({type: 'error', message: check.reasonDisplayString ?? 'Modification refusée.'});
+            return;
+        }
+        try {
+            await eventsTable.updateRecordAsync(record, fields);
+        } catch (err) {
+            setFeedback({type: 'error', message: `Échec Portail : ${err.message}`});
+        }
+    };
 
     // Preselect the plain usher role: "senior" variants also contain "placier", so exclude them.
     const defaultRoleId = useMemo(() => {
@@ -1538,6 +1579,12 @@ function ScheduleGridApp() {
                 </div>
             )}
 
+            {portalWarning && (
+                <div className="mb-3 rounded border border-yellow-yellow bg-yellow-yellowLight2 px-3 py-2 text-xs text-gray-gray900">
+                    {portalWarning}
+                </div>
+            )}
+
             {(!canCreate || !canEdit) && (
                 <div className="mb-3 rounded border border-yellow-yellow bg-yellow-yellowLight2 px-3 py-2 text-xs text-gray-gray900">
                     {!canCreate && (
@@ -1676,9 +1723,8 @@ function ScheduleGridApp() {
                                                     );
                                                     // A real anchor, not window.open: the extension runs
                                                     // in a sandboxed iframe where popups are blocked.
-                                                    return detailUrl ? (
+                                                    const chip = detailUrl ? (
                                                         <a
-                                                            key={j}
                                                             href={detailUrl}
                                                             target="_blank"
                                                             rel="noopener noreferrer"
@@ -1690,13 +1736,49 @@ function ScheduleGridApp() {
                                                         </a>
                                                     ) : (
                                                         <div
-                                                            key={j}
                                                             onClick={onClick}
                                                             title={editable ? 'Modifier le quart' : undefined}
                                                             className={className}
                                                             style={style}
                                                         >
                                                             {content}
+                                                        </div>
+                                                    );
+
+                                                    // Events carry a Portail flag, toggled in place. It
+                                                    // sits beside the chip, not inside it, so the chip
+                                                    // click still opens the side-sheet.
+                                                    const showPortal =
+                                                        isEvent && entry.portal !== null && canTogglePortal;
+                                                    if (!showPortal) {
+                                                        return (
+                                                            <div key={j} className="flex-1">
+                                                                {chip}
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return (
+                                                        <div key={j} className="flex items-start gap-1">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    togglePortal(entry.record, !entry.portal)
+                                                                }
+                                                                title={
+                                                                    entry.portal
+                                                                        ? 'Portail activé — cliquer pour désactiver'
+                                                                        : 'Portail désactivé — cliquer pour activer'
+                                                                }
+                                                                className={
+                                                                    'mt-0.5 shrink-0 cursor-pointer text-sm leading-none ' +
+                                                                    (entry.portal
+                                                                        ? 'text-blue-blue'
+                                                                        : 'text-gray-gray400 hover:text-gray-gray600')
+                                                                }
+                                                            >
+                                                                {entry.portal ? '⚑' : '⚐'}
+                                                            </button>
+                                                            <div className="flex-1">{chip}</div>
                                                         </div>
                                                     );
                                                 })}
