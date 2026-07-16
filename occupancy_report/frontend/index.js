@@ -1,6 +1,9 @@
 import {useMemo, useState} from 'react';
 import {initializeBlock, useRecords, useCustomProperties} from '@airtable/blocks/interface/ui';
 import {FieldType} from '@airtable/blocks/interface/models';
+import {pdf} from '@react-pdf/renderer';
+import {fmtDateFr, isoDate} from './format';
+import {ReportPdf} from './reportPdf';
 import './style.css';
 
 // ============================================================================
@@ -9,9 +12,24 @@ import './style.css';
 // One page per day. For the selected day, each venue ("salle") that hosts at
 // least one event is rendered as a section with the production-sheet fields
 // from the PDF model. Venues with no event that day are omitted entirely.
+//
+// The day can also be emailed as a PDF ("rapport pré-événement"). There is no
+// server in the loop: the extension has already resolved the data, and the Make
+// webhook answers Access-Control-Allow-Origin: *, so it is called straight from
+// the browser. See `sendReport` below and `reportPdf.js` for the document.
 // ============================================================================
 
 // === CONSTANTS ===
+
+// Diffusion modes hidden by default. Empty: nothing is filtered out until a
+// builder opts in from the settings panel, so corporate/Trattoria events —
+// which the production sheet explicitly supports — keep showing up.
+const DEFAULT_HIDDEN_MODES = '';
+
+// `type` discriminator read by the Make scenario's router. The rest of the
+// payload matches what the portal's `rapport quotidien` already sends, so the
+// existing scenario handles it.
+const MAKE_PAYLOAD_TYPE = 'rapport_pre_evenement';
 
 // Per-venue color palette (Airtable-style, matching the schedule grid look).
 // A stable hash maps each venue name to one color so a venue keeps its color.
@@ -112,6 +130,52 @@ function venueRank(name) {
     const n = norm(name);
     const idx = VENUE_PRIORITY_TOKENS.findIndex((t) => n.includes(t));
     return idx === -1 ? VENUE_PRIORITY_TOKENS.length : idx;
+}
+
+// "Location, Corpo" -> Set {"location", "corpo"}. Accent-insensitive via `norm`.
+function parseCsvSet(str) {
+    return new Set(
+        String(str ?? '')
+            .split(',')
+            .map((s) => norm(s.trim()))
+            .filter(Boolean),
+    );
+}
+
+// Flatten any cell value into plain strings, covering the shapes getCellValue
+// returns: a string; {name}; [{name}]; and lookups' [{linkedRecordId, value}].
+function flattenCellStrings(v) {
+    if (v === null || v === undefined) return [];
+    if (typeof v === 'string') return v.trim() ? [v.trim()] : [];
+    if (typeof v === 'number' || typeof v === 'boolean') return [String(v)];
+    if (Array.isArray(v)) return v.flatMap(flattenCellStrings);
+    if (typeof v === 'object') {
+        if ('name' in v) return flattenCellStrings(v.name);
+        if ('value' in v) return flattenCellStrings(v.value);
+    }
+    return [];
+}
+
+// Every plain string held by a cell, falling back to the formatted value.
+function readTextValues(record, field) {
+    const values = flattenCellStrings(record.getCellValue(field));
+    if (values.length) return values;
+    return record
+        .getCellValueAsString(field)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+}
+
+// Chunked: `String.fromCharCode(...bytes)` blows the call stack on a real PDF.
+function arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const CHUNK = 0x8000;
+    let binary = '';
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(binary);
 }
 
 // Extract HH:MM from any time-ish string and render it as e.g. "19h30".
@@ -229,16 +293,6 @@ function buildStaffMap(records, nameField, roleField) {
     return map;
 }
 
-// French long date, e.g. "dimanche 10 mai 2026".
-function fmtDateFr(ms) {
-    return new Intl.DateTimeFormat('fr-CA', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-    }).format(new Date(ms));
-}
-
 // === CUSTOM PROPERTIES ===
 
 const isTextLike = (f) =>
@@ -309,9 +363,20 @@ function byName(table, pred, ...needles) {
 
 const isLinkLike = (f) => f.config.type === FieldType.MULTIPLE_RECORD_LINKS;
 
+const isCheckbox = (f) => f.config.type === FieldType.CHECKBOX;
+
+const isEmailLike = (f) =>
+    f.config.type === FieldType.EMAIL ||
+    f.config.type === FieldType.SINGLE_LINE_TEXT ||
+    f.config.type === FieldType.FORMULA ||
+    f.config.type === FieldType.ROLLUP ||
+    f.config.type === FieldType.MULTIPLE_LOOKUP_VALUES;
+
 function getCustomProperties(base) {
     const eventsTable =
         base.tables.find((t) => norm(t.name).includes('evenement')) || base.tables[0];
+
+    const contactsTable = base.tables.find((t) => norm(t.name).includes('contact')) || base.tables[0];
 
     const teamTable =
         base.tables.find((t) => norm(t.name).includes('equipe_technique')) ||
@@ -419,6 +484,51 @@ function getCustomProperties(base) {
                 byName(accueilTable, isTextLike, 'nom', 'name', 'équipier', 'equipier', 'contact', 'membre') ||
                 accueilTable.primaryField,
         },
+        // Optional. Left unset, nothing is ever hidden and every event of the day
+        // is reported — corporate/Trattoria events included, by design.
+        {
+            key: 'diffusionField',
+            label: 'Mode de diffusion (pour masquer des événements)',
+            type: 'field',
+            table: eventsTable,
+            shouldFieldBeAllowed: isCategoryLike,
+            defaultValue: byName(eventsTable, isCategoryLike, 'mode_diffusion', 'diffusion'),
+        },
+        {
+            key: 'hiddenModes',
+            label: 'Modes de diffusion à masquer (séparés par des virgules)',
+            type: 'string',
+            defaultValue: DEFAULT_HIDDEN_MODES,
+        },
+        // Recipients of the emailed report: contacts whose checkbox is ticked.
+        {key: 'contactsTable', label: 'Table des contacts', type: 'table', defaultValue: contactsTable},
+        {
+            key: 'contactEmailField',
+            label: 'Courriel (sur les contacts)',
+            type: 'field',
+            table: contactsTable,
+            shouldFieldBeAllowed: isEmailLike,
+            defaultValue: byName(contactsTable, isEmailLike, 'courriel', 'email', 'mail'),
+        },
+        {
+            key: 'contactFlagField',
+            label: 'Case « destinataire du rapport » (sur les contacts)',
+            type: 'field',
+            table: contactsTable,
+            shouldFieldBeAllowed: isCheckbox,
+            // Exact name only, deliberately no looser fallback: `byName` returns the
+            // first *field* matching any needle, and this base also has a
+            // `rapport_quotidien` checkbox sitting earlier in the table. A needle
+            // like 'rapport' would silently default to it and mail this report to
+            // the daily report's list. No match → the send button stays blocked
+            // until a human picks the field.
+            defaultValue: byName(contactsTable, isCheckbox, 'rapport_pre_evenement'),
+        },
+        // Make webhook that emails the PDF. The token is validated by a Filter in
+        // the scenario; it lives here rather than in the source so it is not
+        // committed, but note it stays readable by anyone who can edit this page.
+        {key: 'webhookUrl', label: 'URL du webhook Make', type: 'string', defaultValue: ''},
+        {key: 'webhookToken', label: 'Jeton du webhook Make', type: 'string', defaultValue: ''},
         // Only field-backed specs become custom properties; role-derived specs
         // (dt, gérant, placiers, sécurité) are computed from the team links.
         ...ALL_SPECS.filter((s) => !s.role).map(specToProp),
@@ -455,13 +565,23 @@ function RapportOccupationApp() {
     const accueilLinkField = customPropertyValueByKey.accueilLinkField;
     const accueilRoleField = customPropertyValueByKey.accueilRoleField;
     const accueilNameField = customPropertyValueByKey.accueilNameField;
+    const diffusionField = customPropertyValueByKey.diffusionField;
+    const hiddenModesRaw = customPropertyValueByKey.hiddenModes;
+    const contactsTable = customPropertyValueByKey.contactsTable;
+    const contactEmailField = customPropertyValueByKey.contactEmailField;
+    const contactFlagField = customPropertyValueByKey.contactFlagField;
+    const webhookUrl = String(customPropertyValueByKey.webhookUrl ?? '').trim();
+    const webhookToken = String(customPropertyValueByKey.webhookToken ?? '').trim();
 
     const records = useRecords(eventsTable ?? null);
     const teamRecords = useRecords(teamTable ?? null);
     const accueilRecords = useRecords(accueilTable ?? null);
+    const contactRecords = useRecords(contactsTable ?? null);
     const [selectedDay, setSelectedDay] = useState(null);
     const [activeVenue, setActiveVenue] = useState(null);
     const [activeEvent, setActiveEvent] = useState(null);
+    // {status: 'idle'|'confirming'|'sending'|'sent'|'error', ...}
+    const [sendState, setSendState] = useState({status: 'idle'});
 
     // Index members of each linked staff table by record id → {name, role}.
     const staffByTeam = useMemo(
@@ -531,6 +651,15 @@ function RapportOccupationApp() {
         return readDisplay(record, field);
     };
 
+    const hiddenModes = useMemo(() => parseCsvSet(hiddenModesRaw ?? DEFAULT_HIDDEN_MODES), [hiddenModesRaw]);
+
+    // Events whose diffusion mode the builder chose to hide. Empty by default, so
+    // nothing is dropped unless somebody opts in from the settings panel.
+    const isHidden = useMemo(() => {
+        if (!diffusionField || hiddenModes.size === 0) return () => false;
+        return (record) => readTextValues(record, diffusionField).some((m) => hiddenModes.has(norm(m)));
+    }, [diffusionField, hiddenModes]);
+
     // Events of the selected day, grouped by venue and ordered by priority.
     const venues = useMemo(() => {
         if (!configured || effectiveDay === null || !dateField || !venueField) return [];
@@ -538,13 +667,14 @@ function RapportOccupationApp() {
         for (const r of records ?? []) {
             const d = parseDate(r.getCellValueAsString(dateField));
             if (!d || dayStart(d) !== effectiveDay) continue;
+            if (isHidden(r)) continue;
             const venue = r.getCellValueAsString(venueField).trim() || 'Sans salle';
             if (!byVenue.has(venue)) byVenue.set(venue, []);
             byVenue.get(venue).push(r);
         }
         return Array.from(byVenue.entries())
             .sort((a, b) => venueRank(a[0]) - venueRank(b[0]) || a[0].localeCompare(b[0], 'fr'));
-    }, [configured, effectiveDay, records, dateField, venueField]);
+    }, [configured, effectiveDay, records, dateField, venueField, isHidden]);
 
     // Per-venue header info (Vestiaire, Directeur technique, Gérant·e). Each field
     // is shown even when empty; the value is taken from the venue's first event
@@ -561,6 +691,85 @@ function RapportOccupationApp() {
             }
             return {label: spec.label, value};
         });
+
+    // ---- Emailing the day ("rapport pré-événement") ----
+
+    // Contacts whose "destinataire" checkbox is ticked, deduplicated.
+    const recipients = useMemo(() => {
+        if (!contactEmailField || !contactFlagField) return [];
+        const seen = new Set();
+        for (const r of contactRecords ?? []) {
+            if (r.getCellValue(contactFlagField) !== true) continue;
+            const email = readDisplay(r, contactEmailField).trim();
+            if (email.includes('@')) seen.add(email);
+        }
+        return Array.from(seen);
+    }, [contactRecords, contactEmailField, contactFlagField]);
+
+    // Why the send button is unavailable, or null when it is ready to fire.
+    const sendBlocker = useMemo(() => {
+        if (!webhookUrl) return "L'URL du webhook Make n'est pas configurée.";
+        if (!contactEmailField || !contactFlagField) return 'Les champs des destinataires ne sont pas configurés.';
+        if (!venues.length) return 'Aucune salle occupée ce jour-là.';
+        if (!recipients.length) return 'Aucun contact n’est coché comme destinataire.';
+        return null;
+    }, [webhookUrl, contactEmailField, contactFlagField, venues, recipients]);
+
+    // The day, flattened into the plain structure `reportPdf.js` renders. Built
+    // only at send time and thrown away after: the screen keeps reading `venues`
+    // and `readValue` directly, so the timeline and the detail pane owe nothing
+    // to this and cannot be broken by it.
+    const buildReportData = () => ({
+        dayMs: effectiveDay,
+        venues: venues.map(([venue, recs]) => ({
+            venue,
+            general: generalInfoFor(recs),
+            events: recs.map((record) => ({
+                id: record.id,
+                // Same heading the detail pane shows: start time + artist.
+                title: [
+                    DEBUT_SPEC ? readValue(record, DEBUT_SPEC) : '',
+                    ARTIST_SPEC ? readValue(record, ARTIST_SPEC) : '',
+                ]
+                    .filter(Boolean)
+                    .join(' — '),
+                fields: EVENT_SPECS.map((spec) => ({label: spec.label, value: readValue(record, spec)})),
+            })),
+        })),
+    });
+
+    const sendReport = async () => {
+        if (sendBlocker) return;
+        setSendState({status: 'sending'});
+        try {
+            const date = isoDate(effectiveDay);
+            const blob = await pdf(<ReportPdf data={buildReportData()} />).toBlob();
+            const form = new FormData();
+            form.append(
+                'payload',
+                JSON.stringify({
+                    token: webhookToken,
+                    type: MAKE_PAYLOAD_TYPE,
+                    date,
+                    sujet: `Rapport pré-événement — ${fmtDateFr(effectiveDay)}`,
+                    destinataires: recipients,
+                    // Comma-joined too: the scenario maps this straight into "To",
+                    // which sidesteps Make's array-mapping quirks.
+                    destinataires_str: recipients.join(', '),
+                    pdf_base64: arrayBufferToBase64(await blob.arrayBuffer()),
+                    pdf_nom: `rapport-pre-evenement-${date}.pdf`,
+                }),
+            );
+            // FormData with no custom header is a CORS "simple request", so no
+            // preflight is issued; Make answers Access-Control-Allow-Origin: *,
+            // which means a failure is actually visible instead of opaque.
+            const res = await fetch(webhookUrl, {method: 'POST', body: form});
+            if (!res.ok) throw new Error(`Make a répondu ${res.status}`);
+            setSendState({status: 'sent', recipients: recipients.length});
+        } catch (err) {
+            setSendState({status: 'error', message: err instanceof Error ? err.message : 'Envoi échoué'});
+        }
+    };
 
     if (errorState) {
         return <div className="p-4 text-sm text-red-600">{errorState.error?.message ?? 'Erreur de configuration'}</div>;
@@ -583,6 +792,13 @@ function RapportOccupationApp() {
     // is not among today's venues (e.g. after changing the day).
     const venueNames = venues.map(([v]) => v);
     const effectiveVenue = activeVenue && venueNames.includes(activeVenue) ? activeVenue : (venueNames[0] ?? null);
+
+    // Changing day clears the send outcome: "Rapport envoyé" refers to the day it
+    // was sent for, and would otherwise linger over a different, unsent day.
+    const goToDay = (ms) => {
+        setSelectedDay(ms);
+        setSendState({status: 'idle'});
+    };
 
     const dayIndex = days.indexOf(effectiveDay);
     const today = dayStart(new Date());
@@ -630,7 +846,7 @@ function RapportOccupationApp() {
                     type="button"
                     className={arrowBtn}
                     disabled={dayIndex <= 0}
-                    onClick={() => dayIndex > 0 && setSelectedDay(days[dayIndex - 1])}
+                    onClick={() => dayIndex > 0 && goToDay(days[dayIndex - 1])}
                     aria-label="Journée précédente"
                 >
                     {'<'}
@@ -638,7 +854,7 @@ function RapportOccupationApp() {
                 <select
                     className="rounded border border-gray-300 bg-white px-2 py-1 text-sm"
                     value={effectiveDay}
-                    onChange={(e) => setSelectedDay(Number(e.target.value))}
+                    onChange={(e) => goToDay(Number(e.target.value))}
                 >
                     {days.map((ms) => (
                         <option key={ms} value={ms}>
@@ -650,7 +866,7 @@ function RapportOccupationApp() {
                     type="button"
                     className={arrowBtn}
                     disabled={dayIndex < 0 || dayIndex >= days.length - 1}
-                    onClick={() => dayIndex < days.length - 1 && setSelectedDay(days[dayIndex + 1])}
+                    onClick={() => dayIndex < days.length - 1 && goToDay(days[dayIndex + 1])}
                     aria-label="Journée suivante"
                 >
                     {'>'}
@@ -659,7 +875,7 @@ function RapportOccupationApp() {
                     type="button"
                     className={navBtn}
                     disabled={!days.includes(today)}
-                    onClick={() => setSelectedDay(today)}
+                    onClick={() => goToDay(today)}
                 >
                     Aujourd&apos;hui
                 </button>
@@ -670,7 +886,52 @@ function RapportOccupationApp() {
                 >
                     Imprimer
                 </button>
+
+                {/* Send: a two-step confirm, because this emails real people. */}
+                {sendState.status === 'confirming' ? (
+                    <>
+                        <span className="text-sm text-gray-600">
+                            Envoyer à {recipients.length} destinataire{recipients.length > 1 ? 's' : ''} ?
+                        </span>
+                        <button
+                            type="button"
+                            onClick={sendReport}
+                            className="rounded border border-transparent bg-[#13324b] px-3 py-1 text-sm font-medium text-white hover:bg-[#1d4a6d]"
+                        >
+                            Confirmer
+                        </button>
+                        <button type="button" onClick={() => setSendState({status: 'idle'})} className={navBtn}>
+                            Annuler
+                        </button>
+                    </>
+                ) : (
+                    <button
+                        type="button"
+                        onClick={() => setSendState({status: 'confirming'})}
+                        disabled={Boolean(sendBlocker) || sendState.status === 'sending'}
+                        title={sendBlocker ?? undefined}
+                        className="rounded border border-transparent bg-[#13324b] px-3 py-1 text-sm font-medium text-white enabled:hover:bg-[#1d4a6d] disabled:opacity-40"
+                    >
+                        {sendState.status === 'sending' ? 'Envoi…' : 'Envoyer par courriel'}
+                    </button>
+                )}
             </div>
+
+            {/* Send outcome / why the button is unavailable */}
+            {(sendState.status === 'sent' || sendState.status === 'error' || sendBlocker) && (
+                <div className="mb-4 print:hidden">
+                    {sendState.status === 'sent' ? (
+                        <p className="text-sm text-green-700">
+                            Rapport envoyé à {sendState.recipients} destinataire
+                            {sendState.recipients > 1 ? 's' : ''}.
+                        </p>
+                    ) : sendState.status === 'error' ? (
+                        <p className="text-sm text-red-600">Envoi échoué : {sendState.message}</p>
+                    ) : (
+                        <p className="text-sm text-gray-500">{sendBlocker}</p>
+                    )}
+                </div>
+            )}
 
             {/* Sheet */}
             <div className="mx-auto max-w-6xl rounded-lg bg-white p-6 shadow-sm print:max-w-none print:rounded-none print:p-0 print:shadow-none">
