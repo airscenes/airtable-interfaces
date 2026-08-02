@@ -10,7 +10,8 @@ This repo contains **custom Airtable Interface Extensions**. Each subfolder is a
 - **CLI**: `@airtable/blocks-cli` (installed globally)
 - **Bundler**: managed by the SDK, entrypoint = `frontend/index.js`
 - **Styling**: Tailwind CSS (included via `style.css`), dark mode support with `dark:` prefixes
-- **Libraries**: recharts for charts, @phosphor-icons/react for icons, supabase-js for external data
+- **Libraries**: recharts for charts, @phosphor-icons/react for icons, supabase-js for external data, @react-pdf/renderer for generating PDFs client-side (`occupancy_report`)
+- **Calling external webhooks**: an extension can `fetch` a third-party endpoint directly when that endpoint sends permissive CORS headers (Make does: `Access-Control-Allow-Origin: *`). Post `FormData` with no custom headers to stay a CORS "simple request" and skip the preflight entirely. No proxy/server needed — see `occupancy_report`'s `sendReport`
 - **UI Patterns**: custom multiselect dropdowns with checkboxes (no external component library), custom `<select>` dropdowns with SVG arrow
 - **Select colors**: `getFieldChoices(field, base)` traverses `base.tables` to resolve single-select option colors for both direct SINGLE_SELECT fields and MULTIPLE_LOOKUP_VALUES fields; `SelectBadge` renders colored pills using `AIRTABLE_COLORS` map (30 Airtable color names → `{bg, text}`)
 - **Number formatting**: `fmtNumber(v)` and `fmtCurrency(v)` helpers using `fr-FR` locale + ` $` suffix
