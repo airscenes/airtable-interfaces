@@ -26,6 +26,15 @@ export function defaultDateRange() {
   return { from: iso(from), to: iso(now) };
 }
 
+// Parses YYYY-MM-DD into a local-midnight Date. `new Date(iso)` would parse it
+// as UTC midnight, landing on the previous day in UTC-N timezones.
+export function parseIsoDate(isoDate) {
+  if (!isoDate) return null;
+  const [y, m, d] = isoDate.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
 export function formatDate(isoDate) {
   if (!isoDate) return "";
   const parts = isoDate.split("-");

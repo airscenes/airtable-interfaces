@@ -389,6 +389,48 @@ export function extractLinkedRecords(cellValue) {
   return out;
 }
 
+// --- Date cell helper ---
+
+// Resolves a date / date-time cell to the calendar date Airtable itself shows
+// (YYYY-MM-DD). getCellValue returns a UTC instant, so slicing that string
+// pushes an evening event to the next day in UTC-N timezones (a 20:00 EDT show
+// on Sept 10 is stored as 2026-09-11T00:00:00.000Z). Format the instant in the
+// field's configured timezone instead, falling back to the browser's.
+export function getCellDateIso(record, field) {
+  if (!field) return null;
+  let raw = safeCellValue(record, field);
+  // Lookup/rollup fields wrap the value in an array.
+  if (Array.isArray(raw)) raw = raw.find((v) => v != null);
+  if (raw && typeof raw === "object" && raw.value != null) raw = raw.value;
+  if (!raw) return null;
+
+  // Date-only field: the string is already the displayed calendar date.
+  if (typeof raw === "string" && !raw.includes("T")) return raw.slice(0, 10);
+
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return null;
+
+  let timeZone;
+  try {
+    // Formula/rollup/lookup fields nest their formatting under `result`.
+    const opts = field.config?.options;
+    const tz = opts?.timeZone || opts?.result?.options?.timeZone;
+    if (tz && tz !== "client") timeZone = tz;
+  } catch { /* field config unavailable */ }
+
+  try {
+    // en-CA formats as YYYY-MM-DD.
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  } catch {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+}
+
 export function safeCellString(record, field) {
   if (!field) return "";
   try { return record.getCellValueAsString(field); } catch { return ""; }

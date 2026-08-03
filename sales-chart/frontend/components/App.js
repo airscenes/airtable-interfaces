@@ -12,8 +12,10 @@ import {
   safeCellString,
   extractLinkedRecords,
   getColSelect,
+  getCellDateIso,
   sortRepsByDate,
 } from "../utils/airtable";
+import { parseIsoDate } from "../utils/format";
 import { SpectacleCard } from "./SpectacleCard";
 import { HomeSalesChart } from "./HomeSalesChart";
 import { DetailPage } from "./DetailPage";
@@ -265,18 +267,11 @@ function SalesChartLoaded({ base, cp }) {
           revPotential =
             typeof val === "number" ? val : parseFloat(String(val)) || null;
         }
-        // Raw values for filtering/sorting
-        let rawDate = null;
-        let dateRepIso = null;
-        if (colDateRep) {
-          const dv = safeCellValue(record, colDateRep);
-          if (dv) {
-            rawDate = new Date(dv);
-            // Date/DateTime cells return an ISO string; slice to YYYY-MM-DD to
-            // avoid the new Date()→local off-by-one shift in UTC-N timezones.
-            if (typeof dv === "string") dateRepIso = dv.slice(0, 10);
-          }
-        }
+        // Raw values for filtering/sorting. Both derive from the calendar date
+        // Airtable displays (resolved in the field's timezone), so sorting and
+        // "upcoming" comparisons never disagree with the date on screen.
+        const dateRepIso = getCellDateIso(record, colDateRep);
+        const rawDate = parseIsoDate(dateRepIso);
         const getNum = (field) => {
           if (!field) return null;
           const v = safeCellValue(record, field);

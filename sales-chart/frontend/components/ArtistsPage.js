@@ -12,11 +12,22 @@ import { downloadArtistsCsv } from "../utils/csv";
 // sold as of that week.
 
 const WEEK_COUNT = 16;
-const LABEL_COL = 220;
-const WEEK_COL = 50;
+const LABEL_COL = 240;
+// Sized for the widest content — the "% remplissage" mode, which stacks
+// "5/120" + "4,17 %". Kept constant across modes so toggling never reflows the
+// grid.
+const WEEK_COL = 86;
+
+// Fill rate as a percentage of the venue capacity, 2 decimals, fr-FR style.
+const fmtPct = (sold, capacity) =>
+  `${((sold / capacity) * 100).toLocaleString("fr-FR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} %`;
 
 export function ArtistsPage({ artists, supabaseUrl, supabaseAnonKey, baseId, onBack }) {
   const weeks = useMemo(() => lastNMondays(WEEK_COUNT), []);
+  const [mode, setMode] = useState("count"); // "count" | "pct"
 
   // All representation ids across every artist/spectacle in the view.
   const idsStr = useMemo(() => {
@@ -119,15 +130,33 @@ export function ArtistsPage({ artists, supabaseUrl, supabaseAnonKey, baseId, onB
           Spectacles par artistes
         </h2>
         {loading && (
-          <span className="flex items-center gap-2 text-xs text-gray-gray500 dark:text-gray-gray400">
+          <span className="flex items-center gap-2 text-sm text-gray-gray500 dark:text-gray-gray400">
             <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-blue"></span>
             Chargement des ventes…
           </span>
         )}
+        <div className="ml-auto flex items-center rounded border border-gray-gray200 dark:border-gray-gray500 overflow-hidden">
+          {[
+            { key: "count", label: "Billets" },
+            { key: "pct", label: "% remplissage" },
+          ].map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => setMode(opt.key)}
+              className={`text-sm font-medium px-2.5 py-1 transition-colors ${
+                mode === opt.key
+                  ? "bg-blue-blue text-white"
+                  : "text-gray-gray600 dark:text-gray-gray300 hover:bg-gray-gray100 dark:hover:bg-gray-gray600"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
         <button
           onClick={() => downloadArtistsCsv(artists, weeks, soldByRec, "ventes-par-artistes")}
           disabled={artists.length === 0 || loading}
-          className="ml-auto flex items-center gap-1 text-xs font-medium px-2 py-1 rounded border border-gray-gray200 dark:border-gray-gray500
+          className="flex items-center gap-1 text-sm font-medium px-2.5 py-1 rounded border border-gray-gray200 dark:border-gray-gray500
                      text-gray-gray600 dark:text-gray-gray300 hover:bg-gray-gray100 dark:hover:bg-gray-gray600 transition-colors
                      disabled:opacity-40 disabled:cursor-not-allowed"
           title="Exporter les ventes en CSV"
@@ -158,11 +187,11 @@ export function ArtistsPage({ artists, supabaseUrl, supabaseAnonKey, baseId, onB
               key={artist.id}
               className="overflow-x-auto bg-white dark:bg-gray-gray700 rounded-lg border border-gray-gray100 dark:border-gray-gray600 shadow-sm"
             >
-              <table className="text-sm border-collapse" style={{ width: "100%", minWidth, tableLayout: "fixed" }}>
+              <table className="text-base border-collapse" style={{ width: "100%", minWidth, tableLayout: "fixed" }}>
                 <thead>
-                  <tr className="bg-gray-gray75 dark:bg-gray-gray800 text-gray-gray600 dark:text-gray-gray300 text-xs">
+                  <tr className="bg-gray-gray75 dark:bg-gray-gray800 text-gray-gray600 dark:text-gray-gray300 text-sm">
                     <th
-                      className="text-left px-3 py-2 font-display font-bold uppercase tracking-wide text-gray-gray800 dark:text-gray-gray100 sticky left-0 z-10 bg-gray-gray75 dark:bg-gray-gray800"
+                      className="text-left px-3 py-2 text-base font-display font-bold uppercase tracking-wide text-gray-gray800 dark:text-gray-gray100 sticky left-0 z-10 bg-gray-gray75 dark:bg-gray-gray800"
                       style={{ width: LABEL_COL }}
                     >
                       {artist.name}
@@ -183,9 +212,14 @@ export function ArtistsPage({ artists, supabaseUrl, supabaseAnonKey, baseId, onB
                       <tr className="bg-gray-gray50 dark:bg-gray-gray800">
                         <td
                           colSpan={weeks.length + 1}
-                          className="px-3 py-1.5 text-xs font-semibold text-gray-gray600 dark:text-gray-gray300 border-t border-gray-gray100 dark:border-gray-gray600 sticky left-0 bg-gray-gray50 dark:bg-gray-gray800"
+                          className="py-1.5 text-sm font-semibold text-gray-gray600 dark:text-gray-gray300 border-t border-gray-gray100 dark:border-gray-gray600 bg-gray-gray50 dark:bg-gray-gray800"
                         >
-                          {spec.projetName}
+                          {/* The cell spans the full table, so `sticky` goes on an inner
+                              block: the title then trails the horizontal scroll and stays
+                              on screen like the sticky date column. */}
+                          <div className="sticky left-0 inline-block px-3 max-w-full truncate">
+                            {spec.projetName}
+                          </div>
                         </td>
                       </tr>
                       {spec.shows.map((show) => {
@@ -193,16 +227,22 @@ export function ArtistsPage({ artists, supabaseUrl, supabaseAnonKey, baseId, onB
                           .filter(Boolean)
                           .join(" ");
                         const series = soldByRec[show.id];
+                        const capacity = show.capacity || show.colCapacite || null;
                         return (
                           <tr
                             key={show.id}
                             className="border-t border-gray-gray100 dark:border-gray-gray600 hover:bg-gray-gray25 dark:hover:bg-gray-gray600"
                           >
                             <td
-                              className="px-3 py-2 truncate text-gray-gray700 dark:text-gray-gray200 sticky left-0 bg-white dark:bg-gray-gray700"
+                              className="px-3 py-2 text-gray-gray700 dark:text-gray-gray200 sticky left-0 bg-white dark:bg-gray-gray700"
                               style={{ width: LABEL_COL, maxWidth: LABEL_COL }}
                             >
-                              {label || "—"}
+                              <div className="truncate">{label || "—"}</div>
+                              {show.colSalle && (
+                                <div className="truncate text-sm text-gray-gray400 dark:text-gray-gray400">
+                                  {show.colSalle}
+                                </div>
+                              )}
                             </td>
                             {weeks.map((w, wi) => {
                               const v = series ? series[wi] : 0;
@@ -212,7 +252,26 @@ export function ArtistsPage({ artists, supabaseUrl, supabaseAnonKey, baseId, onB
                                   className="px-2 py-2 text-right text-gray-gray700 dark:text-gray-gray200"
                                   style={{ fontVariantNumeric: "tabular-nums" }}
                                 >
-                                  {v > 0 ? fmtNumber(v) : ""}
+                                  {v > 0 && mode === "pct" && capacity ? (
+                                    <>
+                                      <div className="whitespace-nowrap">
+                                        {fmtNumber(v)}
+                                        {/* The capacity repeats on every cell of a row, so it
+                                            gets the same muted grey as the percentage line —
+                                            secondary, but still readable. */}
+                                        <span className="text-sm text-gray-gray500 dark:text-gray-gray400">
+                                          /{fmtNumber(capacity)}
+                                        </span>
+                                      </div>
+                                      <div className="whitespace-nowrap text-sm text-gray-gray500 dark:text-gray-gray400">
+                                        {fmtPct(v, capacity)}
+                                      </div>
+                                    </>
+                                  ) : v > 0 ? (
+                                    fmtNumber(v)
+                                  ) : (
+                                    ""
+                                  )}
                                 </td>
                               );
                             })}
