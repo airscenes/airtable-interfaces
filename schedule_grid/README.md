@@ -62,10 +62,35 @@ durations are already totalled. The contact and the event are left empty on purp
 open, and gets dispatched later.
 
 **Clicking a shift** opens the edit panel: the three In/Out pairs (a shift may legitimately have
-more than one filled — clearing both ends of a pair erases it), the contact, and the event. It also
-carries a **Supprimer** button, armed by a first click and only destructive on the second.
+more than one filled — clearing both ends of a pair erases it), the **role**, the contact, and the
+event. It also carries a **Supprimer** button, armed by a first click and only destructive on the
+second. Reassigning the role moves the shift to another category row, since the rows *are* the
+roles. When the shift's current role is not among the offered ones (a role never linked elsewhere,
+so absent from the dropdown — see below), the select shows *Rôle actuel (non proposé)* and leaving
+it there writes nothing, rather than silently swapping the role for the first option in the list.
 
-**Shifts with no event** are flagged with a ⚠ and counted per day. Their `date_courte` rollup is
+**The Portail flag** (⚑ / ⚐, beside each event chip) toggles the `portail` checkbox on the
+Événement. It is what the employee portal's **Disponibilités** tab lists — the `portail-public`
+view is filtered on it — so ticking it is how the venue tells employees that shifts are or will be
+open on that event. The portal shows nothing more than that: employees declare whole days from
+their calendar, never a role, and the dispatch stays this grid's job. The flag sits beside the chip
+rather than inside it so clicking the event still opens the Projet side-sheet.
+
+**The event cells** show the event's title on its own line, then its time and venue underneath.
+`identifiant_court` already packs the three on three lines, but HTML collapses those newlines into
+one run-on string, so the grid splits the label itself. A label that is a single line simply has no
+second line.
+
+**Shifts are grouped by event** inside each day cell, under a small heading carrying the event's
+**title only** — otherwise a column of `Marie Tremblay : 12:30 - 17:15` says nothing about *which*
+event is being staffed on a day holding several. Groups follow the events' own order (read from the
+time on the label's second line, not from the title), shifts keep their start-time order within a
+group, and shifts not yet dispatched fall into a last **Sans événement** group. Every group is
+labelled, including when there is only one: on a busy day an unlabelled group would still leave the
+question unanswered.
+
+**Shifts with no event** are gathered under the ⚠ **Sans événement** group and counted per day
+in the footer. Their `date_courte` rollup is
 empty, so they are correctly dated *in this extension only*: any Airtable view grouping by
 `date_courte` will not show them, and the Projet page will not list them either. The clean fix is to
 turn `date_courte` into a formula — the event's date when there is one, the shift's own date
@@ -79,12 +104,40 @@ table to the interface removes that limitation — the code then switches on its
 **Catégorie du rôle** / **Catégorie de rôle à proposer** (default `accueil`), and those two properties
 appear in the settings panel.
 
+### Availability ranking (read-only, optional)
+
+The employee portal has a **Mes disponibilités** tab where a contact multi-selects the days they are
+available, each with an optional time window. It writes one record per contact × day into a
+`disponibilites` table (`Contacts` link, `date`, `heure_debut` / `heure_fin` as Duration fields).
+Employees never pick a role there — the dispatch stays the operations director's decision — so this
+extension **only reads** that table, to reorder the assignment dropdown. It never writes back and
+never preselects anyone.
+
+The edit panel's **Contact** dropdown then groups the employees in three:
+
+- **Disponibles (n)** — submitted that day, and their window covers the shift's hours;
+- **Disponibles ce jour, hors plage du quart** — submitted, but the window falls short;
+- **Autres employés** — everyone else, as before.
+
+The shift's window is the earliest In to the latest Out across its filled pairs, and it is
+recomputed as the hours are edited, so the ranking re-sorts live. A shift with no hours yet cannot
+split the first two buckets, so every available employee lands in **Disponibles**. A day submitted
+with no hours means *all day*, not midnight — a missing bound is treated as unbounded. When nobody
+submitted for that day the dropdown stays the plain alphabetical list it always was.
+
+Configured by four properties, all auto-detected by name: **Table Disponibilités**, **Jour de la
+disponibilité**, **Lien Contact**, **Heure de début / de fin**. Leave the table unset and the feature
+is simply off. The two time fields are optional; the day and the contact link are not, and the panel
+says so when one is missing.
+
 ### Two limits of the Interface Extensions SDK you will hit
 
 **An interface extension sees only the tables and fields the page exposes to it.** A field it cannot
-see has no id and cannot be written — silently. That is why `Projets` and `statut_portail` were
-invisible until they were exposed on the extension element, and why the Rôles table still is. When a
-value refuses to be written, check this before suspecting the code.
+see has no id and cannot be written — silently. That is why `Projets` was invisible until it was
+exposed on the extension element, and why the Rôles table still is. The `disponibilites` table is
+the same story: it is linked from Contacts, not from `equipe_accueil`, so it has to be exposed
+explicitly before the availability properties can even be pointed at it. When a value refuses to be
+written — or a table refuses to appear in the settings — check this before suspecting the code.
 
 **Record creation, editing and deletion are three separate toggles** on the extension element in the
 interface builder. Otherwise Airtable refuses the write; the extension reports its reason verbatim

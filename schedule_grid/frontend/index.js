@@ -21,6 +21,11 @@ const EVENTS_ROW_LABEL = 'Événements';
 // Preferred ordering for staff category rows; unknown values fall through alphabetically.
 const CATEGORY_PRIORITY_ORDER = ['Placiers', 'Placiers seniors', 'Merch'];
 
+// Shifts not yet dispatched to an event sort after every event group. A finite value, not
+// Infinity: the comparator subtracts these and Infinity - Infinity is NaN.
+const NO_EVENT_SORT_KEY = Number.MAX_SAFE_INTEGER;
+const NO_EVENT_GROUP_LABEL = 'Sans événement';
+
 const MS_PER_DAY = 86400000;
 const SECONDS_PER_DAY = 86400;
 
@@ -39,6 +44,11 @@ const DEFAULT_ROLE_NEEDLE = 'placier';
 
 // Only employees can be assigned to a shift (Contacts also holds producers, venue staff, etc.).
 const DEFAULT_CONTACT_CATEGORY = 'Employés';
+
+// The portal's "Mes disponibilités" calendar writes one record per contact × available day into
+// this table. The grid only reads it, to rank the assignment dropdown: who is actually dispatched
+// stays the operations director's decision, so nothing is ever written back here.
+const AVAILABILITY_TABLE_NEEDLE = 'disponibilit';
 
 // The three In/Out duration pairs, keyed by their custom-property keys.
 const SHIFT_PAIRS = [
@@ -149,6 +159,15 @@ function fmtHHMM(seconds) {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+// Label the window an employee submitted from the portal. Either bound may be missing, which the
+// portal treats as unbounded rather than as midnight.
+function fmtAvailabilityWindow({start, end}) {
+    if (start === null && end === null) return 'toute la journée';
+    if (start === null) return `jusqu’à ${fmtHHMM(end)}`;
+    if (end === null) return `à partir de ${fmtHHMM(start)}`;
+    return `${fmtHHMM(start)} – ${fmtHHMM(end)}`;
+}
+
 // "17:00" -> 61200 seconds. Null when the string is not a valid HH:MM.
 function parseHHMM(str) {
     const m = /^(\d{1,2}):(\d{2})$/.exec(String(str ?? '').trim());
@@ -226,6 +245,31 @@ function isRoleFreeText(field) {
     return type === FieldType.SINGLE_LINE_TEXT || type === FieldType.MULTILINE_TEXT;
 }
 
+// `identifiant_court` packs the event on three lines — title, time, venue. HTML collapses those
+// newlines into one run-on string, so the grid splits them itself: the title heads the cell, the
+// rest sits under it, and the shifts below are filed under the title alone. A label that is a
+// single line simply has no `meta`.
+function splitEventLabel(label) {
+    const lines = String(label ?? '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+    return {title: lines[0] ?? '', meta: lines.slice(1).join(' · ')};
+}
+
+// The shift's current role as a choice id, in the same shape `roleChoices` offers: a linked record
+// id, or a select option id. Null when the field holds neither (free text, or empty).
+function readRoleChoiceId(record, field) {
+    const type = field?.config?.type;
+    if (type === FieldType.MULTIPLE_RECORD_LINKS) return readLinkedIds(record, field)[0] ?? null;
+    if (type === FieldType.SINGLE_SELECT) return record.getCellValue(field)?.id ?? null;
+    if (type === FieldType.MULTIPLE_SELECTS) {
+        const value = record.getCellValue(field);
+        return Array.isArray(value) && value.length ? value[0]?.id ?? null : null;
+    }
+    return null;
+}
+
 // True when the category field can be written at all (i.e. is not a formula/rollup/lookup).
 function isRoleWritable(field) {
     const type = field?.config?.type;
@@ -292,6 +336,31 @@ function buildRecordDetailUrl(template, recordId) {
     } catch {
         return null; // malformed template: the caller falls back to expandRecord
     }
+}
+
+// Split a day's already-sorted shifts into one group per event, in first-appearance order (so the
+// groups inherit the sort). Every group is labelled, including when there is only one: on a day
+// holding several events, an unlabelled group would still leave "which event is this?" unanswered
+// — which is the whole point of the grouping.
+function groupEntriesByEvent(entries) {
+    const groups = [];
+    const byKey = new Map();
+    for (const entry of entries) {
+        const key = entry.eventId ?? '__none__';
+        let group = byKey.get(key);
+        if (!group) {
+            group = {
+                key,
+                label: entry.eventLabel ?? NO_EVENT_GROUP_LABEL,
+                orphan: !entry.eventId,
+                entries: [],
+            };
+            byKey.set(key, group);
+            groups.push(group);
+        }
+        group.entries.push(entry);
+    }
+    return groups;
 }
 
 function compareCategories(a, b) {
@@ -460,6 +529,10 @@ function getCustomProperties(base) {
 
     const isCheckbox = (field) => field.config.type === FieldType.CHECKBOX;
 
+    // Strict, like the In/Out pairs: these are read as raw seconds-since-midnight, which only a
+    // Duration field yields.
+    const isDuration = (field) => field.config.type === FieldType.DURATION;
+
     // date_courte is a rollup of the linked event's date, so it cannot be written. Creating a shift
     // before it is dispatched to an event therefore needs a date field of its own.
     const isWritableDate = (field) =>
@@ -490,6 +563,10 @@ function getCustomProperties(base) {
         base.tables.find((t) => t.name.toLowerCase().includes('contact'));
 
     const rolesTable = findRolesTable(base, staffTable);
+
+    const availabilityTable = base.tables.find((t) =>
+        t.name.toLowerCase().includes(AVAILABILITY_TABLE_NEEDLE),
+    );
 
     return [
         {
@@ -549,8 +626,10 @@ function getCustomProperties(base) {
             type: 'string',
             defaultValue: DEFAULT_HIDDEN_MODES,
         },
-        // A checkbox on Événements, toggled straight from the events row. Must be exposed to the
-        // extension in the interface builder — a hidden field has no id and cannot be written.
+        // A checkbox on Événements, toggled straight from the events row. It is what the employee
+        // portal's Disponibilités tab lists (the `portail-public` view filters on it), so ticking it
+        // here is how the venue announces that shifts are or will be open on an event. Must be
+        // exposed to the extension in the interface builder — a hidden field cannot be written.
         {
             key: 'portalField',
             label: 'Case Portail (sur les événements)',
@@ -759,6 +838,53 @@ function getCustomProperties(base) {
                 },
             ]
             : []),
+        // Optional. Left unset, the assignment dropdown stays a flat alphabetical list — exactly
+        // as it behaved before. Declared only when the table exists: a `field` property with an
+        // undefined table breaks the settings panel.
+        {
+            key: 'availabilityTable',
+            label: 'Table Disponibilités (portail employés)',
+            type: 'table',
+            defaultValue: availabilityTable,
+        },
+        ...(availabilityTable
+            ? [
+                {
+                    key: 'availabilityDateField',
+                    label: 'Jour de la disponibilité',
+                    type: 'field',
+                    table: availabilityTable,
+                    shouldFieldBeAllowed: isDateLike,
+                    defaultValue: byName(availabilityTable, isDateLike, 'date', 'jour'),
+                },
+                {
+                    key: 'availabilityContactLinkField',
+                    label: 'Lien Contact (sur les disponibilités)',
+                    type: 'field',
+                    table: availabilityTable,
+                    shouldFieldBeAllowed: isLinkedRecord,
+                    defaultValue: byName(availabilityTable, isLinkedRecord, 'contact', 'employé', 'employe'),
+                },
+                // Both halves of the window are optional: a day submitted without hours means
+                // "available all day", not "available at 00:00".
+                {
+                    key: 'availabilityStartField',
+                    label: 'Heure de début de la disponibilité',
+                    type: 'field',
+                    table: availabilityTable,
+                    shouldFieldBeAllowed: isDuration,
+                    defaultValue: byName(availabilityTable, isDuration, 'debut', 'début', 'start'),
+                },
+                {
+                    key: 'availabilityEndField',
+                    label: 'Heure de fin de la disponibilité',
+                    type: 'field',
+                    table: availabilityTable,
+                    shouldFieldBeAllowed: isDuration,
+                    defaultValue: byName(availabilityTable, isDuration, 'fin', 'end'),
+                },
+            ]
+            : []),
     ];
 }
 
@@ -799,6 +925,11 @@ function ScheduleGridApp() {
     const staffDateWriteField = customPropertyValueByKey.staffDateWriteField;
     const roleCategoryField = customPropertyValueByKey.roleCategoryField;
     const roleCategoryValue = customPropertyValueByKey.roleCategoryValue;
+    const availabilityTable = customPropertyValueByKey.availabilityTable;
+    const availabilityDateField = customPropertyValueByKey.availabilityDateField;
+    const availabilityContactLinkField = customPropertyValueByKey.availabilityContactLinkField;
+    const availabilityStartField = customPropertyValueByKey.availabilityStartField;
+    const availabilityEndField = customPropertyValueByKey.availabilityEndField;
     const rolesTable = useMemo(
         () => (staffTable ? findRolesTable(base, staffTable) : null),
         [base, staffTable],
@@ -828,6 +959,7 @@ function ScheduleGridApp() {
     // table that always exists and ignore the result when Contacts is not configured.
     const contactRecords = useRecords(contactsTable || staffTable);
     const roleRecords = useRecords(rolesTable || staffTable);
+    const availabilityRecords = useRecords(availabilityTable || staffTable);
 
     const [selectedWeekMs, setSelectedWeekMs] = useState(null);
     const [numWeeks, setNumWeeks] = useState(1);
@@ -918,6 +1050,25 @@ function ScheduleGridApp() {
             return map.get(key);
         };
 
+        // Label + time of every visible event, so each shift can name the event it staffs. Built
+        // over the whole table rather than the displayed week: resolution must not depend on the
+        // event happening to be in range.
+        const eventInfoById = new Map();
+        if (configured) {
+            for (const r of eventRecords) {
+                if (hiddenEventIds.has(r.id)) continue;
+                const label = r.getCellValueAsString(eventLabelField).trim();
+                // Shifts are filed under the title alone; the sort key still reads the whole label,
+                // where the time sits on the second line.
+                if (label) {
+                    eventInfoById.set(r.id, {
+                        label: splitEventLabel(label).title,
+                        sortKey: timeSortKey(label),
+                    });
+                }
+            }
+        }
+
         if (configured) {
             // Événements row
             for (const r of eventRecords) {
@@ -933,8 +1084,11 @@ function ScheduleGridApp() {
                 // click falls back to expanding the event record.
                 const detailRowId = detailLinkField ? readLinkedIds(r, detailLinkField)[0] ?? null : null;
 
+                const {title, meta} = splitEventLabel(text);
+
                 ensureRow(EVENTS_ROW_KEY)[idx].push({
-                    text,
+                    title,
+                    meta,
                     sortKey: timeSortKey(text),
                     highlight: false,
                     color: salleField ? getSalleColor(r, salleField, base) : null,
@@ -963,6 +1117,10 @@ function ScheduleGridApp() {
                 // A shift created for a day but never dispatched to an event: its date_courte rollup
                 // stays empty, so it is dated here and nowhere else. Flag it rather than lose it.
                 const orphan = Boolean(staffEventLinkField) && linkedEventIds.length === 0;
+
+                // A shift shared between events is filed under the first one still visible.
+                const eventId = linkedEventIds.find((id) => eventInfoById.has(id)) ?? null;
+                const eventInfo = eventId ? eventInfoById.get(eventId) : null;
 
                 const category = r.getCellValueAsString(categoryField).trim() || 'Autres';
                 categories.add(category);
@@ -993,6 +1151,10 @@ function ScheduleGridApp() {
                     sortKey: minIn !== null ? minIn : timeSortKey(text),
                     highlight: !contact, // yellow when no contact assigned
                     orphan,
+                    eventId,
+                    eventLabel: eventInfo?.label ?? null,
+                    // Shifts with no event sort last, after every event group.
+                    eventSortKey: eventInfo ? eventInfo.sortKey : NO_EVENT_SORT_KEY,
                     record: r,
                 });
 
@@ -1003,8 +1165,16 @@ function ScheduleGridApp() {
             }
         }
 
+        // Shifts sort by their event first so each event's shifts end up contiguous, then by their
+        // own start time within it. The Événements row carries no eventSortKey, so it falls
+        // straight through to the second term and keeps its previous ordering.
         for (const cells of map.values()) {
-            for (const day of cells) day.sort((a, b) => a.sortKey - b.sortKey);
+            for (const day of cells) {
+                day.sort(
+                    (a, b) =>
+                        (a.eventSortKey ?? 0) - (b.eventSortKey ?? 0) || a.sortKey - b.sortKey,
+                );
+            }
         }
 
         return {
@@ -1145,6 +1315,62 @@ function ScheduleGridApp() {
         return `aucun des ${contactRecords.length} contacts n’a la catégorie « ${wanted} » (champ « ${contactCategoryField.name} » ; valeurs trouvées : ${[...seen].join(', ') || 'aucune'}).`;
     }, [contactsTable, contactOptions, contactRecords, contactCategoryField, contactCategoryValue]);
 
+    // Availabilities submitted from the portal, indexed by day then by contact. Employees declare
+    // a whole day (with an optional time window) and never a role — the dispatch is the operations
+    // director's call — so this only reorders the dropdown, it never preselects anyone.
+    const availabilityByDay = useMemo(() => {
+        const byDay = new Map();
+        if (!availabilityTable || !availabilityDateField || !availabilityContactLinkField) {
+            return byDay;
+        }
+        for (const record of availabilityRecords) {
+            const date = readDate(record, availabilityDateField);
+            if (!date) continue;
+            const dayIso = fmtDate(date);
+            const start = availabilityStartField
+                ? readDurationSeconds(record, availabilityStartField)
+                : null;
+            const end = availabilityEndField
+                ? readDurationSeconds(record, availabilityEndField)
+                : null;
+            let byContact = byDay.get(dayIso);
+            if (!byContact) byDay.set(dayIso, (byContact = new Map()));
+            for (const contactId of readLinkedIds(record, availabilityContactLinkField)) {
+                // Two records for the same contact and day shouldn't happen (the portal saves one
+                // per day), but if they do the windows are merged rather than one silently winning.
+                const previous = byContact.get(contactId);
+                byContact.set(
+                    contactId,
+                    previous
+                        ? {
+                            start: previous.start === null || start === null
+                                ? null
+                                : Math.min(previous.start, start),
+                            end: previous.end === null || end === null
+                                ? null
+                                : Math.max(previous.end, end),
+                        }
+                        : {start, end},
+                );
+            }
+        }
+        return byDay;
+    }, [
+        availabilityTable, availabilityRecords, availabilityDateField,
+        availabilityContactLinkField, availabilityStartField, availabilityEndField,
+    ]);
+
+    // The table is configured but unusable: without a day or a contact link there is nothing to
+    // match on, and the dropdown silently stays flat.
+    const availabilityDiagnostic = useMemo(() => {
+        if (!availabilityTable) return null;
+        const missing = [];
+        if (!availabilityDateField) missing.push('« Jour de la disponibilité »');
+        if (!availabilityContactLinkField) missing.push('« Lien Contact »');
+        if (!missing.length) return null;
+        return `disponibilités non prises en compte : ${missing.join(' et ')} ${missing.length > 1 ? 'ne sont pas renseignés' : 'n’est pas renseigné'} dans les réglages de l’extension.`;
+    }, [availabilityTable, availabilityDateField, availabilityContactLinkField]);
+
     // Coarse checks: they decide whether the affordance is shown at all. The precise, field-aware
     // check happens right before each write (field-level restrictions only surface there).
     // Why creation is unavailable. Surfaced in the UI: a silently missing button is impossible to
@@ -1282,6 +1508,10 @@ function ScheduleGridApp() {
                 end: fmtHHMM(readDurationSeconds(record, customPropertyValueByKey[pair.outKey])),
             };
         }
+        // The role prefills from the record itself. A value the dropdown does not offer (a role
+        // never linked elsewhere, so absent from roleChoices) would make the select show its first
+        // option and silently reassign the shift on save, so fall back to no selection.
+        const roleId = readRoleChoiceId(record, categoryField);
         setPanel({
             mode: 'edit',
             recordId: record.id,
@@ -1289,6 +1519,10 @@ function ScheduleGridApp() {
             times,
             contactId: canAssignContact ? readLinkedIds(record, contactLinkField)[0] ?? '' : '',
             eventId: readLinkedIds(record, staffEventLinkField)[0] ?? '',
+            roleId: roleChoices.some((c) => c.id === roleId) ? roleId : '',
+            roleText: isRoleFreeText(categoryField)
+                ? record.getCellValueAsString(categoryField)
+                : '',
         });
     };
 
@@ -1422,6 +1656,13 @@ function ScheduleGridApp() {
             setFeedback({type: 'error', message: 'Un quart doit avoir au moins une plage horaire.'});
             return;
         }
+
+        // Reassigning the role moves the shift to another category row. Written exactly like on
+        // create: `roleWriteValue` yields undefined when nothing is selected, and the field is then
+        // omitted so the current role survives untouched.
+        const roleChoice = roleChoices.find((c) => c.id === panel.roleId) ?? null;
+        const roleValue = roleWriteValue(categoryField, roleChoice, panel.roleText);
+        if (roleValue !== undefined) fields[categoryField.id] = roleValue;
 
         // An empty selection must CLEAR the link, so always write the field: an empty array unlinks,
         // and skipping it would silently keep the previous value ("Non assigné" would do nothing).
@@ -1637,8 +1878,13 @@ function ScheduleGridApp() {
                     canAssignContact={canAssignContact}
                     contactOptions={contactOptions}
                     contactDiagnostic={contactDiagnostic}
+                    availabilityByDay={availabilityByDay}
+                    availabilityDiagnostic={availabilityDiagnostic}
                     dayEvents={eventsByDayIso.get(panel.dayIso) ?? []}
                     hasEventLink={Boolean(staffEventLinkField)}
+                    roleChoices={roleChoices}
+                    roleDiagnostic={roleDiagnostic}
+                    categoryField={categoryField}
                 />
             )}
 
@@ -1670,7 +1916,106 @@ function ScheduleGridApp() {
                     <tbody>
                         {rowKeys.map((key) => {
                             const cells = grid.get(key) ?? Array.from({length: weekDays.length}, () => []);
-                            const table = key === EVENTS_ROW_KEY ? eventsTable : staffTable;
+                            const isEvent = key === EVENTS_ROW_KEY;
+                            const table = isEvent ? eventsTable : staffTable;
+
+                            // A shift opens the edit panel; an event opens its detail page in the
+                            // interface, falling back to expandRecord when no URL is configured.
+                            const renderEntry = (entry, j) => {
+                                const editable = canEdit && !isEvent;
+                                const detailUrl = isEvent ? entry.detailUrl : null;
+                                const clickable =
+                                    editable || Boolean(detailUrl) || canExpand(table);
+                                const onClick = () => {
+                                    if (editable) openEditPanel(entry.record);
+                                    else if (!detailUrl && canExpand(table)) {
+                                        expandRecord(entry.record);
+                                    }
+                                };
+                                const className =
+                                    'block rounded border px-1.5 py-1 leading-tight no-underline ' +
+                                    (clickable ? 'cursor-pointer ' : '') +
+                                    (entry.color
+                                        ? 'border-transparent '
+                                        : entry.highlight
+                                            ? 'border-yellow-yellow bg-yellow-yellowLight1 text-gray-gray900 min-h-[1.5rem] '
+                                            : 'border-gray-gray200 bg-white dark:border-gray-gray600 dark:bg-gray-gray800');
+                                const style = entry.color
+                                    ? {backgroundColor: entry.color.bg, color: entry.color.text}
+                                    : undefined;
+                                // An event reads as a title on its own line, then its time and
+                                // venue underneath. A shift is a single line.
+                                const content = isEvent ? (
+                                    <>
+                                        <div className="font-semibold">{entry.title}</div>
+                                        {entry.meta && (
+                                            <div className="opacity-75">{entry.meta}</div>
+                                        )}
+                                    </>
+                                ) : (
+                                    entry.text
+                                );
+                                // A real anchor, not window.open: the extension runs in a sandboxed
+                                // iframe where popups are blocked.
+                                const chip = detailUrl ? (
+                                    <a
+                                        href={detailUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        title="Ouvrir la fiche du projet"
+                                        className={className}
+                                        style={style}
+                                    >
+                                        {content}
+                                    </a>
+                                ) : (
+                                    <div
+                                        onClick={onClick}
+                                        title={editable ? 'Modifier le quart' : undefined}
+                                        className={className}
+                                        style={style}
+                                    >
+                                        {content}
+                                    </div>
+                                );
+
+                                // Events carry the Portail flag, toggled in place: it is what puts
+                                // the event in the employee portal's Disponibilités tab. It sits
+                                // beside the chip, not inside it, so the chip click still opens the
+                                // side-sheet.
+                                const showPortal =
+                                    isEvent && entry.portal !== null && canTogglePortal;
+                                if (!showPortal) {
+                                    return (
+                                        <div key={j} className="flex-1">
+                                            {chip}
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div key={j} className="flex items-start gap-1">
+                                        <button
+                                            type="button"
+                                            onClick={() => togglePortal(entry.record, !entry.portal)}
+                                            title={
+                                                entry.portal
+                                                    ? 'Visible dans le portail employés — cliquer pour retirer'
+                                                    : 'Absent du portail employés — cliquer pour publier'
+                                            }
+                                            className={
+                                                'mt-0.5 shrink-0 cursor-pointer text-sm leading-none ' +
+                                                (entry.portal
+                                                    ? 'text-blue-blue'
+                                                    : 'text-gray-gray400 hover:text-gray-gray600')
+                                            }
+                                        >
+                                            {entry.portal ? '\u2691' : '\u2690'}
+                                        </button>
+                                        <div className="flex-1">{chip}</div>
+                                    </div>
+                                );
+                            };
+
                             return (
                                 <tr key={key}>
                                     <th className="border border-gray-gray200 bg-gray-gray50 p-2 text-center align-middle font-semibold dark:border-gray-gray700 dark:bg-gray-gray800">
@@ -1682,106 +2027,29 @@ function ScheduleGridApp() {
                                             className="border border-gray-gray200 p-1 align-top dark:border-gray-gray700"
                                         >
                                             <div className="flex flex-col gap-1">
-                                                {entries.map((entry, j) => {
-                                                    // A shift opens the edit panel; an event opens its
-                                                    // detail page in the interface, falling back to
-                                                    // expandRecord when no URL template is configured.
-                                                    const isEvent = key === EVENTS_ROW_KEY;
-                                                    const editable = canEdit && !isEvent;
-                                                    const detailUrl = isEvent ? entry.detailUrl : null;
-                                                    const clickable =
-                                                        editable || Boolean(detailUrl) || canExpand(table);
-                                                    const onClick = () => {
-                                                        if (editable) openEditPanel(entry.record);
-                                                        else if (!detailUrl && canExpand(table)) {
-                                                            expandRecord(entry.record);
-                                                        }
-                                                    };
-                                                    const className =
-                                                        'block rounded border px-1.5 py-1 leading-tight no-underline ' +
-                                                        (clickable ? 'cursor-pointer ' : '') +
-                                                        (entry.color
-                                                            ? 'border-transparent '
-                                                            : entry.highlight
-                                                                ? 'border-yellow-yellow bg-yellow-yellowLight1 text-gray-gray900 min-h-[1.5rem] '
-                                                                : 'border-gray-gray200 bg-white dark:border-gray-gray600 dark:bg-gray-gray800');
-                                                    const style = entry.color
-                                                        ? {backgroundColor: entry.color.bg, color: entry.color.text}
-                                                        : undefined;
-                                                    const content = (
-                                                        <>
-                                                            {entry.orphan && (
-                                                                <span
-                                                                    className="mr-1 font-semibold text-orange-orange"
-                                                                    title="Aucun événement : ce quart n’est daté que dans cette extension"
-                                                                >
-                                                                    ⚠
-                                                                </span>
-                                                            )}
-                                                            {entry.text}
-                                                        </>
-                                                    );
-                                                    // A real anchor, not window.open: the extension runs
-                                                    // in a sandboxed iframe where popups are blocked.
-                                                    const chip = detailUrl ? (
-                                                        <a
-                                                            href={detailUrl}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            title="Ouvrir la fiche du projet"
-                                                            className={className}
-                                                            style={style}
-                                                        >
-                                                            {content}
-                                                        </a>
-                                                    ) : (
-                                                        <div
-                                                            onClick={onClick}
-                                                            title={editable ? 'Modifier le quart' : undefined}
-                                                            className={className}
-                                                            style={style}
-                                                        >
-                                                            {content}
-                                                        </div>
-                                                    );
-
-                                                    // Events carry a Portail flag, toggled in place. It
-                                                    // sits beside the chip, not inside it, so the chip
-                                                    // click still opens the side-sheet.
-                                                    const showPortal =
-                                                        isEvent && entry.portal !== null && canTogglePortal;
-                                                    if (!showPortal) {
-                                                        return (
-                                                            <div key={j} className="flex-1">
-                                                                {chip}
-                                                            </div>
-                                                        );
-                                                    }
-                                                    return (
-                                                        <div key={j} className="flex items-start gap-1">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() =>
-                                                                    togglePortal(entry.record, !entry.portal)
+                                                {isEvent
+                                                    ? entries.map(renderEntry)
+                                                    : groupEntriesByEvent(entries).map((group) => (
+                                                        <div key={group.key} className="flex flex-col gap-1">
+                                                            <div
+                                                                className={
+                                                                    'truncate text-[10px] font-semibold leading-tight ' +
+                                                                    (group.orphan
+                                                                        ? 'text-orange-orange'
+                                                                        : 'text-gray-gray500 dark:text-gray-gray400')
                                                                 }
                                                                 title={
-                                                                    entry.portal
-                                                                        ? 'Portail activé — cliquer pour désactiver'
-                                                                        : 'Portail désactivé — cliquer pour activer'
-                                                                }
-                                                                className={
-                                                                    'mt-0.5 shrink-0 cursor-pointer text-sm leading-none ' +
-                                                                    (entry.portal
-                                                                        ? 'text-blue-blue'
-                                                                        : 'text-gray-gray400 hover:text-gray-gray600')
+                                                                    group.orphan
+                                                                        ? 'Quarts sans événement : ils ne sont datés que dans cette extension'
+                                                                        : group.label
                                                                 }
                                                             >
-                                                                {entry.portal ? '⚑' : '⚐'}
-                                                            </button>
-                                                            <div className="flex-1">{chip}</div>
+                                                                {group.orphan ? '⚠ ' : ''}
+                                                                {group.label}
+                                                            </div>
+                                                            {group.entries.map(renderEntry)}
                                                         </div>
-                                                    );
-                                                })}
+                                                    ))}
                                             </div>
                                         </td>
                                     ))}
@@ -1913,12 +2181,59 @@ function EventSelect({value, onChange, dayEvents, hasEventLink}) {
     );
 }
 
+// Shared by both panels: a shift is created with a role, and reassigned to another one later.
+// Falls back to a free-text input when the category field is text and no choices could be read,
+// and to an explanation when the field cannot be written at all.
+function RoleField({roleId, roleText, onChange, roleChoices, roleDiagnostic, categoryField}) {
+    return (
+        <div>
+            <label className={FIELD_LABEL}>Rôle</label>
+            {roleChoices.length > 0 ? (
+                <select
+                    className={FIELD_INPUT}
+                    value={roleId}
+                    onChange={(e) => onChange({roleId: e.target.value})}
+                >
+                    {/* Only when the shift's own role is not among the offered ones: leaving it
+                        selected writes nothing, so the role stays as it is instead of being
+                        silently swapped for the first option in the list. */}
+                    {!roleChoices.some((c) => c.id === roleId) && (
+                        <option value="">— Rôle actuel (non proposé) —</option>
+                    )}
+                    {roleChoices.map((c) => (
+                        <option key={c.id} value={c.id}>
+                            {c.name}
+                        </option>
+                    ))}
+                </select>
+            ) : isRoleFreeText(categoryField) ? (
+                <>
+                    <input
+                        type="text"
+                        className={FIELD_INPUT}
+                        value={roleText}
+                        onChange={(e) => onChange({roleText: e.target.value})}
+                    />
+                    <p className="mt-1 max-w-[16rem] text-xs text-orange-orange">
+                        Menu indisponible — {roleDiagnostic}
+                    </p>
+                </>
+            ) : (
+                <p className="max-w-[16rem] text-xs text-orange-orange">
+                    {isRoleWritable(categoryField)
+                        ? `Aucun rôle disponible — ${roleDiagnostic}`
+                        : `Champ Catégorie non inscriptible (${categoryField?.config.type}) : le rôle ne sera pas renseigné.`}
+                </p>
+            )}
+        </div>
+    );
+}
+
 function CreateShiftsPanel({
     panel, setPanel, saving, onSubmit, onCancel,
     roleChoices, roleDiagnostic, categoryField, writablePairs,
 }) {
     const set = (patch) => setPanel({...panel, ...patch});
-    const roleIsFreeText = isRoleFreeText(categoryField);
 
     return (
         <PanelShell
@@ -1938,40 +2253,14 @@ function CreateShiftsPanel({
                 />
             </div>
 
-            <div>
-                <label className={FIELD_LABEL}>Rôle</label>
-                {roleChoices.length > 0 ? (
-                    <select
-                        className={FIELD_INPUT}
-                        value={panel.roleId}
-                        onChange={(e) => set({roleId: e.target.value})}
-                    >
-                        {roleChoices.map((c) => (
-                            <option key={c.id} value={c.id}>
-                                {c.name}
-                            </option>
-                        ))}
-                    </select>
-                ) : roleIsFreeText ? (
-                    <>
-                        <input
-                            type="text"
-                            className={FIELD_INPUT}
-                            value={panel.roleText}
-                            onChange={(e) => set({roleText: e.target.value})}
-                        />
-                        <p className="mt-1 max-w-[16rem] text-xs text-orange-orange">
-                            Menu indisponible — {roleDiagnostic}
-                        </p>
-                    </>
-                ) : (
-                    <p className="max-w-[16rem] text-xs text-orange-orange">
-                        {isRoleWritable(categoryField)
-                            ? `Aucun rôle disponible — ${roleDiagnostic}`
-                            : `Champ Catégorie non inscriptible (${categoryField?.config.type}) : le rôle ne sera pas renseigné.`}
-                    </p>
-                )}
-            </div>
+            <RoleField
+                roleId={panel.roleId}
+                roleText={panel.roleText}
+                onChange={set}
+                roleChoices={roleChoices}
+                roleDiagnostic={roleDiagnostic}
+                categoryField={categoryField}
+            />
 
             <div>
                 <label className={FIELD_LABEL}>Bloc de travail</label>
@@ -2028,13 +2317,61 @@ function CreateShiftsPanel({
 
 function EditShiftPanel({
     panel, setPanel, saving, onSubmit, onCancel, onDelete, canDelete, writablePairs,
-    canAssignContact, contactOptions, contactDiagnostic, dayEvents, hasEventLink,
+    canAssignContact, contactOptions, contactDiagnostic, availabilityByDay,
+    availabilityDiagnostic, dayEvents, hasEventLink,
+    roleChoices, roleDiagnostic, categoryField,
 }) {
     // Any edit disarms a pending delete confirmation: the armed button must not survive a change
     // of mind that lands on it.
     const set = (patch) => setPanel({...panel, ...patch, confirmDelete: false});
     const setTime = (pairKey, patch) =>
         set({times: {...panel.times, [pairKey]: {...panel.times[pairKey], ...patch}}});
+
+    // The shift's own window: earliest In to latest Out across the filled pairs. Recomputed as the
+    // hours are edited, so the dropdown re-ranks live while the dispatcher adjusts the times.
+    const shiftWindow = useMemo(() => {
+        let start = null;
+        let end = null;
+        for (const pair of writablePairs) {
+            const s = parseHHMM(panel.times[pair.key]?.start);
+            const e = parseHHMM(panel.times[pair.key]?.end);
+            if (s === null || e === null) continue;
+            const wrapped = endSecondsWithWrap(s, e);
+            if (start === null || s < start) start = s;
+            if (end === null || wrapped > end) end = wrapped;
+        }
+        return start === null ? null : {start, end};
+    }, [panel.times, writablePairs]);
+
+    // Three buckets: available and covering the shift's hours, available that day but outside them,
+    // and everyone else. With no hours on the shift yet, the middle bucket cannot be decided and
+    // every available employee lands in the first.
+    const contactGroups = useMemo(() => {
+        const byContact = availabilityByDay?.get(panel.dayIso);
+        if (!byContact?.size) return {covering: [], partial: [], others: contactOptions};
+        const covering = [];
+        const partial = [];
+        const others = [];
+        for (const contact of contactOptions) {
+            const window = byContact.get(contact.id);
+            if (!window) {
+                others.push(contact);
+                continue;
+            }
+            // A missing bound is unbounded: a day submitted without hours means "all day".
+            const covers =
+                !shiftWindow ||
+                ((window.start === null || window.start <= shiftWindow.start) &&
+                    (window.end === null || window.end >= shiftWindow.end));
+            (covers ? covering : partial).push({...contact, window});
+        }
+        return {covering, partial, others};
+    }, [availabilityByDay, panel.dayIso, contactOptions, shiftWindow]);
+
+    // Nobody submitted anything for that day: keep the plain alphabetical list rather than bury it
+    // under a lone "Autres employés" heading.
+    const hasAvailability =
+        contactGroups.covering.length > 0 || contactGroups.partial.length > 0;
 
     return (
         <PanelShell
@@ -2069,6 +2406,15 @@ function EditShiftPanel({
                 </div>
             ))}
 
+            <RoleField
+                roleId={panel.roleId}
+                roleText={panel.roleText}
+                onChange={set}
+                roleChoices={roleChoices}
+                roleDiagnostic={roleDiagnostic}
+                categoryField={categoryField}
+            />
+
             {canAssignContact && (
                 <div>
                     <label className={FIELD_LABEL}>Contact</label>
@@ -2078,15 +2424,52 @@ function EditShiftPanel({
                         onChange={(e) => set({contactId: e.target.value})}
                     >
                         <option value="">— Non assigné —</option>
-                        {contactOptions.map((c) => (
-                            <option key={c.id} value={c.id}>
-                                {c.name}
-                            </option>
-                        ))}
+                        {hasAvailability ? (
+                            <>
+                                {contactGroups.covering.length > 0 && (
+                                    <optgroup label={`Disponibles (${contactGroups.covering.length})`}>
+                                        {contactGroups.covering.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.name} — {fmtAvailabilityWindow(c.window)}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                                {contactGroups.partial.length > 0 && (
+                                    <optgroup label="Disponibles ce jour, hors plage du quart">
+                                        {contactGroups.partial.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.name} — {fmtAvailabilityWindow(c.window)}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                                {contactGroups.others.length > 0 && (
+                                    <optgroup label="Autres employés">
+                                        {contactGroups.others.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.name}
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                )}
+                            </>
+                        ) : (
+                            contactOptions.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                    {c.name}
+                                </option>
+                            ))
+                        )}
                     </select>
                     {contactDiagnostic && (
                         <p className="mt-1 max-w-[16rem] text-xs text-orange-orange">
                             {contactDiagnostic}
+                        </p>
+                    )}
+                    {availabilityDiagnostic && (
+                        <p className="mt-1 max-w-[16rem] text-xs text-orange-orange">
+                            {availabilityDiagnostic}
                         </p>
                     )}
                 </div>
