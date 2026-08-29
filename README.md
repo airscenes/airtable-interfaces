@@ -11,6 +11,8 @@ Custom extensions for Airtable Interfaces.
 | `sales-chart/` | Sales dashboard with Supabase integration. Shows cumulative ticket sales and revenue charts per show, with multi-select representations, date presets (24h/3m/6m/1y/YTD), and city/venue filters. |
 | `artist_report/` | Artist report extension for viewing artist-related data. |
 | `venues_map/` | Venues map extension for displaying venue locations. |
+| `schedule_grid/` | Espace Saint-Denis schedule board. Weekly grid of events and staff shifts (categories × days), with shift create/edit/delete, event dispatch, role reassignment, shifts grouped by event, and the assignment dropdown ranked by the availabilities submitted from the employee portal. |
+| `availability_matrix/` | Read-only matrix of submitted employee availabilities: employees as rows, days as columns, the time window in each cell. Reads the `disponibilites` table fed by the employee portal's *Mes disponibilités* calendar. 1/2/4-week period, per-day availability counts, toggle to hide employees who submitted nothing. |
 
 ## Prerequisites
 
