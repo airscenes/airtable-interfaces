@@ -4,6 +4,7 @@ import {
     useBase,
     useRecords,
     useCustomProperties,
+    useSession,
     expandRecord,
 } from '@airtable/blocks/interface/ui';
 import {FieldType} from '@airtable/blocks/interface/models';
@@ -49,6 +50,16 @@ const DEFAULT_CONTACT_CATEGORY = 'Employés';
 // this table. The grid only reads it, to rank the assignment dropdown: who is actually dispatched
 // stays the operations director's decision, so nothing is ever written back here.
 const AVAILABILITY_TABLE_NEEDLE = 'disponibilit';
+
+// The collective agreement's 14-day periods (Annexe C) and the frozen schedule
+// versions published from this grid.
+const PERIODES_TABLE_NEEDLE = 'periodes_horaire';
+const PUBLICATIONS_TABLE_NEEDLE = 'publications_horaire';
+
+// Which team's schedule this grid publishes. Accueil (placiers, gérants) and technique are two
+// different schedules for two different audiences: without the tag, both would write into the same
+// period and the last one would win, showing a placier the technical crew's hours.
+const DEFAULT_PUBLICATION_TEAM = 'Accueil';
 
 // The three In/Out duration pairs, keyed by their custom-property keys.
 const SHIFT_PAIRS = [
@@ -98,6 +109,15 @@ function readDate(record, field) {
     if (raw == null) return parseDate(record.getCellValueAsString(field));
     if (typeof raw === 'string') return parseDate(toLocalIso(raw));
     return parseDate(raw) ?? parseDate(record.getCellValueAsString(field));
+}
+
+// Read a date/time cell as an exact instant — unlike readDate, which normalizes to midnight and
+// would make two publications of the same day indistinguishable.
+function readDateTime(record, field) {
+    if (!field) return null;
+    const raw = record.getCellValue(field);
+    const d = raw ? new Date(raw) : null;
+    return d && !isNaN(d.getTime()) ? d : null;
 }
 
 // Sunday-anchored start of the week containing `date`, normalized to midnight.
@@ -568,6 +588,13 @@ function getCustomProperties(base) {
         t.name.toLowerCase().includes(AVAILABILITY_TABLE_NEEDLE),
     );
 
+    const periodesTable = base.tables.find((t) =>
+        t.name.toLowerCase().includes(PERIODES_TABLE_NEEDLE),
+    );
+    const publicationsTable = base.tables.find((t) =>
+        t.name.toLowerCase().includes(PUBLICATIONS_TABLE_NEEDLE),
+    );
+
     return [
         {
             key: 'eventsTable',
@@ -885,6 +912,117 @@ function getCustomProperties(base) {
                 },
             ]
             : []),
+        // Publishing the schedule. Optional as a whole: leave the two tables
+        // unset and the grid keeps working exactly as before, without the
+        // Sauvegarder row.
+        {
+            key: 'periodesTable',
+            label: 'Table Périodes (convention collective)',
+            type: 'table',
+            defaultValue: periodesTable,
+        },
+        ...(periodesTable
+            ? [
+                {
+                    key: 'periodeLabelField',
+                    label: 'Libellé de la période',
+                    type: 'field',
+                    table: periodesTable,
+                    shouldFieldBeAllowed: isTextLike,
+                    defaultValue: byName(periodesTable, isTextLike, 'periode', 'période'),
+                },
+                {
+                    key: 'periodeDebutField',
+                    label: 'Premier jour de la période',
+                    type: 'field',
+                    table: periodesTable,
+                    shouldFieldBeAllowed: isDateLike,
+                    defaultValue: byName(periodesTable, isDateLike, 'debut', 'début'),
+                },
+                {
+                    key: 'periodeFinField',
+                    label: 'Dernier jour de la période',
+                    type: 'field',
+                    table: periodesTable,
+                    shouldFieldBeAllowed: isDateLike,
+                    defaultValue: byName(periodesTable, isDateLike, 'fin'),
+                },
+            ]
+            : []),
+        {
+            key: 'publicationsTable',
+            label: 'Table Publications de l’horaire',
+            type: 'table',
+            defaultValue: publicationsTable,
+        },
+        // A quart carries three blocks, and each team staffs against one of them: the accueil
+        // team works from the show call, technical crews from montage and démontage. Publishing
+        // the full span would put the other blocks in front of people they mean nothing to.
+        {
+            key: 'publishedPair',
+            label: 'Bloc horaire publié dans le portail',
+            type: 'enum',
+            possibleValues: SHIFT_PAIRS.map((pair) => ({value: pair.key, label: pair.label})),
+            defaultValue: 'showcall',
+        },
+        ...(publicationsTable
+            ? [
+                {
+                    key: 'publicationLabelField',
+                    label: 'Libellé de la publication',
+                    type: 'field',
+                    table: publicationsTable,
+                    shouldFieldBeAllowed: isTextLike,
+                    defaultValue: byName(publicationsTable, isTextLike, 'publication'),
+                },
+                {
+                    key: 'publicationPeriodeField',
+                    label: 'Lien Période (sur les publications)',
+                    type: 'field',
+                    table: publicationsTable,
+                    shouldFieldBeAllowed: isLinkedRecord,
+                    defaultValue: byName(publicationsTable, isLinkedRecord, 'periode', 'période'),
+                },
+                {
+                    key: 'publicationDateField',
+                    label: 'Date de publication',
+                    type: 'field',
+                    table: publicationsTable,
+                    shouldFieldBeAllowed: isDateLike,
+                    defaultValue: byName(publicationsTable, isDateLike, 'publie_le', 'publié'),
+                },
+                {
+                    key: 'publicationAuteurField',
+                    label: 'Publié par',
+                    type: 'field',
+                    table: publicationsTable,
+                    shouldFieldBeAllowed: isTextLike,
+                    defaultValue: byName(publicationsTable, isTextLike, 'publie_par', 'auteur'),
+                },
+                {
+                    key: 'publicationContenuField',
+                    label: 'Contenu de l’instantané (texte long)',
+                    type: 'field',
+                    table: publicationsTable,
+                    shouldFieldBeAllowed: isTextLike,
+                    defaultValue: byName(publicationsTable, isTextLike, 'contenu'),
+                },
+                {
+                    key: 'publicationEquipeField',
+                    label: 'Équipe (sur les publications)',
+                    type: 'field',
+                    table: publicationsTable,
+                    shouldFieldBeAllowed: isCategoryLike,
+                    defaultValue: byName(publicationsTable, isCategoryLike, 'equipe', 'équipe'),
+                },
+                {
+                    key: 'publicationEquipeValue',
+                    label: 'Équipe publiée par cette grille',
+                    type: 'string',
+                    defaultValue: DEFAULT_PUBLICATION_TEAM,
+                },
+            ]
+            : []),
     ];
 }
 
@@ -930,6 +1068,19 @@ function ScheduleGridApp() {
     const availabilityContactLinkField = customPropertyValueByKey.availabilityContactLinkField;
     const availabilityStartField = customPropertyValueByKey.availabilityStartField;
     const availabilityEndField = customPropertyValueByKey.availabilityEndField;
+    const periodesTable = customPropertyValueByKey.periodesTable;
+    const periodeLabelField = customPropertyValueByKey.periodeLabelField;
+    const periodeDebutField = customPropertyValueByKey.periodeDebutField;
+    const periodeFinField = customPropertyValueByKey.periodeFinField;
+    const publicationsTable = customPropertyValueByKey.publicationsTable;
+    const publicationLabelField = customPropertyValueByKey.publicationLabelField;
+    const publicationPeriodeField = customPropertyValueByKey.publicationPeriodeField;
+    const publicationDateField = customPropertyValueByKey.publicationDateField;
+    const publicationAuteurField = customPropertyValueByKey.publicationAuteurField;
+    const publicationContenuField = customPropertyValueByKey.publicationContenuField;
+    const publishedPair = customPropertyValueByKey.publishedPair;
+    const publicationEquipeField = customPropertyValueByKey.publicationEquipeField;
+    const publicationEquipeValue = customPropertyValueByKey.publicationEquipeValue;
     const rolesTable = useMemo(
         () => (staffTable ? findRolesTable(base, staffTable) : null),
         [base, staffTable],
@@ -960,6 +1111,9 @@ function ScheduleGridApp() {
     const contactRecords = useRecords(contactsTable || staffTable);
     const roleRecords = useRecords(rolesTable || staffTable);
     const availabilityRecords = useRecords(availabilityTable || staffTable);
+    const periodeRecords = useRecords(periodesTable || staffTable);
+    const publicationRecords = useRecords(publicationsTable || staffTable);
+    const session = useSession();
 
     const [selectedWeekMs, setSelectedWeekMs] = useState(null);
     const [numWeeks, setNumWeeks] = useState(1);
@@ -1359,6 +1513,212 @@ function ScheduleGridApp() {
         availabilityTable, availabilityRecords, availabilityDateField,
         availabilityContactLinkField, availabilityStartField, availabilityEndField,
     ]);
+
+    // === PUBLISHING THE SCHEDULE ===
+
+    // The collective agreement's 14-day periods, oldest first. Publishing targets one of these
+    // explicitly rather than "whatever the grid is showing": the grid navigates in 1- or 2-week
+    // steps, so a period could otherwise be published by halves without anyone noticing.
+    const canPublish = Boolean(
+        periodesTable && periodeDebutField && periodeFinField &&
+        publicationsTable && publicationPeriodeField && publicationContenuField,
+    );
+
+    const periodes = useMemo(() => {
+        if (!periodesTable || !periodeDebutField || !periodeFinField) return [];
+        return periodeRecords
+            .map((r) => {
+                const debut = readDate(r, periodeDebutField);
+                const fin = readDate(r, periodeFinField);
+                if (!debut || !fin) return null;
+                return {
+                    id: r.id,
+                    record: r,
+                    debut,
+                    fin,
+                    label: periodeLabelField
+                        ? r.getCellValueAsString(periodeLabelField).trim()
+                        : `${fmtDate(debut)} → ${fmtDate(fin)}`,
+                };
+            })
+            .filter(Boolean)
+            .sort((a, b) => a.debut - b.debut);
+    }, [periodesTable, periodeRecords, periodeDebutField, periodeFinField, periodeLabelField]);
+
+    const [selectedPeriodeId, setSelectedPeriodeId] = useState(null);
+
+    // Default to the period covering today, falling back to the next one to come: on the day the
+    // dispatcher opens the grid, that is the period being worked on.
+    const effectivePeriode = useMemo(() => {
+        if (!periodes.length) return null;
+        const chosen = periodes.find((p) => p.id === selectedPeriodeId);
+        if (chosen) return chosen;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return (
+            periodes.find((p) => today >= p.debut && today <= p.fin) ??
+            periodes.find((p) => p.debut >= today) ??
+            periodes[periodes.length - 1] ??
+            null
+        );
+    }, [periodes, selectedPeriodeId]);
+
+    // Most recent publication of the selected period — what the portal is currently showing.
+    const lastPublication = useMemo(() => {
+        if (!publicationsTable || !publicationPeriodeField || !effectivePeriode) return null;
+        const forPeriode = publicationRecords.filter((r) =>
+            readLinkedIds(r, publicationPeriodeField).includes(effectivePeriode.id),
+        );
+        if (!forPeriode.length) return null;
+        const stamped = forPeriode
+            .map((r) => ({
+                record: r,
+                at: publicationDateField ? readDateTime(r, publicationDateField) : null,
+                by: publicationAuteurField
+                    ? r.getCellValueAsString(publicationAuteurField).trim()
+                    : '',
+            }))
+            .sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0));
+        return stamped[0];
+    }, [
+        publicationsTable, publicationRecords, publicationPeriodeField,
+        publicationDateField, publicationAuteurField, effectivePeriode,
+    ]);
+
+    // The frozen copy the portal will render. Built from what is on screen at click time, never
+    // read again afterwards: a later edit to a shift does not change a publication.
+    const buildSnapshot = useCallback(
+        (periode) => {
+            const eventById = new Map(eventRecords.map((r) => [r.id, r]));
+            const rows = [];
+            for (const r of staffRecords) {
+                const date = readShiftDate(r);
+                if (!date || date < periode.debut || date > periode.fin) continue;
+
+                const eventId = staffEventLinkField
+                    ? readLinkedIds(r, staffEventLinkField)[0] ?? null
+                    : null;
+                const eventRecord = eventId ? eventById.get(eventId) : null;
+                const label = eventRecord
+                    ? eventRecord.getCellValueAsString(eventLabelField).trim()
+                    : '';
+
+                // The published block's own In/Out. Falls back to the whole span only if that
+                // block is not configured — better a wide range than no hours at all.
+                const pair = SHIFT_PAIRS.find((x) => x.key === publishedPair);
+                const pairIn = pair ? customPropertyValueByKey[pair.inKey] : null;
+                const pairOut = pair ? customPropertyValueByKey[pair.outKey] : null;
+                const pairStart = pairIn ? readDurationSeconds(r, pairIn) : null;
+                const pairEnd = pairOut ? readDurationSeconds(r, pairOut) : null;
+
+                const ins =
+                    pairStart !== null
+                        ? [pairStart]
+                        : pairIn
+                            ? []
+                            : inFields.map((f) => readDurationSeconds(r, f)).filter((v) => v !== null);
+                const outs =
+                    pairEnd !== null
+                        ? [pairEnd]
+                        : pairOut
+                            ? []
+                            : outFields.map((f) => readDurationSeconds(r, f)).filter((v) => v !== null);
+
+                rows.push({
+                    date: fmtDate(date),
+                    evenement: label ? splitEventLabel(label).title : '',
+                    salle:
+                        eventRecord && salleField
+                            ? eventRecord.getCellValueAsString(salleField).trim()
+                            : '',
+                    role: r.getCellValueAsString(categoryField).trim(),
+                    nom: r.getCellValueAsString(contactField).trim(),
+                    debut: ins.length ? fmtHHMM(Math.min(...ins)) : '',
+                    fin: outs.length ? fmtHHMM(Math.max(...outs)) : '',
+                });
+            }
+            rows.sort(
+                (a, b) =>
+                    a.date.localeCompare(b.date) ||
+                    a.debut.localeCompare(b.debut) ||
+                    a.nom.localeCompare(b.nom, 'fr'),
+            );
+            return rows;
+        },
+        [
+            staffRecords, eventRecords, readShiftDate, staffEventLinkField, eventLabelField,
+            salleField, categoryField, contactField, inFields, outFields,
+            publishedPair, customPropertyValueByKey,
+        ],
+    );
+
+    const handlePublish = async () => {
+        if (!effectivePeriode) return;
+        const rows = buildSnapshot(effectivePeriode);
+        if (!rows.length) {
+            setFeedback({
+                type: 'error',
+                message: `Aucun quart sur ${effectivePeriode.label} : rien à publier.`,
+            });
+            return;
+        }
+
+        const now = new Date();
+        const fields = {
+            [publicationPeriodeField.id]: [{id: effectivePeriode.id}],
+            [publicationContenuField.id]: JSON.stringify(rows),
+        };
+        if (publicationLabelField) {
+            fields[publicationLabelField.id] =
+                `${effectivePeriode.label} — ${fmtDate(now)} ${fmtHHMM(
+                    now.getHours() * 3600 + now.getMinutes() * 60,
+                )}`;
+        }
+        if (publicationDateField) fields[publicationDateField.id] = now.toISOString();
+        if (publicationAuteurField) {
+            fields[publicationAuteurField.id] = session.currentUser?.name ?? '';
+        }
+        // The team tag decides which portal reads this publication. Refusing to publish untagged
+        // is deliberate: an untagged row is invisible to a portal that filters by team, so the
+        // dispatcher would believe the schedule is out while nobody can see it.
+        if (publicationEquipeField) {
+            const wanted = normalizeToken(publicationEquipeValue ?? DEFAULT_PUBLICATION_TEAM);
+            const choices = getFieldChoices(publicationEquipeField, base) ?? [];
+            const choice = choices.find((c) => normalizeToken(c.name) === wanted);
+            if (!choice) {
+                setFeedback({
+                    type: 'error',
+                    message: `Équipe « ${publicationEquipeValue ?? DEFAULT_PUBLICATION_TEAM} » introuvable dans le champ « ${publicationEquipeField.name} » (valeurs : ${choices.map((c) => c.name).join(', ') || 'aucune'}). Publication annulée : sans équipe, le portail ne verrait rien.`,
+                });
+                return;
+            }
+            fields[publicationEquipeField.id] = {id: choice.id};
+        }
+
+        const check = publicationsTable.checkPermissionsForCreateRecord(fields);
+        if (!check.hasPermission) {
+            setFeedback({
+                type: 'error',
+                message: check.reasonDisplayString ?? 'Publication refusée.',
+            });
+            return;
+        }
+
+        setSaving(true);
+        try {
+            await publicationsTable.createRecordAsync(fields);
+            setFeedback({
+                type: 'success',
+                message: `${rows.length} quart${rows.length > 1 ? 's' : ''} publié${
+                    rows.length > 1 ? 's' : ''
+                } pour ${effectivePeriode.label}.`,
+            });
+        } catch (err) {
+            setFeedback({type: 'error', message: `Échec de la publication : ${err.message}`});
+        } finally {
+            setSaving(false);
+        }
+    };
 
     // The table is configured but unusable: without a day or a contact link there is nothing to
     // match on, and the dropdown silently stays flat.
@@ -1800,6 +2160,59 @@ function ScheduleGridApp() {
                     </button>
                 )}
             </div>
+
+            {/* Publishing row. The period is picked explicitly — the grid navigates in 1- or
+                2-week steps, so publishing "what is displayed" would cut a period in half. */}
+            {canPublish && effectivePeriode && (
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-gray-gray200 bg-gray-gray50 px-3 py-2 dark:border-gray-gray700 dark:bg-gray-gray800">
+                    <label className="text-sm font-medium">Période</label>
+                    <select
+                        value={effectivePeriode.id}
+                        onChange={(e) => setSelectedPeriodeId(e.target.value)}
+                        className="rounded border border-gray-gray300 bg-white px-2 py-1 text-sm dark:border-gray-gray600 dark:bg-gray-gray800 dark:text-gray-gray100"
+                    >
+                        {periodes.map((p) => (
+                            <option key={p.id} value={p.id}>
+                                {p.label}
+                            </option>
+                        ))}
+                    </select>
+
+                    <button
+                        type="button"
+                        onClick={handlePublish}
+                        disabled={saving}
+                        className="rounded border border-blue-blue bg-blue-blue px-3 py-1 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+                    >
+                        {saving ? 'Publication…' : 'Sauvegarder'}
+                    </button>
+
+                    <span className="text-xs text-gray-gray600 dark:text-gray-gray400">
+                        {lastPublication ? (
+                            <>
+                                Publié le {fmtDate(lastPublication.at ?? new Date())}
+                                {lastPublication.at
+                                    ? ` à ${fmtHHMM(
+                                        lastPublication.at.getHours() * 3600 +
+                                            lastPublication.at.getMinutes() * 60,
+                                    )}`
+                                    : ''}
+                                {lastPublication.by ? ` par ${lastPublication.by}` : ''}
+                            </>
+                        ) : (
+                            'Jamais publiée — les employés ne voient rien pour cette période.'
+                        )}
+                    </span>
+
+                    {/* Said once, plainly: the snapshot is frozen on purpose, and a correction
+                        made without clicking again is invisible to the employees. */}
+                    <span className="w-full text-xs text-gray-gray500 dark:text-gray-gray400">
+                        Sauvegarder fige l’horaire de la période et le publie dans le portail
+                        employés. Une modification faite ensuite n’y apparaît qu’après une
+                        nouvelle sauvegarde.
+                    </span>
+                </div>
+            )}
 
             {feedback && (
                 <div

@@ -130,6 +130,36 @@ disponibilité**, **Lien Contact**, **Heure de début / de fin**. Leave the tabl
 is simply off. The two time fields are optional; the day and the contact link are not, and the panel
 says so when one is missing.
 
+### Publishing the schedule (optional)
+
+**Sauvegarder** freezes the shifts of one collective-agreement period and publishes them to the
+employee portal, where the whole team reads them. Each click writes a row in
+`publications_horaire` — period, timestamp, author (`useSession()`), and the snapshot as JSON —
+so the saves accumulate into a history of what was published and by whom.
+
+**It is a frozen copy on purpose.** The portal renders the snapshot, never the live
+`equipe_accueil` rows: otherwise every edit made after publishing would move the schedule under
+the employees' feet, which is exactly what the button exists to prevent. The consequence has to be
+said out loud, and the row says it under the button: **a correction made without clicking
+Sauvegarder again stays invisible to them.**
+
+**The period is picked explicitly**, from `periodes_horaire` (Annexe C of the collective
+agreement: a Saturday 9:00 deadline, then a 14-day Sunday→Saturday period). Not "whatever the grid
+is displaying" — the grid navigates in 1- or 2-week steps, so a period would sooner or later be
+published by halves without anyone noticing. The selector opens on the period covering today,
+falling back to the next one to come.
+
+**Only one block's hours are published**, chosen by **Bloc horaire publié dans le portail**
+(default *Show call*). A quart carries three — montage, show call, démontage — and each team
+staffs against one of them: the accueil team works from the show call, technical crews from
+montage and démontage. Publishing the whole span would put in front of a placier the hours of a
+block that means nothing to them. If the chosen block is not configured, the snapshot falls back
+to the widest span rather than publishing no hours at all.
+
+Configured by **Table Périodes** (libellé / premier jour / dernier jour) and **Table Publications**
+(libellé / lien Période / date / publié par / contenu). Leave either table unset and the row does
+not appear — the grid behaves exactly as before.
+
 ### Two limits of the Interface Extensions SDK you will hit
 
 **An interface extension sees only the tables and fields the page exposes to it.** A field it cannot
