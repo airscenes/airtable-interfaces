@@ -1,0 +1,61 @@
+/* 
+ * Airtable Interface Extensions Stylesheet with Tailwind CSS
+ * ============================================================
+ * This file provides Tailwind CSS with design tokens mapped from Airtable's design system. 
+ *
+ * How it works:
+ * -------------
+ * - Tailwind CSS v3 is imported via @tailwind directives below
+ * - Custom design tokens are configured in `tailwind.config.js`
+ * - You can use Tailwind utility classes that automatically match Airtable's design system
+ * - Example: `bg-gray-gray50` uses Airtable's gray50 color
+ *
+ * **This Stylesheet is optional!**
+ * --------------------------------
+ * You are *not* required to use Tailwind. To opt-out:
+ * 1. Remove the `import './style.css';` line from `index.tsx`.
+ * 2. Remove the bundler configuration from `block.json`.
+ * 3. (Optional) Delete the `style.css`, `bundler.js`, and `tailwind.config.js` files.
+ *
+ * Using Tailwind classes:
+ * ----------------------
+ * You can use Tailwind classes that are mapped to Airtable's design tokens:
+ * - Colors: `text-gray-gray900` (uses Airtable's gray900), `bg-blue-blue` (uses Airtable's blue)
+ * - Spacing: `p-4` (16px), `m-2` (8px) 
+ * - Typography: `text-base` (13px, Airtable's body-default), `font-display` (Inter Display)
+ * - Shadows: `shadow-sm` (uses Airtable's elevation-low)
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.three-days-event-block {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: flex-start;
+    text-align: left;
+}
+
+.three-days-event-group__label,
+.three-days-event-block__label {
+    margin: 5px 0px;
+
+    text-align: left;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    word-break: break-word;
+    overflow-y: auto;
+    scrollbar-width: none;
+}
+
+.three-days-event-group__label::-webkit-scrollbar,
+.three-days-event-block__label::-webkit-scrollbar {
+    display: none;
+}
+
+.three-days-event-block__hours{
+    white-space: break-spaces;
+    text-align: left;
+}

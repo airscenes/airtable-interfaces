@@ -112,6 +112,15 @@ module.exports = {
                     gray800: 'rgb(29, 31, 37)',
                     gray900: 'rgb(17, 18, 21)',
                 },
+                // Row tint for free events (no promo to monitor). Teal-based so
+                // it never reads as a warning, with a dark-mode variant muted
+                // enough to keep 20 columns of text legible over it.
+                free: {
+                    light: 'rgb(228, 251, 251)',
+                    lightHover: 'rgb(202, 243, 241)',
+                    dark: 'rgb(20, 61, 59)',
+                    darkHover: 'rgb(27, 78, 75)',
+                },
                 black: 'rgb(0, 0, 0)',
                 white: 'rgb(255, 255, 255)',
             },

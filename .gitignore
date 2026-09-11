@@ -3,3 +3,4 @@ build/
 .blocks/
 .env
 .claude/
+misc/

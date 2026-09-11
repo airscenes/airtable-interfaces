@@ -8,9 +8,11 @@ Custom extensions for Airtable Interfaces.
 |-----------|-------------|
 | `graphique_dual_axes/` | Dual-axis bar charts for ad campaign performance analysis. 3 charts: Reach (Coverage/CPM), Traffic (Page Views/CPC), Engagement (Impressions/CTR). Features: global campaign filter, global bloc multiselect filter, per-chart multiselect filters, strict null/zero exclusion, grouped custom properties by chart. |
 | `routage/` | Event routing grid. Displays a weekly schedule matrix (AM/PM/SOIR/NUIT × 7 days) with event assignments, active day markers, event-day highlighting (cyan), color-coded totals, and filters by site/canal/week. |
-| `sales-chart/` | Sales dashboard with Supabase integration. Shows cumulative ticket sales and revenue charts per show, with multi-select representations, date presets (24h/3m/6m/1y/YTD), and city/venue filters. |
+| `sales-chart/` | Sales dashboard with Supabase integration. Shows cumulative ticket sales and revenue charts per show. Spectacles sorted by total tickets sold (highest first). Initial rep filter: Statut=Confirmé, Site Web=En ligne, Date≥today. Date presets (24h/3m/6m/1y/YTD), city/venue filters. Supabase cache auto-invalidates daily; manual ↺ refresh button available. |
+| `occupancy_report/` | Daily occupancy report for Espace Saint-Denis (production-sheet model). Two-pane day view: a Google-calendar-style timeline on the left (venues as columns, events positioned by start time) and the selected event's details on the right. Directeur technique / gérant / placiers / sécurité are derived by `rôle` from the linked Équipe technique & Équipe accueil tables. Print/PDF: one event per page, one venue per page. **Email**: renders the day as a plain-text PDF (`@react-pdf/renderer`) and POSTs it straight to the Make webhook that already mails the portal's `rapport quotidien` — no server in the loop. Optional diffusion-mode filter (empty by default). |
 | `artist_report/` | Artist report extension for viewing artist-related data. |
 | `venues_map/` | Venues map extension for displaying venue locations. |
+| `approve_invoices/` | Invoice approval page. Two-level accordion list (Factures > Dépenses) with KPIs, configurable action button (approve checkbox or push date), exclude toggle, and native record detail via `expandRecord`. |
 | `schedule_grid/` | Espace Saint-Denis schedule board. Weekly grid of events and staff shifts (categories × days), with shift create/edit/delete, event dispatch, role reassignment, shifts grouped by event, and the assignment dropdown ranked by the availabilities submitted from the employee portal. |
 | `availability_matrix/` | Read-only matrix of submitted employee availabilities: employees as rows, days as columns, the time window in each cell. Reads the `disponibilites` table fed by the employee portal's *Mes disponibilités* calendar. 1/2/4-week period, per-day availability counts, toggle to hide employees who submitted nothing. |
 
@@ -49,6 +51,15 @@ block release
 ```
 
 The extension is immediately available in production on Airtable.
+
+## Conventions
+
+- **Date format**: Always use `YYYY-MM-DD` (ISO 8601) for dates — in UI inputs, API payloads, display, and storage. Never use locale-dependent formats like `MM/DD/YYYY` or `DD/MM/YYYY`.
+
+## Gotchas
+
+- **Field visibility**: A custom extension only sees fields explicitly marked **Visible** in the **Données** section of the extension settings. If a field appears missing from the SDK (`table.fields.find(...)` returns `undefined`), check this panel first — before assuming a typo.
+- **JSON custom property length limit**: The string-type custom property used to hold JSON config has a character cap. Keep config JSON compact (e.g. `["fieldName1","fieldName2"]` rather than full `{label, fieldName}` objects).
 
 ## Creating a New Extension
 

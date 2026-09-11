@@ -10,9 +10,16 @@ This repo contains **custom Airtable Interface Extensions**. Each subfolder is a
 - **CLI**: `@airtable/blocks-cli` (installed globally)
 - **Bundler**: managed by the SDK, entrypoint = `frontend/index.js`
 - **Styling**: Tailwind CSS (included via `style.css`), dark mode support with `dark:` prefixes
-- **Libraries**: recharts for charts, @phosphor-icons/react for icons, supabase-js for external data
+- **Libraries**: recharts for charts, @phosphor-icons/react for icons, supabase-js for external data, @react-pdf/renderer for generating PDFs client-side (`occupancy_report`)
+- **Calling external webhooks**: an extension can `fetch` a third-party endpoint directly when that endpoint sends permissive CORS headers (Make does: `Access-Control-Allow-Origin: *`). Post `FormData` with no custom headers to stay a CORS "simple request" and skip the preflight entirely. No proxy/server needed — see `occupancy_report`'s `sendReport`
 - **UI Patterns**: custom multiselect dropdowns with checkboxes (no external component library), custom `<select>` dropdowns with SVG arrow
+- **Select colors**: `getFieldChoices(field, base)` traverses `base.tables` to resolve single-select option colors for both direct SINGLE_SELECT fields and MULTIPLE_LOOKUP_VALUES fields; `SelectBadge` renders colored pills using `AIRTABLE_COLORS` map (30 Airtable color names → `{bg, text}`)
+- **Number formatting**: `fmtNumber(v)` and `fmtCurrency(v)` helpers using `fr-FR` locale + ` $` suffix
+- **Progress bars**: use inline `backgroundColor` style for dynamic colors (e.g. red/orange/green thresholds)
 - **React**: v19 with new JSX transform (no `import React` needed)
+- **Date formatting**: always use `YYYY-MM-DD` (ISO 8601) format for dates everywhere — UI inputs, API payloads, and display. Parse ISO date strings directly (split `-`) instead of `new Date(isoString)` to avoid UTC→local timezone shift (off-by-one day bug in UTC-N timezones)
+- **Recharts cursor alignment**: use `dataKey="date"` (ISO string, unique) on XAxis, not `dataKey="dateLabel"` (formatted string, potentially non-unique across years); add `labelFormatter` to Tooltip
+- **Supabase cache**: keyed by `${mode}_${ids}_${today}_${refreshKey}` — auto-invalidates daily; ↺ button clears cache and increments refreshKey
 
 ## Conventions
 
@@ -25,6 +32,11 @@ This repo contains **custom Airtable Interface Extensions**. Each subfolder is a
 - `FieldType` imported from `@airtable/blocks/interface/models`
 - No Airtable UI components (`Box`, `Button`, etc.): use HTML + Tailwind
 - `--legacy-peer-deps` when installing npm packages (React 19 compat)
+
+## Gotchas
+
+- **Field visibility in custom extensions**: An extension only "sees" fields that are explicitly checked as **Visible** in the **Données** section of the extension settings (right-hand panel in the Interface editor). If `table.fields.find(f => f.name === "myField")` returns `undefined` while the field clearly exists in the underlying table, it's almost always because it hasn't been added to the visible fields list — not a typo, casing, or accent issue. Always check this panel first.
+- **String-type custom property length limit**: The `type: "string"` custom property used for JSON config (e.g. `evenementFieldsJson`) has a hard character limit in Airtable's settings input. Keep config JSON compact: prefer short formats like `["fieldName1","fieldName2"]` (string entries default `label = fieldName`) over verbose `[{"label":"...","fieldName":"..."}]`. Support both formats in the parser when a list of fields is needed.
 
 ## Commands
 
