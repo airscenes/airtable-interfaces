@@ -19,6 +19,7 @@ import {ConfigSummary} from './ConfigSummary';
 import {PeriodBar} from './PeriodBar';
 import {Tabs} from './Tabs';
 import {ModelSummary} from './ModelSummary';
+import {HoursTab} from './HoursTab';
 
 // Properties without which nothing can be drawn at all. Everything else
 // degrades to a named diagnostic instead of an error.
@@ -95,6 +96,10 @@ function AppLoaded({base, cp}) {
         [nav.period, data, thresholds],
     );
 
+    // A coarse capability check: it decides whether the affordance is shown at
+    // all. The precise, field-aware check happens right before each write.
+    const canExpandShifts = cp.shiftsTable.hasPermissionToExpandRecords();
+
     const badges = {
         [TAB_HOURS]: model.totals.anomalies
             ? {text: `${model.totals.anomalies} ⚠`, alert: true}
@@ -133,7 +138,18 @@ function AppLoaded({base, cp}) {
 
             <Diagnostics items={diagnostics} />
 
-            <ModelSummary model={model} data={data} nav={nav} />
+            {nav.tab === TAB_HOURS && (
+                <HoursTab
+                    model={model}
+                    data={data}
+                    cp={cp}
+                    thresholds={thresholds}
+                    nav={nav}
+                    canExpandShifts={canExpandShifts}
+                />
+            )}
+
+            {nav.tab !== TAB_HOURS && <ModelSummary model={model} data={data} nav={nav} />}
 
             <ConfigSummary base={base} cp={cp} />
         </Shell>
