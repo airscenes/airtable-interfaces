@@ -1,9 +1,24 @@
 import {useMemo} from 'react';
 import {useBase, useCustomProperties} from '@airtable/blocks/interface/ui';
-import {getCustomProperties} from '../utils/customProperties';
+import {getCustomProperties, readThreshold} from '../utils/customProperties';
 import {buildDiagnostics} from '../utils/diagnostics';
+import {buildPeriodModel} from '../utils/model';
+import {useGrainData} from '../hooks/useGrainData';
+import {usePeriod} from '../hooks/usePeriod';
+import {
+    DEFAULT_SEUIL_HEURES_SEMAINE,
+    DEFAULT_SEUIL_HEURES_JOUR,
+    DEFAULT_SEUIL_JOURS_CONSECUTIFS,
+    DEFAULT_SEUIL_REPOS_HEURES,
+    TAB_HOURS,
+    TAB_PAY,
+    TAB_DISPO,
+} from '../constants';
 import {Diagnostics} from './Diagnostics';
 import {ConfigSummary} from './ConfigSummary';
+import {PeriodBar} from './PeriodBar';
+import {Tabs} from './Tabs';
+import {ModelSummary} from './ModelSummary';
 
 // Properties without which nothing can be drawn at all. Everything else
 // degrades to a named diagnostic instead of an error.
@@ -62,6 +77,34 @@ export function App() {
 function AppLoaded({base, cp}) {
     const diagnostics = useMemo(() => buildDiagnostics(cp), [cp]);
 
+    const thresholds = useMemo(
+        () => ({
+            heuresSemaine: readThreshold(cp.seuilHeuresSemaine, DEFAULT_SEUIL_HEURES_SEMAINE),
+            heuresJour: readThreshold(cp.seuilHeuresJour, DEFAULT_SEUIL_HEURES_JOUR),
+            joursConsecutifs: readThreshold(cp.seuilJoursConsecutifs, DEFAULT_SEUIL_JOURS_CONSECUTIFS),
+            reposHeures: readThreshold(cp.seuilReposHeures, DEFAULT_SEUIL_REPOS_HEURES),
+        }),
+        [cp.seuilHeuresSemaine, cp.seuilHeuresJour, cp.seuilJoursConsecutifs, cp.seuilReposHeures],
+    );
+
+    const nav = usePeriod({defaultTab: cp.defaultTab, defaultGrain: cp.defaultGrain});
+    const data = useGrainData(base, cp);
+
+    const model = useMemo(
+        () => buildPeriodModel({period: nav.period, data, thresholds}),
+        [nav.period, data, thresholds],
+    );
+
+    const badges = {
+        [TAB_HOURS]: model.totals.anomalies
+            ? {text: `${model.totals.anomalies} ⚠`, alert: true}
+            : {text: String(model.totals.people)},
+        [TAB_PAY]: {text: String(model.people.filter((p) => p.weeks.some(Boolean)).length)},
+        [TAB_DISPO]: cp.monthsTable
+            ? {text: String(model.people.filter((p) => p.month).length)}
+            : null,
+    };
+
     return (
         <Shell>
             <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -74,7 +117,23 @@ function AppLoaded({base, cp}) {
                 </p>
             </header>
 
+            <PeriodBar
+                period={nav.period}
+                grain={nav.grain}
+                grainIsPinned={nav.grainIsPinned}
+                onGrain={nav.setGrain}
+                onPrev={nav.goPrev}
+                onNext={nav.goNext}
+                onToday={nav.goToday}
+                isToday={nav.isToday}
+                subtitle={`${model.totals.people} technicien${model.totals.people > 1 ? 's' : ''}`}
+            />
+
+            <Tabs active={nav.tab} onChange={nav.setTab} badges={badges} />
+
             <Diagnostics items={diagnostics} />
+
+            <ModelSummary model={model} data={data} nav={nav} />
 
             <ConfigSummary base={base} cp={cp} />
         </Shell>

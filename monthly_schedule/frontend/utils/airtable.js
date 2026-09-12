@@ -113,6 +113,20 @@ export function readDurationSeconds(record, field) {
     return readNumber(record, field);
 }
 
+// A quantity of hours, whatever the field's type says it is.
+//
+// `repos_precedent` and the like are written by scripts and may be configured
+// either as a Duration (seconds) or as a plain Number (hours). Guessing from
+// the magnitude would be wrong — a week off is legitimately 150 hours — so ask
+// the field instead. Getting this wrong is silent: a seconds value read as
+// hours simply never crosses the 8-hour threshold, and the 8.02 warning would
+// never fire.
+export function readHours(record, field) {
+    const n = readNumber(record, field);
+    if (n === null) return null;
+    return field?.config?.type === FieldType.DURATION ? n / 3600 : n;
+}
+
 // Zero-padded HH:MM. An overnight Out stored as 90000 s (25:00) comes back as
 // "01:00"; saving it re-wraps it to 90000. Keep the modulo — it is what makes
 // the editable time cell round-trip.
