@@ -3,7 +3,7 @@
 // and link readers), gathered in one place.
 
 import {FieldType} from '@airtable/blocks/interface/models';
-import {SECONDS_PER_DAY} from '../constants';
+import {SECONDS_PER_DAY, VENUE_TIME_ZONE} from '../constants';
 
 // --- Raw access --------------------------------------------------------------
 
@@ -73,8 +73,22 @@ export function readNumber(record, field) {
     if (Array.isArray(raw)) raw = raw.find((v) => v !== null && v !== undefined);
     if (raw && typeof raw === 'object' && 'value' in raw) raw = raw.value;
     if (raw === null || raw === undefined || raw === '') return null;
-    const n = typeof raw === 'number' ? raw : Number(raw);
+    if (typeof raw === 'number') return Number.isNaN(raw) ? null : raw;
+    // A text formula ("10,5", "10.5 h") is read as the number it spells. A
+    // formula error comes back as an object and stays null.
+    if (typeof raw === 'string') {
+        const m = /-?\d+(?:[.,]\d+)?/.exec(raw.replace(/\s/g, ''));
+        return m ? Number(m[0].replace(',', '.')) : null;
+    }
+    const n = Number(raw);
     return Number.isNaN(n) ? null : n;
+}
+
+// Why a mapped numeric cell produced no number: '' when it is simply empty,
+// otherwise what Airtable displays (e.g. "#ERROR!"), for a diagnostic.
+export function unreadableNumberText(record, field) {
+    if (!field || !record || readNumber(record, field) !== null) return '';
+    return safeCellString(record, field).trim();
 }
 
 // Sum of numbers, ignoring nulls. Returns null when nothing summed, so an
@@ -124,7 +138,11 @@ export function readDurationSeconds(record, field) {
 export function readHours(record, field) {
     const n = readNumber(record, field);
     if (n === null) return null;
-    return field?.config?.type === FieldType.DURATION ? n / 3600 : n;
+    // A formula, rollup or lookup formatted as a duration also stores seconds.
+    const isDuration =
+        field?.config?.type === FieldType.DURATION ||
+        field?.config?.options?.result?.type === FieldType.DURATION;
+    return isDuration ? n / 3600 : n;
 }
 
 // Zero-padded HH:MM. An overnight Out stored as 90000 s (25:00) comes back as
@@ -194,11 +212,16 @@ export function readLinked(record, field) {
 
 // --- Dates ---------------------------------------------------------------------
 
-// Resolve a date / date-time cell to the calendar date Airtable itself shows
+// Resolve a date / date-time cell to the calendar date at the venue
 // (YYYY-MM-DD). getCellValue returns a UTC instant, so slicing that string
 // pushes an evening event to the next day in UTC-N timezones (a 20:00 EDT show
-// call on Sept 10 is stored as 2026-09-11T00:00:00.000Z). Format the instant in
-// the field's configured timezone instead, falling back to the browser's.
+// on Sept 26 is stored as 2026-09-27T00:00:00.000Z).
+//
+// The field's own timezone is honoured only when it names a real zone. Airtable
+// fields default to GMT display ("utc"), and a rollup or lookup inherits that —
+// trusting it files every show starting at 20:00 or later on the next day. So
+// "utc", "client" and a missing zone all mean the venue's zone, which is also
+// independent of wherever the viewer's browser happens to be.
 export function getCellDateIso(record, field) {
     if (!field || !record) return null;
     let raw = safeCellValue(record, field);
@@ -220,12 +243,12 @@ export function getCellDateIso(record, field) {
     const d = new Date(raw);
     if (Number.isNaN(d.getTime())) return null;
 
-    let timeZone;
+    let timeZone = VENUE_TIME_ZONE;
     try {
         // Formula / rollup / lookup fields nest their formatting under `result`.
         const opts = field.config?.options;
         const tz = opts?.timeZone || opts?.result?.options?.timeZone;
-        if (tz && tz !== 'client') timeZone = tz;
+        if (tz && tz !== 'client' && tz.toLowerCase() !== 'utc' && tz.toLowerCase() !== 'gmt') timeZone = tz;
     } catch {
         /* field config unavailable */
     }

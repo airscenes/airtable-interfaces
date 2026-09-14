@@ -1,5 +1,5 @@
 import {GRAIN_WEEK, GRAIN_MONTH} from '../constants';
-import {shortDate} from '../utils/dates';
+import {shortDate, weekdayName} from '../utils/dates';
 
 const NAV_BTN =
     'rounded border border-gray-gray300 bg-white px-2 py-1 text-sm leading-none text-gray-gray700 ' +
@@ -22,9 +22,9 @@ export function PeriodBar({period, grain, grainIsPinned, onGrain, onPrev, onNext
                 <div className="font-display text-base font-semibold leading-tight text-gray-gray900 dark:text-gray-gray100">
                     {period.title}
                 </div>
-                <div className="text-[11px] leading-tight text-gray-gray500 dark:text-gray-gray400">
+                <div className="text-[13px] leading-tight text-gray-gray500 dark:text-gray-gray400">
                     {grain === GRAIN_WEEK
-                        ? `semaine du lundi ${shortDate(period.startIso)}`
+                        ? `semaine du ${weekdayName(period.startIso)} ${shortDate(period.startIso)}`
                         : `${period.days.length} jours`}
                     {subtitle ? ` · ${subtitle}` : ''}
                 </div>

@@ -1,17 +1,20 @@
 // Period math for the shared week/month navigator.
 //
-// !! WEEKS RUN MONDAY → SUNDAY HERE. !!
-// That matches the `semaines` table (226 pre-created Monday→Sunday weeks) and
-// heures_semaine.date_semaine, which is always a Monday. The two other
-// extensions in this repo — schedule_grid and availability_matrix — anchor
-// their weeks on SUNDAY to match a paper schedule. Do not copy weekStart() from
-// either of them into this file.
+// !! THE FIRST DAY OF THE WEEK IS A PARAMETER, NOT A CONSTANT. !!
+// heures_semaine is the payroll grain, and its weeks are whatever Airtable's
+// automations decided: date_semaine is the first day of the row's week. The
+// base was documented as Monday → Sunday but its rows carry Sundays, and a
+// mismatch here files a Sunday shift in the wrong heures_semaine row — the
+// weekly total then never agrees with the days on screen. So every week
+// function takes `startDay` (0 = Sunday, 1 = Monday), resolved once from the
+// data by detectWeekStartDay() or forced by the `weekStart` property.
 //
-// A week is keyed by its Monday ISO date ("2026-09-07"), a month by "AAAA-MM".
-// No ISO week numbers: nothing in the base uses them, they disagree with the
-// `mois` formula at year boundaries, and date_semaine already gives a Monday.
+// A week is keyed by the ISO date of its first day ("2026-09-20"), a month by
+// "AAAA-MM". No ISO week numbers: nothing in the base uses them, and they
+// disagree with the `mois` formula at year boundaries.
 
 import {
+    DAY_LABELS_FR,
     DAY_LABELS_SHORT_FR,
     MONTH_LABELS_FR,
     MONTH_LABELS_SHORT_FR,
@@ -56,18 +59,49 @@ export function isWeekendIso(iso) {
 
 // --- Week ----------------------------------------------------------------------
 
-// The Monday of the week containing `date`, at local midnight.
-export function weekStart(date) {
+export const WEEK_START_SUNDAY = 0;
+export const WEEK_START_MONDAY = 1;
+export const DEFAULT_WEEK_START_DAY = WEEK_START_MONDAY;
+
+// The first day of the week containing `date`, at local midnight.
+export function weekStart(date, startDay = DEFAULT_WEEK_START_DAY) {
     const x = new Date(date);
     x.setHours(0, 0, 0, 0);
-    x.setDate(x.getDate() - mondayIndex(x));
+    x.setDate(x.getDate() - ((x.getDay() - startDay + 7) % 7));
     return x;
 }
 
-// "2026-09-10" -> "2026-09-07". This is the week key used everywhere.
-export function weekKeyOf(iso) {
+// Monday start: "2026-09-10" -> "2026-09-07". Sunday start: -> "2026-09-06".
+// This is the week key used everywhere.
+export function weekKeyOf(iso, startDay = DEFAULT_WEEK_START_DAY) {
     const d = parseIsoDate(iso);
-    return d ? toIso(weekStart(d)) : null;
+    return d ? toIso(weekStart(d, startDay)) : null;
+}
+
+// The weekday most heures_semaine.date_semaine values fall on, restricted to
+// Sunday or Monday. Returns {startDay, counts, total} — startDay is null when
+// there is nothing to learn from, and `counts` lets the caller report rows that
+// disagree with the majority.
+export function detectWeekStartDay(isoDates) {
+    const counts = [0, 0, 0, 0, 0, 0, 0];
+    let total = 0;
+    for (const iso of isoDates) {
+        const d = parseIsoDate(iso);
+        if (!d) continue;
+        counts[d.getDay()]++;
+        total++;
+    }
+    if (!counts[WEEK_START_SUNDAY] && !counts[WEEK_START_MONDAY]) {
+        return {startDay: null, counts, total};
+    }
+    const startDay =
+        counts[WEEK_START_SUNDAY] > counts[WEEK_START_MONDAY] ? WEEK_START_SUNDAY : WEEK_START_MONDAY;
+    return {startDay, counts, total};
+}
+
+export function weekdayName(iso) {
+    const d = parseIsoDate(iso);
+    return d ? DAY_LABELS_FR[mondayIndex(d)] : '';
 }
 
 export function weekDays(weekKey) {
@@ -107,15 +141,16 @@ export function addMonths(monthKey, delta) {
 // --- Period -----------------------------------------------------------------------
 
 // Resolve an anchor date + a grain into everything the UI and the model need.
-// `weekKeys` is the ordered list of Mondays the period touches — in month grain
-// it includes the Mondays of weeks that spill outside the month, because a
+// `weekKeys` is the ordered list of week starts the period touches — in month
+// grain it includes weeks that spill outside the month, because a
 // heures_semaine row belongs to a whole week, not to a calendar month.
-export function buildPeriod(anchorIso, grain) {
+export function buildPeriod(anchorIso, grain, startDay = DEFAULT_WEEK_START_DAY) {
     if (grain === GRAIN_WEEK) {
-        const key = weekKeyOf(anchorIso);
+        const key = weekKeyOf(anchorIso, startDay);
         const days = weekDays(key);
         return {
             grain: GRAIN_WEEK,
+            weekStartDay: startDay,
             key,
             days,
             startIso: days[0],
@@ -130,11 +165,12 @@ export function buildPeriod(anchorIso, grain) {
     const days = monthDays(key);
     const weekKeySet = [];
     for (const iso of days) {
-        const wk = weekKeyOf(iso);
+        const wk = weekKeyOf(iso, startDay);
         if (wk && !weekKeySet.includes(wk)) weekKeySet.push(wk);
     }
     return {
         grain: GRAIN_MONTH,
+        weekStartDay: startDay,
         key,
         days,
         startIso: days[0],

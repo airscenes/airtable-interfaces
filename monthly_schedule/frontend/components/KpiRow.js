@@ -16,7 +16,7 @@ export function KpiRow({items}) {
                     style={{flexBasis: 120}}
                 >
                     <div
-                        className="truncate font-mono text-[10px] uppercase tracking-wider text-gray-gray500 dark:text-gray-gray400"
+                        className="truncate font-mono text-[12px] uppercase tracking-wider text-gray-gray500 dark:text-gray-gray400"
                         title={k.label}
                     >
                         {k.label}
@@ -39,7 +39,7 @@ export function KpiRow({items}) {
                         )}
                     </div>
                     {k.hint && (
-                        <div className="truncate text-[10px] text-gray-gray500 dark:text-gray-gray400" title={k.hint}>
+                        <div className="truncate text-[12px] text-gray-gray500 dark:text-gray-gray400" title={k.hint}>
                             {k.hint}
                         </div>
                     )}

@@ -17,8 +17,8 @@ export function Diagnostics({items}) {
             >
                 <span className="text-sm leading-none">{open ? '▾' : '▸'}</span>
                 <span>
-                    {items.length} élément{items.length > 1 ? 's' : ''} de configuration manquant
-                    {items.length > 1 ? 's' : ''} — certaines colonnes et alertes sont désactivées.
+                    {items.length} point{items.length > 1 ? 's' : ''} de configuration à vérifier —
+                    certaines colonnes et alertes peuvent être désactivées.
                 </span>
             </button>
 

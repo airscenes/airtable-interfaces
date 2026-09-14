@@ -27,7 +27,7 @@ export function ModelSummary({model, data, nav}) {
                 <Stat label="Jours de la période" value={fmtNumber(period.days.length)} />
             </div>
 
-            <h3 className="mb-1 mt-3 font-mono text-[10px] uppercase tracking-wider text-gray-gray500 dark:text-gray-gray400">
+            <h3 className="mb-1 mt-3 font-mono text-[12px] uppercase tracking-wider text-gray-gray500 dark:text-gray-gray400">
                 Base entière
             </h3>
             <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs md:grid-cols-4">
@@ -83,7 +83,7 @@ function Coverage({coverage, quality, nav, present}) {
     }
     if (coverage.peopleWithWeekMismatch.length) {
         lines.push(
-            `Total hebdomadaire en désaccord avec les journées pour : ` +
+            `Total hebdomadaire en désaccord avec les heures réelles des quarts pour : ` +
             `${coverage.peopleWithWeekMismatch.join(', ')} — recalcul Airtable en attente.`,
         );
     }
@@ -106,7 +106,7 @@ function Coverage({coverage, quality, nav, present}) {
 
     return (
         <div className="mt-3 border-t border-gray-gray100 pt-2 dark:border-gray-gray600">
-            <h3 className="mb-1 font-mono text-[10px] uppercase tracking-wider text-orange-orange">
+            <h3 className="mb-1 font-mono text-[12px] uppercase tracking-wider text-orange-orange">
                 Écarts
             </h3>
             <ul className="ml-4 list-disc space-y-0.5 text-xs text-gray-gray700 dark:text-gray-gray200">

@@ -27,6 +27,9 @@ import {
     DEFAULT_SEUIL_HEURES_JOUR,
     DEFAULT_SEUIL_JOURS_CONSECUTIFS,
     DEFAULT_SEUIL_REPOS_HEURES,
+    WEEK_START_AUTO,
+    WEEK_START_SUNDAY_KEY,
+    WEEK_START_MONDAY_KEY,
 } from '../constants';
 
 // --- Field predicates --------------------------------------------------------
@@ -263,8 +266,9 @@ export function getCustomProperties(base) {
         // ---------- heures_semaine ----------
         fieldProp('weekContactLink', 'Semaine — lien Contact', weeksTable, isLinkedRecord,
             byName(weeksTable, isLinkedRecord, 'contact')),
-        // The join key to the period: always a Monday.
-        fieldProp('weekDateSemaineField', 'Semaine — date de la semaine (lundi)', weeksTable, isDateLike,
+        // The join key to the period: the first day of the row's week. Its
+        // weekday is what `weekStart: auto` learns the week convention from.
+        fieldProp('weekDateSemaineField', 'Semaine — date de début de la semaine', weeksTable, isDateLike,
             byExactThenName(weeksTable, isDateLike, 'date_semaine', 'date_semaine', 'date')),
         fieldProp('weekSemaineField', 'Semaine — libellé / lien semaine', weeksTable, isCategoryLike,
             byExactThenName(weeksTable, isCategoryLike, 'semaine', 'semaine')),
@@ -347,7 +351,7 @@ export function getCustomProperties(base) {
             : []),
 
         // ---------- semaines (optional table) ----------
-        // Used for the week label and for one genuinely useful warning — a Monday
+        // Used for the week label and for one genuinely useful warning — a week
         // with no row here means the automations will not produce a
         // heures_semaine line. Never used for navigation: the 226 pre-created
         // weeks must not bound what the user can look at.
@@ -381,6 +385,17 @@ export function getCustomProperties(base) {
                 {value: GRAIN_MONTH, label: 'Mois'},
             ],
             defaultValue: GRAIN_WEEK,
+        },
+        {
+            key: 'weekStart',
+            label: 'Début de semaine',
+            type: 'enum',
+            possibleValues: [
+                {value: WEEK_START_AUTO, label: 'Automatique (d’après date_semaine)'},
+                {value: WEEK_START_SUNDAY_KEY, label: 'Dimanche'},
+                {value: WEEK_START_MONDAY_KEY, label: 'Lundi'},
+            ],
+            defaultValue: WEEK_START_AUTO,
         },
 
         // Display thresholds. These colour the screen and nothing else — the

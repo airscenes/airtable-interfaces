@@ -5,6 +5,10 @@
 // collective agreement: any disagreement between this screen and Airtable is a
 // reading bug here, not a reason to compute something in JS.
 
+// Every date in the base is a date at the venue (Montréal). Date-time cells
+// are resolved to a calendar day in this zone — see getCellDateIso.
+export const VENUE_TIME_ZONE = 'America/Toronto';
+
 export const SECONDS_PER_DAY = 24 * 60 * 60;
 export const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -37,10 +41,16 @@ export const GRAIN_BY_TAB = {
     [TAB_DISPO]: GRAIN_MONTH,
 };
 
+// `weekStart` property values. 'auto' follows heures_semaine.date_semaine —
+// see utils/dates.js for why the first day of the week is not hardcoded.
+export const WEEK_START_AUTO = 'auto';
+export const WEEK_START_SUNDAY_KEY = 'dimanche';
+export const WEEK_START_MONDAY_KEY = 'lundi';
+
 // --- French labels ----------------------------------------------------------
 
-// Weeks run Monday → Sunday here, matching the `semaines` table. Index by
-// ((jsDay + 6) % 7), never by a raw getDay().
+// Display order only, Monday first — it says nothing about where a payroll week
+// starts. Index by ((jsDay + 6) % 7), never by a raw getDay().
 export const DAY_LABELS_FR = ['lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi', 'dimanche'];
 export const DAY_LABELS_SHORT_FR = ['lun.', 'mar.', 'mer.', 'jeu.', 'ven.', 'sam.', 'dim.'];
 

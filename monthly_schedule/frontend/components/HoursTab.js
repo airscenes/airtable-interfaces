@@ -9,7 +9,7 @@ import {EmptyState, LinkButton} from './EmptyState';
 // being crushed next to the list.
 const SPLIT = 'grid grid-cols-1 gap-3 lg:grid-cols-[minmax(220px,268px)_minmax(0,1fr)]';
 
-export function HoursTab({model, data, cp, thresholds, nav, canExpandShifts}) {
+export function HoursTab({model, data, cp, thresholds, nav, canExpandShifts, approval}) {
     const [selectedId, setSelectedId] = useState(null);
     const [search, setSearch] = useState('');
     const [chefsOnly, setChefsOnly] = useState(false);
@@ -117,7 +117,7 @@ export function HoursTab({model, data, cp, thresholds, nav, canExpandShifts}) {
                     onChange={setAnomaliesOnly}
                     label={`Anomalies seulement${totals.anomalies ? ` (${totals.anomalies})` : ''}`}
                 />
-                <span className="ml-auto text-[11px] text-gray-gray500 dark:text-gray-gray400">
+                <span className="ml-auto text-[13px] text-gray-gray500 dark:text-gray-gray400">
                     {filtered.length} / {model.people.length} affichés
                 </span>
             </div>
@@ -142,6 +142,7 @@ export function HoursTab({model, data, cp, thresholds, nav, canExpandShifts}) {
                         dayHeaders={model.days}
                         thresholds={thresholds}
                         canExpandShifts={canExpandShifts}
+                        approval={approval}
                     />
                 </div>
             )}

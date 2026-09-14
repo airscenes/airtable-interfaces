@@ -24,7 +24,7 @@ export function Tabs({active, onChange, badges = {}}) {
                         {badge ? (
                             <span
                                 className={
-                                    'ml-1.5 font-mono text-[10px] font-normal ' +
+                                    'ml-1.5 font-mono text-[12px] font-normal ' +
                                     (badge.alert ? 'text-orange-orange' : 'text-gray-gray400')
                                 }
                             >

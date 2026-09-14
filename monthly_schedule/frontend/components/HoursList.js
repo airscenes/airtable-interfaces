@@ -47,7 +47,7 @@ export function HoursList({people, selectedId, onSelect, totals, thresholds}) {
                 <span className="font-display text-xs font-semibold text-gray-gray700 dark:text-gray-gray200">
                     Techniciens · {people.length}
                 </span>
-                <div className="ml-auto flex items-center gap-2 text-[10px]">
+                <div className="ml-auto flex items-center gap-2 text-[12px]">
                     <SortBtn label="Nom" k="name" sortKey={sortKey} dir={dir} onClick={toggle} />
                     <SortBtn label="Heures" k="total" sortKey={sortKey} dir={dir} onClick={toggle} />
                     <SortBtn label="⚠" k="anomaly" sortKey={sortKey} dir={dir} onClick={toggle} title="Anomalies d’abord" />
@@ -82,7 +82,7 @@ export function HoursList({people, selectedId, onSelect, totals, thresholds}) {
                                 {p.person.name}
                             </span>
                             {p.person.isChef && (
-                                <span className="shrink-0 rounded-sm border border-blue-blueLight1 px-1 font-mono text-[9px] text-blue-blue">
+                                <span className="shrink-0 rounded-sm border border-blue-blueLight1 px-1 font-mono text-[11px] text-blue-blue">
                                     chef
                                 </span>
                             )}

@@ -14,13 +14,19 @@ import {useCallback, useMemo, useState} from 'react';
 import {buildPeriod, shiftAnchor, todayIso, weekKeyOf, monthKeyOf} from '../utils/dates';
 import {GRAIN_BY_TAB, GRAIN_WEEK, GRAIN_MONTH, TAB_HOURS} from '../constants';
 
-export function usePeriod({defaultTab, defaultGrain}) {
+// `weekStartDay` comes from the data (see useGrainData's week convention), so
+// the anchor stays a plain date and the period is simply rebuilt around it when
+// the convention resolves.
+export function usePeriod({defaultTab, defaultGrain, weekStartDay}) {
     const [tab, setTab] = useState(defaultTab || TAB_HOURS);
     const [grainPref, setGrainPref] = useState(defaultGrain || GRAIN_WEEK);
     const [anchorIso, setAnchorIso] = useState(todayIso);
 
     const grain = GRAIN_BY_TAB[tab] ?? grainPref;
-    const period = useMemo(() => buildPeriod(anchorIso, grain), [anchorIso, grain]);
+    const period = useMemo(
+        () => buildPeriod(anchorIso, grain, weekStartDay),
+        [anchorIso, grain, weekStartDay],
+    );
 
     const goPrev = useCallback(
         () => setAnchorIso((a) => shiftAnchor(a, grain, -1)),
@@ -47,8 +53,10 @@ export function usePeriod({defaultTab, defaultGrain}) {
 
     const isToday = useMemo(() => {
         const now = todayIso();
-        return grain === GRAIN_WEEK ? weekKeyOf(now) === period.key : monthKeyOf(now) === period.key;
-    }, [grain, period.key]);
+        return grain === GRAIN_WEEK
+            ? weekKeyOf(now, weekStartDay) === period.key
+            : monthKeyOf(now) === period.key;
+    }, [grain, period.key, weekStartDay]);
 
     return {
         tab, setTab,

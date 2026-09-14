@@ -7,7 +7,7 @@
 // swapping it for a matrix a component-only change.
 
 import {mergeClauses, highestSeverity, countClauses} from './clauses';
-import {dayLabel, isWeekendIso, todayIso, weekKeyOf} from './dates';
+import {addIsoDays, dayLabel, isWeekendIso, todayIso, weekKeyOf} from './dates';
 import {SEVERITY_ORDER} from '../constants';
 
 // A person-day with no shift and no jours_contact row: the empty cell.
@@ -180,14 +180,34 @@ export function buildPeriodModel({period, data, thresholds}) {
         // means an automation has not caught up — the single most dangerous
         // state to run payroll in, so it gets its own flag rather than hiding
         // inside a generic warning.
-        const weekMismatch = presentWeeks.some((w) => {
-            if (w.totalHeures === null) return false;
+        // Both numbers are kept so the panel can show them: "recalcul en attente"
+        // alone gives nobody anything to check in the base.
+        //
+        // heures_semaine.total_heures sums ACTUAL hours (4.01 is assessed on
+        // hours worked), so it is checked against the shifts' heures réelles —
+        // never against paid hours, which include the 4-hour block minimums and
+        // would disagree on every short call. Without the heures réelles field
+        // there is nothing comparable, and the check is skipped (diagnostics
+        // already names that field).
+        const weekMismatches = [];
+        for (const w of presentWeeks) {
+            if (w.totalHeures === null) continue;
             const fromDays = sumCells(
-                cells.filter((c) => !c.isEmpty && weekKeyOf(c.dateIso) === w.weekKey),
-                (c) => c.heures,
+                cells.filter((c) => !c.isEmpty && weekKeyOf(c.dateIso, period.weekStartDay) === w.weekKey),
+                (c) => c.heuresReelles,
             );
-            return fromDays !== null && Math.abs(fromDays - w.totalHeures) > 0.1;
-        });
+            if (fromDays !== null && Math.abs(fromDays - w.totalHeures) > 0.1) {
+                weekMismatches.push({weekKey: w.weekKey, totalHeures: w.totalHeures, fromDays});
+            }
+        }
+        // A month view only sees part of a spilling week, so its day sum is
+        // naturally short: only weeks fully inside the period can disagree.
+        const dayIsoList = period.days;
+        const fullyVisible = (wk) => {
+            const end = addIsoDays(wk, 6);
+            return dayIsoList.includes(wk) && dayIsoList.includes(end);
+        };
+        const visibleMismatches = weekMismatches.filter((m) => fullyVisible(m.weekKey));
 
         const flags = {
             hasNight: cells.some((c) => (c.heuresNuit ?? 0) > 0),
@@ -208,9 +228,10 @@ export function buildPeriodModel({period, data, thresholds}) {
             hasMissingWeekRow: period.weekKeys.some(
                 (wk, i) =>
                     !weeks[i] &&
-                    cells.some((c) => !c.isEmpty && weekKeyOf(c.dateIso) === wk),
+                    cells.some((c) => !c.isEmpty && weekKeyOf(c.dateIso, period.weekStartDay) === wk),
             ),
-            hasWeekMismatch: weekMismatch,
+            hasWeekMismatch: visibleMismatches.length > 0,
+            weekMismatches: visibleMismatches,
             allWeeksApproved: presentWeeks.length > 0 && presentWeeks.every((w) => w.approved),
             someWeeksApproved: presentWeeks.some((w) => w.approved),
         };
@@ -282,7 +303,7 @@ export function buildPeriodModel({period, data, thresholds}) {
         peopleWithoutDayRow: people.filter((p) => p.flags.hasMissingDayRow).map((p) => p.person.name),
         peopleWithoutWeekRow: people.filter((p) => p.flags.hasMissingWeekRow).map((p) => p.person.name),
         peopleWithWeekMismatch: people.filter((p) => p.flags.hasWeekMismatch).map((p) => p.person.name),
-        // Mondays inside the period that the `semaines` table does not declare:
+        // Weeks inside the period that the `semaines` table does not declare:
         // the automations will not produce heures_semaine rows for them.
         undeclaredWeeks: data.declaredWeeks.size
             ? period.weekKeys.filter((wk) => !data.declaredWeeks.has(wk))

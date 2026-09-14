@@ -21,12 +21,21 @@ import {
     readLinkedIds,
     readNumber,
     readText,
+    safeCellString,
     safeCellValue,
     sumOrNull,
+    unreadableNumberText,
 } from '../utils/airtable';
 import {parseClauses} from '../utils/clauses';
-import {monthKeyOf, weekKeyOf} from '../utils/dates';
-import {SHIFT_BLOCKS} from '../constants';
+import {
+    DEFAULT_WEEK_START_DAY,
+    WEEK_START_MONDAY,
+    WEEK_START_SUNDAY,
+    detectWeekStartDay,
+    monthKeyOf,
+    weekKeyOf,
+} from '../utils/dates';
+import {SHIFT_BLOCKS, WEEK_START_MONDAY_KEY, WEEK_START_SUNDAY_KEY} from '../constants';
 
 export function useGrainData(base, cp) {
     const shiftsTable = cp.shiftsTable;
@@ -40,6 +49,38 @@ export function useGrainData(base, cp) {
     const contactRecords = useRecords(cp.contactsTable || shiftsTable);
     const eventRecords = useRecords(cp.eventsTable || shiftsTable);
     const semaineRecords = useRecords(cp.semainesTable || shiftsTable);
+
+    // --- Week convention ---------------------------------------------------
+    // Resolved before anything is keyed by week. In auto mode the weekday that
+    // date_semaine values fall on IS the convention: a heures_semaine row
+    // totals the days from its date_semaine onwards, so the days on screen must
+    // be grouped the same way or every weekly total looks wrong.
+    const weekConvention = useMemo(() => {
+        const detected = detectWeekStartDay(
+            weekRecords.map((r) => getCellDateIso(r, cp.weekDateSemaineField)),
+        );
+        let startDay;
+        let source;
+        if (cp.weekStart === WEEK_START_SUNDAY_KEY) {
+            startDay = WEEK_START_SUNDAY;
+            source = 'forced';
+        } else if (cp.weekStart === WEEK_START_MONDAY_KEY) {
+            startDay = WEEK_START_MONDAY;
+            source = 'forced';
+        } else if (detected.startDay !== null) {
+            startDay = detected.startDay;
+            source = 'detected';
+        } else {
+            startDay = DEFAULT_WEEK_START_DAY;
+            source = 'default';
+        }
+        // Rows whose date_semaine is not on the chosen first day are joined to
+        // the week containing them, which is only right if the automation
+        // simply stamped a different day of the same week. Count them.
+        const offDay = detected.total - detected.counts[startDay];
+        return {startDay, source, offDay, total: detected.total};
+    }, [weekRecords, cp.weekDateSemaineField, cp.weekStart]);
+    const weekStartDay = weekConvention.startDay;
 
     // --- Contacts ----------------------------------------------------------
     // Names come from the Contacts table when it is configured; otherwise from
@@ -89,18 +130,20 @@ export function useGrainData(base, cp) {
     ]);
 
     // --- Weeks declared in the `semaines` table -------------------------------
-    // Only used to label a week and to warn when the Monday on screen has no row
+    // Only used to label a week and to warn when the week on screen has no row
     // here — which means the automations will not produce a heures_semaine line.
+    // Keyed by the week CONTAINING its date, so a table stamped on Mondays still
+    // declares Sunday-start weeks one-for-one.
     const declaredWeeks = useMemo(() => {
         const map = new Map();
         if (!cp.semainesTable || !cp.semaineDebutField) return map;
         for (const r of semaineRecords) {
             const iso = getCellDateIso(r, cp.semaineDebutField);
-            const key = weekKeyOf(iso);
+            const key = weekKeyOf(iso, weekStartDay);
             if (key) map.set(key, {id: r.id, label: readText(r, cp.semaineLabelField) || r.name || ''});
         }
         return map;
-    }, [cp.semainesTable, cp.semaineDebutField, cp.semaineLabelField, semaineRecords]);
+    }, [cp.semainesTable, cp.semaineDebutField, cp.semaineLabelField, semaineRecords, weekStartDay]);
 
     // --- Shifts ---------------------------------------------------------------
     // One record = one role on one event for one contact, carrying all three
@@ -144,13 +187,20 @@ export function useGrainData(base, cp) {
                 // on the wrong day. Count them so the diagnostics can say so.
                 multiEvent: eventIds.length > 1,
                 dateIso,
-                weekKey: weekKeyOf(dateIso),
+                weekKey: weekKeyOf(dateIso, weekStartDay),
                 monthKey: monthKeyOf(dateIso),
                 // The `mois` formula is a cross-check, never the source of truth.
                 declaredMonth: readText(r, cp.shiftMoisField) || null,
                 roleName: readText(r, cp.shiftRoleNameField),
                 heuresPayees: readNumber(r, cp.shiftHeuresPayeesField),
-                heuresReelles: readNumber(r, cp.shiftHeuresReellesField),
+                // readHours: a Duration-typed field reads as hours, not seconds.
+                heuresReelles: readHours(r, cp.shiftHeuresReellesField),
+                heuresReellesRaw: cp.shiftHeuresReellesField
+                    ? {
+                        empty: safeCellString(r, cp.shiftHeuresReellesField).trim() === '',
+                        unreadable: unreadableNumberText(r, cp.shiftHeuresReellesField),
+                    }
+                    : null,
                 heuresShowcall: readNumber(r, cp.shiftHeuresShowcallField),
                 heuresNuit: readNumber(r, cp.shiftHeuresNuitField),
                 taux: readNumber(r, cp.shiftTauxField),
@@ -169,7 +219,7 @@ export function useGrainData(base, cp) {
             });
         }
         return out;
-    }, [shiftRecords, cp]);
+    }, [shiftRecords, cp, weekStartDay]);
 
     // --- Day rows ---------------------------------------------------------------
     const dayRows = useMemo(() => {
@@ -184,7 +234,7 @@ export function useGrainData(base, cp) {
                 key: `${contactId}|${dateIso}`,
                 contactId,
                 dateIso,
-                weekKey: weekKeyOf(dateIso),
+                weekKey: weekKeyOf(dateIso, weekStartDay),
                 monthKey: monthKeyOf(dateIso),
                 ferie: readCheckbox(r, cp.dayFerieField),
                 heuresPayees: readNumber(r, cp.dayHeuresPayeesField),
@@ -201,16 +251,17 @@ export function useGrainData(base, cp) {
             });
         }
         return out;
-    }, [dayRecords, cp]);
+    }, [dayRecords, cp, weekStartDay]);
 
     // --- Week rows ----------------------------------------------------------------
     const weekRows = useMemo(() => {
         const out = [];
         for (const r of weekRecords) {
             const contactId = readLinkedIds(r, cp.weekContactLink)[0] ?? null;
-            // Join on the Monday derived from date_semaine, not on the semaine
-            // link's label: the label is free text and the Monday is not.
-            const weekKey = weekKeyOf(getCellDateIso(r, cp.weekDateSemaineField));
+            // Join on the week start derived from date_semaine, not on the
+            // semaine link's label: the label is free text and the date is not.
+            const dateSemaine = getCellDateIso(r, cp.weekDateSemaineField);
+            const weekKey = weekKeyOf(dateSemaine, weekStartDay);
             if (!contactId || !weekKey) continue;
 
             const approvedAt = cp.weekApprovedAtField
@@ -222,6 +273,7 @@ export function useGrainData(base, cp) {
                 record: r,
                 key: `${contactId}|${weekKey}`,
                 contactId,
+                dateSemaine,
                 weekKey,
                 monthKey: monthKeyOf(weekKey),
                 semaineLabel: readText(r, cp.weekSemaineField),
@@ -242,7 +294,7 @@ export function useGrainData(base, cp) {
             });
         }
         return out;
-    }, [weekRecords, cp]);
+    }, [weekRecords, cp, weekStartDay]);
 
     // --- Month rows (9.04) ------------------------------------------------------------
     const monthRows = useMemo(() => {
@@ -319,18 +371,33 @@ export function useGrainData(base, cp) {
         let noDate = 0;
         let noContact = 0;
         let monthMismatch = 0;
+        let reellesEmpty = 0;
+        let reellesUnreadable = 0;
+        let reellesUnreadableSample = '';
         for (const s of shifts) {
+            if (s.heuresReellesRaw && s.heuresPayees !== null) {
+                if (s.heuresReellesRaw.empty) reellesEmpty++;
+                else if (s.heuresReellesRaw.unreadable) {
+                    reellesUnreadable++;
+                    if (!reellesUnreadableSample) reellesUnreadableSample = s.heuresReellesRaw.unreadable;
+                }
+            }
             if (s.multiEvent) multiEvent++;
             if (!s.dateIso) noDate++;
             if (!s.contactId) noContact++;
             if (s.declaredMonth && s.monthKey && s.declaredMonth !== s.monthKey) monthMismatch++;
         }
-        return {multiEvent, noDate, noContact, monthMismatch, shiftCount: shifts.length};
+        return {
+            multiEvent, noDate, noContact, monthMismatch, shiftCount: shifts.length,
+            // Shifts with paid hours but no readable actual hours: the weekly
+            // total cannot be checked for them, so this must not stay silent.
+            reellesEmpty, reellesUnreadable, reellesUnreadableSample,
+        };
     }, [shifts]);
 
     return {
         shifts, dayRows, weekRows, monthRows,
-        people, eventsById, declaredWeeks,
+        people, eventsById, declaredWeeks, weekConvention,
         presentWeekKeys, presentMonthKeys, quality,
         totals: {
             shifts: shifts.length,

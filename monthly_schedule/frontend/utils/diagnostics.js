@@ -19,7 +19,8 @@ const OPTIONAL_FIELDS = [
         effect: 'les quarts s’affichent sans leur rôle.'},
     {key: 'shiftHeuresReellesField', tab: TAB_HOURS,
         label: 'Quart — heures réelles',
-        effect: 'la colonne Δ disparaît — impossible de voir l’effet du minimum de 4 h.'},
+        effect: 'la colonne Δ disparaît — impossible de voir l’effet du minimum de 4 h — et le total ' +
+            'hebdomadaire (heures réelles) n’est plus contrôlé contre les quarts.'},
     {key: 'shiftHeuresNuitField', tab: TAB_HOURS,
         label: 'Quart — heures de nuit',
         effect: 'les heures de nuit (4.02) ne sont plus totalisées au niveau du quart.'},

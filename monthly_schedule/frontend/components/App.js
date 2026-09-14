@@ -20,6 +20,70 @@ import {PeriodBar} from './PeriodBar';
 import {Tabs} from './Tabs';
 import {ModelSummary} from './ModelSummary';
 import {HoursTab} from './HoursTab';
+import {PeriodApprovalBar} from './Approval';
+import {useApproval} from '../hooks/useApproval';
+import {Feedback} from '../hooks/useWriter';
+import {WEEK_START_SUNDAY} from '../utils/dates';
+
+// A mapped heures réelles field that yields no number is worse than an unmapped
+// one: the weekly-total check skips those shifts without a word.
+function heuresReellesDiagnostics(quality, field) {
+    if (!field) return [];
+    const label = `« ${field.name} » (${field.config?.type ?? 'type inconnu'})`;
+    const items = [];
+    if (quality.reellesUnreadable) {
+        items.push({
+            level: 'warn',
+            tab: TAB_HOURS,
+            title: `${quality.reellesUnreadable} quart(s) avec des heures réelles illisibles`,
+            effect:
+                `${label} affiche par exemple « ${quality.reellesUnreadableSample} », qui n’est pas un nombre ; ` +
+                'la colonne Réelles et le contrôle du total hebdomadaire ignorent ces quarts.',
+        });
+    }
+    if (quality.reellesEmpty) {
+        items.push({
+            level: 'warn',
+            tab: TAB_HOURS,
+            title: `${quality.reellesEmpty} quart(s) avec des heures payées mais aucune heure réelle`,
+            effect:
+                `${label} est vide sur ces quarts ; la colonne Réelles et le contrôle du total ` +
+                'hebdomadaire les ignorent.',
+        });
+    }
+    return items;
+}
+
+// The week convention is invisible when it is right and ruinous when it is
+// wrong, so say which one is in force whenever it was not chosen explicitly,
+// and flag rows that do not follow it.
+function weekConventionDiagnostics(conv) {
+    const dayName = conv.startDay === WEEK_START_SUNDAY ? 'dimanche' : 'lundi';
+    const items = [];
+    if (conv.source === 'default' && conv.total === 0) return items;
+    if (conv.source === 'default') {
+        items.push({
+            level: 'warn',
+            tab: TAB_HOURS,
+            title: 'Début de semaine indéterminé',
+            effect:
+                `aucune date_semaine ne tombe un dimanche ou un lundi ; les semaines commencent le ${dayName} ` +
+                'par défaut. Choisissez-le dans la propriété « Début de semaine ».',
+        });
+    }
+    if (conv.offDay > 0) {
+        items.push({
+            level: 'warn',
+            tab: TAB_HOURS,
+            title: `${conv.offDay} ligne(s) heures_semaine dont date_semaine n’est pas un ${dayName}`,
+            effect:
+                `les semaines commencent le ${dayName} (${conv.source === 'forced' ? 'réglage' : 'détecté'}) ; ` +
+                'ces lignes sont rattachées à la semaine qui contient leur date, ce qui peut les placer ' +
+                'dans la mauvaise semaine si l’automatisation utilise une autre convention.',
+        });
+    }
+    return items;
+}
 
 // Properties without which nothing can be drawn at all. Everything else
 // degrades to a named diagnostic instead of an error.
@@ -33,7 +97,7 @@ const REQUIRED = [
     {key: 'dayContactLink', label: 'Jour — lien Contact'},
     {key: 'dayDateField', label: 'Jour — date'},
     {key: 'weekContactLink', label: 'Semaine — lien Contact'},
-    {key: 'weekDateSemaineField', label: 'Semaine — date de la semaine (lundi)'},
+    {key: 'weekDateSemaineField', label: 'Semaine — date de début de la semaine'},
 ];
 
 // --- Config gate ---
@@ -88,8 +152,24 @@ function AppLoaded({base, cp}) {
         [cp.seuilHeuresSemaine, cp.seuilHeuresJour, cp.seuilJoursConsecutifs, cp.seuilReposHeures],
     );
 
-    const nav = usePeriod({defaultTab: cp.defaultTab, defaultGrain: cp.defaultGrain});
+    // Data first: the week convention is learned from heures_semaine, and the
+    // period cannot be cut into weeks before it is known.
     const data = useGrainData(base, cp);
+    const nav = usePeriod({
+        defaultTab: cp.defaultTab,
+        defaultGrain: cp.defaultGrain,
+        weekStartDay: data.weekConvention.startDay,
+    });
+    const approval = useApproval(cp);
+
+    const allDiagnostics = useMemo(
+        () => [
+            ...diagnostics,
+            ...weekConventionDiagnostics(data.weekConvention),
+            ...heuresReellesDiagnostics(data.quality, cp.shiftHeuresReellesField),
+        ],
+        [diagnostics, data.weekConvention, data.quality, cp.shiftHeuresReellesField],
+    );
 
     const model = useMemo(
         () => buildPeriodModel({period: nav.period, data, thresholds}),
@@ -136,7 +216,11 @@ function AppLoaded({base, cp}) {
 
             <Tabs active={nav.tab} onChange={nav.setTab} badges={badges} />
 
-            <Diagnostics items={diagnostics} />
+            <Diagnostics items={allDiagnostics} />
+
+            <Feedback feedback={approval.feedback} onClose={approval.clearFeedback} />
+
+            {nav.tab === TAB_PAY && <PeriodApprovalBar model={model} approval={approval} cp={cp} />}
 
             {nav.tab === TAB_HOURS && (
                 <HoursTab
@@ -146,12 +230,13 @@ function AppLoaded({base, cp}) {
                     thresholds={thresholds}
                     nav={nav}
                     canExpandShifts={canExpandShifts}
+                    approval={approval}
                 />
             )}
 
             {nav.tab !== TAB_HOURS && <ModelSummary model={model} data={data} nav={nav} />}
 
-            <ConfigSummary base={base} cp={cp} />
+            <ConfigSummary base={base} cp={cp} weekConvention={data.weekConvention} />
         </Shell>
     );
 }

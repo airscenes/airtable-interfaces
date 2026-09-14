@@ -1,7 +1,7 @@
 // Clause pills. Colour is never the only signal: the article number is always
 // printed, so the chip still reads when the colour does not (print, colour
 // vision, a washed-out screen).
-const CHIP = 'inline-block rounded-sm border px-1 py-px font-mono text-[10px] leading-4 whitespace-nowrap';
+const CHIP = 'inline-block rounded-sm border px-1 py-px font-mono text-[12px] leading-4 whitespace-nowrap';
 
 const BY_SEVERITY = {
     alert: 'border-red-red bg-red-redLight2 text-gray-gray900',
@@ -32,7 +32,7 @@ export function ClauseChips({clauses, max = 4}) {
             ))}
             {rest.length > 0 && (
                 <span
-                    className="font-mono text-[10px] text-gray-gray500 dark:text-gray-gray400"
+                    className="font-mono text-[12px] text-gray-gray500 dark:text-gray-gray400"
                     title={rest.map((c) => `${c.code} ${c.label}`).join('\n')}
                 >
                     +{rest.length}
@@ -54,7 +54,7 @@ export function SelectBadge({text, color, title}) {
                 color: color?.text ?? '#333',
                 padding: '1px 7px',
                 borderRadius: 9999,
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: 500,
                 whiteSpace: 'nowrap',
                 display: 'inline-block',

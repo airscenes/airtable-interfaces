@@ -8,8 +8,18 @@ import {getCustomProperties} from '../utils/customProperties';
 // picker, and the only symptom downstream would be a column that quietly never
 // appears. Reading the resolved list against the base is the fastest way to
 // catch that.
-export function ConfigSummary({base, cp}) {
-    const [open, setOpen] = useState(true);
+// "→ dimanche (détecté, 212/214)" — which convention is actually in force.
+function conventionDetail(conv) {
+    const day = conv.startDay === 0 ? 'dimanche' : 'lundi';
+    const how = {forced: 'réglage', detected: 'détecté', default: 'par défaut'}[conv.source];
+    const counted = conv.total ? `, ${conv.total - conv.offDay}/${conv.total}` : '';
+    return `→ ${day} (${how}${counted})`;
+}
+
+export function ConfigSummary({base, cp, weekConvention}) {
+    // Collapsed by default: end users never configure this page, only the
+    // integrators do, and they know where to click.
+    const [open, setOpen] = useState(false);
 
     const props = getCustomProperties(base);
     const tables = props.filter((p) => p.type === 'table');
@@ -61,7 +71,12 @@ export function ConfigSummary({base, cp}) {
 
                     <Group title="Réglages">
                         {scalars.map((p) => (
-                            <Row key={p.key} label={p.label} value={String(cp[p.key] ?? '')} />
+                            <Row
+                                key={p.key}
+                                label={p.label}
+                                value={String(cp[p.key] ?? '')}
+                                detail={p.key === 'weekStart' && weekConvention ? conventionDetail(weekConvention) : null}
+                            />
                         ))}
                     </Group>
                 </div>
@@ -73,7 +88,7 @@ export function ConfigSummary({base, cp}) {
 function Group({title, children}) {
     return (
         <div className="mb-3 last:mb-0">
-            <h3 className="mb-1 font-mono text-[10px] uppercase tracking-wider text-gray-gray500 dark:text-gray-gray400">
+            <h3 className="mb-1 font-mono text-[12px] uppercase tracking-wider text-gray-gray500 dark:text-gray-gray400">
                 {title}
             </h3>
             <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 md:grid-cols-2">{children}</div>
@@ -98,7 +113,7 @@ function Row({label, value, detail}) {
                 {value || 'non configuré'}
             </span>
             {detail && (
-                <span className="shrink-0 font-mono text-[10px] text-gray-gray400">{detail}</span>
+                <span className="shrink-0 font-mono text-[12px] text-gray-gray400">{detail}</span>
             )}
         </div>
     );

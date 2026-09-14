@@ -1,10 +1,11 @@
 import {expandRecord} from '@airtable/blocks/interface/ui';
 import {fmtHours, fmtDelta, fmtMoney, fmtNumber} from '../utils/format';
 import {fmtHHMM} from '../utils/airtable';
-import {longDate} from '../utils/dates';
+import {longDate, shortDate} from '../utils/dates';
 import {SHIFT_BLOCKS} from '../constants';
 import {ClauseChips, SelectBadge} from './ClauseChips';
 import {EmptyState} from './EmptyState';
+import {PersonApproval} from './Approval';
 
 // The detail half of the layout: one technician's whole period, day by day.
 //
@@ -12,13 +13,13 @@ import {EmptyState} from './EmptyState';
 // three blocks across three column pairs. It is never one row per block.
 
 const TH =
-    'sticky top-0 z-10 bg-gray-gray25 px-2 py-1 text-left font-mono text-[10px] uppercase ' +
+    'sticky top-0 z-10 bg-gray-gray25 px-2 py-1 text-left font-mono text-[12px] uppercase ' +
     'tracking-wider text-gray-gray500 shadow-[inset_0_-1px_0_#dfe3e8] ' +
     'dark:bg-gray-gray800 dark:text-gray-gray400 dark:shadow-[inset_0_-1px_0_#41454d]';
 
 const TD = 'border-b border-gray-gray100 px-2 py-1 align-middle dark:border-gray-gray600';
 
-export function HoursPanel({entry, eventsById, dayHeaders, thresholds, canExpandShifts}) {
+export function HoursPanel({entry, eventsById, dayHeaders, thresholds, canExpandShifts, approval}) {
     if (!entry) {
         return (
             <EmptyState
@@ -38,7 +39,7 @@ export function HoursPanel({entry, eventsById, dayHeaders, thresholds, canExpand
                     {person.name}
                 </h2>
                 {person.isChef && (
-                    <span className="rounded-sm border border-blue-blueLight1 px-1 font-mono text-[9px] text-blue-blue">
+                    <span className="rounded-sm border border-blue-blueLight1 px-1 font-mono text-[11px] text-blue-blue">
                         chef
                     </span>
                 )}
@@ -46,7 +47,7 @@ export function HoursPanel({entry, eventsById, dayHeaders, thresholds, canExpand
                     <SelectBadge key={s} text={s} />
                 ))}
 
-                <span className="ml-auto flex flex-wrap items-baseline gap-x-3 text-[11px] text-gray-gray600 dark:text-gray-gray300">
+                <span className="ml-auto flex flex-wrap items-baseline gap-x-3 text-[13px] text-gray-gray600 dark:text-gray-gray300">
                     <Metric label="payées" value={`${fmtHours(totals.heuresPayees)} h`} strong />
                     <Metric label="réelles" value={`${fmtHours(totals.heuresReelles)} h`} />
                     <Metric
@@ -57,6 +58,12 @@ export function HoursPanel({entry, eventsById, dayHeaders, thresholds, canExpand
                     <Metric label="jours" value={fmtNumber(totals.joursTravailles)} />
                     {totals.couts !== null && <Metric label="coûts" value={fmtMoney(totals.couts)} />}
                 </span>
+
+                {approval && (
+                    <div className="basis-full">
+                        <PersonApproval entry={entry} approval={approval} />
+                    </div>
+                )}
             </header>
 
             <PanelFlags flags={flags} thresholds={thresholds} />
@@ -140,13 +147,18 @@ function PanelFlags({flags, thresholds}) {
     if (flags.hasMissingWeekRow) {
         msgs.push({tone: 'alert', text: 'Une semaine travaillée n’a pas de ligne heures_semaine'});
     }
-    if (flags.hasWeekMismatch) {
-        msgs.push({tone: 'alert', text: 'Le total hebdomadaire ne correspond pas aux journées — recalcul Airtable en attente'});
+    for (const m of flags.weekMismatches ?? []) {
+        msgs.push({
+            tone: 'alert',
+            text:
+                `Semaine du ${shortDate(m.weekKey)} : heures_semaine indique ${fmtHours(m.totalHeures)} h, ` +
+                `les quarts totalisent ${fmtHours(m.fromDays)} h réelles — recalcul Airtable en attente`,
+        });
     }
     if (!msgs.length) return null;
 
     return (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-gray-gray200 px-3 py-1.5 text-[11px] dark:border-gray-gray600">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-gray-gray200 px-3 py-1.5 text-[13px] dark:border-gray-gray600">
             {msgs.map((m, i) => (
                 <span key={i} className={m.tone === 'alert' ? 'text-red-red' : 'text-orange-orange'}>
                     ● {m.text}
@@ -186,7 +198,7 @@ function DaySection({cell, header, eventsById, thresholds, canExpandShifts}) {
                         <DayMeta label="payées" value={`${fmtHours(cell.heures)} h`} strong tone={over ? 'alert' : undefined} />
                         {cell.heuresFromShifts && (
                             <span
-                                className="font-mono text-[10px] text-orange-orange"
+                                className="font-mono text-[12px] text-orange-orange"
                                 title="Aucune ligne jours_contact pour ce jour : le total est la somme des quarts."
                             >
                                 somme des quarts
@@ -218,7 +230,7 @@ function DaySection({cell, header, eventsById, thresholds, canExpandShifts}) {
                             this date here instead. */}
                         {header && (
                             <span
-                                className="ml-auto font-mono text-[10px] text-gray-gray500 dark:text-gray-gray400"
+                                className="ml-auto font-mono text-[12px] text-gray-gray500 dark:text-gray-gray400"
                                 title="Charge de toute l’équipe ce jour-là"
                             >
                                 équipe : {header.people} pers. · {fmtHours(header.heures)} h
@@ -243,7 +255,7 @@ function DaySection({cell, header, eventsById, thresholds, canExpandShifts}) {
 
 function DayMeta({label, value, strong, tone}) {
     return (
-        <span className="font-mono text-[10px] text-gray-gray500 dark:text-gray-gray400">
+        <span className="font-mono text-[12px] text-gray-gray500 dark:text-gray-gray400">
             {label}{' '}
             <span
                 className={
@@ -266,7 +278,7 @@ function DayMeta({label, value, strong, tone}) {
 function FerieState({cell}) {
     if (!cell.ferie) return null;
     return (
-        <span className="rounded-sm border border-yellow-yellow bg-yellow-yellowLight2 px-1 font-mono text-[10px] text-gray-gray900">
+        <span className="rounded-sm border border-yellow-yellow bg-yellow-yellowLight2 px-1 font-mono text-[12px] text-gray-gray900">
             férié 4.04
         </span>
     );
@@ -288,7 +300,7 @@ function ShiftRow({shift, event, canExpand}) {
                     </span>
                     {shift.multiEvent && (
                         <span
-                            className="font-mono text-[10px] text-red-red"
+                            className="font-mono text-[12px] text-red-red"
                             title="Ce quart est lié à plusieurs événements : sa date vient d’un rollup MIN et peut être fausse."
                         >
                             ⚠
@@ -369,5 +381,5 @@ function Meals({shift}) {
     if (shift.diner !== null) parts.push(`Dîner ${fmtHHMM(shift.diner)}${shift.dureeDiner ? ` (${shift.dureeDiner})` : ''}`);
     if (shift.souper !== null) parts.push(`Souper ${fmtHHMM(shift.souper)}${shift.dureeSouper ? ` (${shift.dureeSouper})` : ''}`);
     if (!parts.length) return <span className="text-gray-gray300">—</span>;
-    return <span className="text-[10px] leading-tight">{parts.join(' · ')}</span>;
+    return <span className="text-[12px] leading-tight">{parts.join(' · ')}</span>;
 }
