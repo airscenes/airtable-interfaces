@@ -6,12 +6,17 @@
 
 // Supabase publishable keys (sb_publishable_*) and legacy anon JWTs both work
 // here: the apikey + Authorization headers are accepted in the same shape.
-function authHeaders(apiKey, clientId) {
-    return {
+// X-Upload-Secret proves the caller is acting for THIS client, not merely
+// naming its UUID. It is omitted when not provided, so plain PostgREST reads
+// never carry it.
+function authHeaders(apiKey, clientId, uploadSecret) {
+    const headers = {
         apikey: apiKey,
         Authorization: `Bearer ${apiKey}`,
         'X-Client-Id': clientId,
     };
+    if (uploadSecret) headers['X-Upload-Secret'] = uploadSecret;
+    return headers;
 }
 
 export async function pgRestSelect({
@@ -63,13 +68,14 @@ export async function callEdgeFunction({
     supabaseUrl,
     apiKey,
     clientId,
+    uploadSecret,
     name,
     body,
 }) {
     const res = await fetch(`${supabaseUrl}/functions/v1/${name}`, {
         method: 'POST',
         headers: {
-            ...authHeaders(apiKey, clientId),
+            ...authHeaders(apiKey, clientId, uploadSecret),
             'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),

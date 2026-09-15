@@ -5,7 +5,7 @@ import './style.css';
 
 // Registry of available document-upload features. Add new entries to expose
 // new scripts in the dropdown — each entry maps to a React component that
-// receives {supabaseUrl, anonKey, clientId} props.
+// receives {supabaseUrl, apiKey, clientId, uploadSecret} props.
 const FEATURES = [
     {
         key: 'royalties',
@@ -35,6 +35,12 @@ function getCustomProperties() {
             type: 'string',
             defaultValue: '',
         },
+        {
+            key: 'uploadSecret',
+            label: 'Upload Secret (fourni par Airscènes)',
+            type: 'string',
+            defaultValue: '',
+        },
     ];
 }
 
@@ -43,11 +49,12 @@ function DocumentUploadApp() {
     const supabaseUrl = customPropertyValueByKey.supabaseUrl;
     const apiKey = customPropertyValueByKey.supabaseApiKey;
     const clientId = customPropertyValueByKey.clientId;
+    const uploadSecret = customPropertyValueByKey.uploadSecret;
 
     const [selectedKey, setSelectedKey] = useState(FEATURES[0].key);
     const selected = FEATURES.find((f) => f.key === selectedKey);
 
-    const configMissing = !supabaseUrl || !apiKey || !clientId;
+    const configMissing = !supabaseUrl || !apiKey || !clientId || !uploadSecret;
 
     return (
         <div className="p-4 sm:p-6 min-h-screen bg-gray-gray50 dark:bg-gray-gray800 overflow-auto">
@@ -98,6 +105,7 @@ function DocumentUploadApp() {
                             {!supabaseUrl && <li>Supabase URL</li>}
                             {!apiKey && <li>Supabase Publishable Key</li>}
                             {!clientId && <li>Client UUID</li>}
+                            {!uploadSecret && <li>Upload Secret</li>}
                         </ul>
                     </div>
                 ) : (
@@ -106,6 +114,7 @@ function DocumentUploadApp() {
                             supabaseUrl={supabaseUrl}
                             apiKey={apiKey}
                             clientId={clientId}
+                            uploadSecret={uploadSecret}
                         />
                     )
                 )}

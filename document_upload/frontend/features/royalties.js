@@ -57,7 +57,7 @@ async function pollAuditStatus({supabaseUrl, apiKey, clientId, auditId}) {
     return {ok: null, error: 'Délai dépassé. L\'import est peut-être encore en cours.'};
 }
 
-export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId}) {
+export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSecret}) {
     const [file, setFile] = useState(null);
     const [validationError, setValidationError] = useState(null);
     const [phase, setPhase] = useState('idle'); // idle | uploading | importing | done | error
@@ -145,6 +145,7 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId}) {
                 supabaseUrl,
                 apiKey,
                 clientId,
+                uploadSecret,
                 name: 'request-upload-url',
                 body: {client_id: clientId, filename: file.name},
             });
