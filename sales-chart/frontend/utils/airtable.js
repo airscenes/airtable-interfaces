@@ -313,6 +313,14 @@ export function getCustomProperties(base, selectedSpectaclesTableId, selectedRep
       table: repsTable,
       shouldFieldBeAllowed: isCheckboxLikeField,
     },
+    // Weekly sold/revenue columns come from Supabase snapshots, not a field,
+    // so they get an explicit toggle instead of a field mapping.
+    {
+      key: "showWeeklyColumns",
+      label: "Afficher les colonnes Vendus (sem.) / Revenus (sem.)",
+      type: "boolean",
+      defaultValue: true,
+    },
     // --- Supabase ---
     {
       key: "supabaseUrl",

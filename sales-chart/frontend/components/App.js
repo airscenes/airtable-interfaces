@@ -16,6 +16,7 @@ import {
   sortRepsByDate,
 } from "../utils/airtable";
 import { parseIsoDate } from "../utils/format";
+import { visibleRepColumns } from "../utils/columns";
 import { SpectacleCard } from "./SpectacleCard";
 import { HomeSalesChart } from "./HomeSalesChart";
 import { DetailPage } from "./DetailPage";
@@ -147,6 +148,9 @@ function SalesChartLoaded({ base, cp }) {
 
   const spectacleRecords = useRecords(spectaclesTable);
   const repRecords = useRecords(repsTable);
+
+  // Table columns whose field is mapped (or toggle enabled) in the config panel
+  const repColumns = visibleRepColumns(cp);
 
   const [selectedSpectacleId, setSelectedSpectacleId] = useState(null);
   const [search, setSearch] = useState("");
@@ -281,6 +285,7 @@ function SalesChartLoaded({ base, cp }) {
         return {
           id: record.id,
           spectacleIds: links.map((l) => l.id),
+          spectacles: links.map((l) => ({ id: l.id, name: l.name || "" })),
           spectacleName: links.map((l) => l.name).filter(Boolean).join(", "),
           name: repNameField
             ? safeCellString(record, repNameField)
@@ -421,6 +426,7 @@ function SalesChartLoaded({ base, cp }) {
       <AllEventsPage
         allReps={allRepresentationsSorted}
         repRecords={repRecords}
+        repColumns={repColumns}
         onBack={() => setView("gallery")}
       />
     );
@@ -454,6 +460,7 @@ function SalesChartLoaded({ base, cp }) {
         baseId={base.id}
         onBack={() => setSelectedSpectacleId(null)}
         repRecords={repRecords}
+        repColumns={repColumns}
       />
     );
   }

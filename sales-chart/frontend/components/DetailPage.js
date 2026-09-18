@@ -22,6 +22,7 @@ export function DetailPage({
   baseId,
   onBack,
   repRecords,
+  repColumns,
 }) {
   const [selectedRepIds, setSelectedRepIds] = useState(new Set());
   const [salesData, setSalesData] = useState([]);
@@ -593,6 +594,7 @@ export function DetailPage({
         selectedRepIds={selectedRepIds}
         setSelectedRepIds={setSelectedRepIds}
         repRecords={repRecords}
+        columns={repColumns}
         weekDeltas={weekDeltas}
       />
     </div>

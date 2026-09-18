@@ -3,12 +3,13 @@ import { RepresentationsTable } from "./RepresentationsTable";
 
 // --- All-events page: every event across all shows, mixed ---
 
-export function AllEventsPage({ allReps, repRecords, onBack }) {
+export function AllEventsPage({ allReps, repRecords, repColumns, onBack }) {
   const {
     showAll, setShowAll,
+    filterSpectacle, setFilterSpectacle,
     filterVille, setFilterVille,
     filterSalle, setFilterSalle,
-    uniqueVilles, uniqueSalles,
+    uniqueSpectacles, uniqueVilles, uniqueSalles,
     filteredReps,
   } = useRepFilters(allReps);
 
@@ -33,6 +34,9 @@ export function AllEventsPage({ allReps, repRecords, onBack }) {
         title="Événements"
         totalCount={allReps.length}
         filteredReps={filteredReps}
+        uniqueSpectacles={uniqueSpectacles}
+        filterSpectacle={filterSpectacle}
+        setFilterSpectacle={setFilterSpectacle}
         uniqueVilles={uniqueVilles}
         uniqueSalles={uniqueSalles}
         filterVille={filterVille}
@@ -42,6 +46,7 @@ export function AllEventsPage({ allReps, repRecords, onBack }) {
         showAll={showAll}
         setShowAll={setShowAll}
         repRecords={repRecords}
+        columns={repColumns}
         showSpectacleCol
       />
     </div>

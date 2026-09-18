@@ -1,33 +1,30 @@
 // Export the table rows (already filtered) to a CSV matching the displayed
-// columns. Semicolon-delimited + comma decimals + UTF-8 BOM for French Excel.
-export function downloadRepsCsv(reps, weekDeltas, showSpectacleCol, title) {
+// columns (`repColumns`, see utils/columns.js). Semicolon-delimited + comma
+// decimals + UTF-8 BOM for French Excel.
+export function downloadRepsCsv(reps, repColumns, weekDeltas, showSpectacleCol, title) {
   const num = (v) =>
     v == null || (typeof v === "number" && isNaN(v)) ? "" : String(v).replace(".", ",");
   const sel = (v) => (v && v.text) || "";
+  const cellFor = (c) => {
+    switch (c.type) {
+      case "num":
+      case "currency":
+        return (r) => num(r[c.key]);
+      case "select":
+        return (r) => sel(r[c.key]);
+      case "pct":
+        return (r) => (r[c.key] != null ? num(Math.round(r[c.key] * 100)) : "");
+      case "weekSold":
+        return (r) => num(weekDeltas[r.id]?.sold);
+      case "weekRevenue":
+        return (r) => num(weekDeltas[r.id]?.revenue);
+      default:
+        return (r) => r[c.key] || "";
+    }
+  };
   const columns = [
     ...(showSpectacleCol ? [["Spectacle", (r) => r.spectacleName || ""]] : []),
-    ["J. restants", (r) => r.colJoursRestants || ""],
-    ["Date", (r) => r.colDateRep || ""],
-    ["Salle", (r) => r.colSalle || ""],
-    ["Ville", (r) => r.colVille || ""],
-    ["Capacite", (r) => num(r.colCapacite)],
-    ["Places bloquees", (r) => num(r.colPlacesBloques)],
-    ["Billets dispo", (r) => num(r.colBilletsDispo)],
-    ["Total vendus", (r) => num(r.colTotalBilletsVendus)],
-    ["Total gratuits", (r) => num(r.colTotalBilletsGratuits)],
-    ["Vendus (sem.)", (r) => num(weekDeltas[r.id]?.sold)],
-    ["Revenus (sem.)", (r) => num(weekDeltas[r.id]?.revenue)],
-    ["Assistance", (r) => num(r.colAssistance)],
-    ["Taux remplissage (%)", (r) => (r.colTauxRemplissage != null ? num(Math.round(r.colTauxRemplissage * 100)) : "")],
-    ["Revenus billetterie", (r) => num(r.colRevenus)],
-    ["Statut rapport", (r) => sel(r.colStatutRapport)],
-    ["Objectif revenus", (r) => num(r.colObjectifRevenus)],
-    ["Mise a jour", (r) => sel(r.colMiseAJour)],
-    ["Priorisation", (r) => sel(r.colPriorisation)],
-    ["Billetterie Salle", (r) => sel(r.colBilleterieSalle)],
-    ["Note", (r) => sel(r.colNote)],
-    ["Statut", (r) => sel(r.colStatut)],
-    ["Site web", (r) => sel(r.colSiteWeb)],
+    ...repColumns.map((c) => [c.csvLabel || c.label, cellFor(c)]),
   ];
   const esc = (s) => {
     const str = String(s ?? "");

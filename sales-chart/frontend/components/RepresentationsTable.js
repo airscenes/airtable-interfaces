@@ -1,19 +1,94 @@
 import { expandRecord } from "@airtable/blocks/interface/ui";
 import { fmtNumber, fmtCurrency } from "../utils/format";
 import { downloadRepsCsv } from "../utils/csv";
+import { colDefaultWidth } from "../utils/columns";
+import { useColumnWidths } from "../hooks/useColumnWidths";
 import { SelectBadge } from "./SelectBadge";
 
 // Header cells stay visible while scrolling down. The background must live on
 // the th itself — a background set on the <tr> is not painted under a sticky
-// cell, so rows would show through it.
+// cell, so rows would show through it. Borders drawn as an inset shadow (right
+// + bottom edge) because collapsed table borders don't stick with the cell.
 const TH =
   "px-3 py-2 sticky top-0 z-10 bg-gray-gray75 dark:bg-gray-gray800 " +
-  "shadow-[inset_0_-1px_0_#e5e9f0] dark:shadow-[inset_0_-1px_0_#41454d]";
+  "shadow-[inset_-1px_-1px_0_#dadee6] dark:shadow-[inset_-1px_-1px_0_#41454d]";
+
+// Row tint for free events (no promo to monitor): neutral pale gray so these
+// rows read as "no follow-up", a notch darker than the gray25 hover of regular
+// rows so the two stay distinguishable. Arbitrary values rather than theme
+// tokens so the colors live next to their only use.
+const FREE_ROW =
+  "bg-[rgb(236,238,241)] hover:bg-[rgb(225,228,233)] " +
+  "dark:bg-[rgb(42,45,52)] dark:hover:bg-[rgb(54,58,66)]";
+
+// Vertical separator between body cells.
+const TD = "px-3 py-2 border-r border-gray-gray200 dark:border-gray-gray600";
 
 // Caps the table box so its horizontal scrollbar stays on screen. Expressed in
 // viewport units so it scales with the screen instead of assuming a fixed
 // header height; the remaining 12vh is the breathing room left below the box.
 const SCROLL_MAX_HEIGHT = "88vh";
+
+const RIGHT_ALIGNED = new Set(["num", "currency", "weekSold", "weekRevenue"]);
+const isRight = (c) => RIGHT_ALIGNED.has(c.type);
+
+// Fill-rate bar: red < 50% ≤ orange < 80% ≤ green.
+function FillRate({ value }) {
+  if (value === null || value === undefined) return "—";
+  const pct = Math.min(100, Math.round(value * 100));
+  const barColor = pct >= 80 ? "#20c933" : pct >= 50 ? "#fcb400" : "#f82b60";
+  return (
+    <div className="flex items-center gap-1">
+      <div className="flex-1 bg-gray-gray200 dark:bg-gray-gray600 rounded-full h-2" style={{ minWidth: 60 }}>
+        <div className="rounded-full h-2" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+      </div>
+      <span className="text-xs text-gray-gray500 dark:text-gray-gray400 whitespace-nowrap">{pct}%</span>
+    </div>
+  );
+}
+
+// Width of the selection checkbox column (not resizable).
+const CHECKBOX_COL_WIDTH = 36;
+
+// Leading "Spectacle" column of the mixed all-events view. Resizable like the
+// others, but not part of REP_COLUMNS: it is not configurable.
+const SPECTACLE_COL = { key: "spectacle", label: "Spectacle", type: "spectacle" };
+
+// Drag handle on the right edge of a header cell. Double-click resets the width.
+function ResizeHandle({ onPointerDown, onReset }) {
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      onDoubleClick={onReset}
+      onClick={(e) => e.stopPropagation()}
+      title="Glisser pour redimensionner — double-clic pour réinitialiser"
+      className="absolute top-0 right-0 h-full w-2 cursor-col-resize group"
+    >
+      <div className="ml-auto h-full w-0.5 group-hover:bg-blue-blue" />
+    </div>
+  );
+}
+
+function renderCell(c, rep, weekDeltas) {
+  switch (c.type) {
+    case "spectacle":
+      return rep.spectacleName || "—";
+    case "num":
+      return fmtNumber(rep[c.key]);
+    case "currency":
+      return fmtCurrency(rep[c.key]);
+    case "select":
+      return <SelectBadge value={rep[c.key]} />;
+    case "pct":
+      return <FillRate value={rep[c.key]} />;
+    case "weekSold":
+      return fmtNumber(weekDeltas[rep.id]?.sold);
+    case "weekRevenue":
+      return fmtCurrency(weekDeltas[rep.id]?.revenue);
+    default:
+      return rep[c.key];
+  }
+}
 
 // --- Shared events table (header + filters + table card) ---
 // Selection (checkbox column + row click) is enabled only when setSelectedRepIds
@@ -23,6 +98,9 @@ export function RepresentationsTable({
   title,
   totalCount,
   filteredReps,
+  uniqueSpectacles = [],
+  filterSpectacle = "",
+  setFilterSpectacle,
   uniqueVilles,
   uniqueSalles,
   filterVille,
@@ -36,9 +114,16 @@ export function RepresentationsTable({
   repRecords,
   showSpectacleCol = false,
   weekDeltas = {},
+  columns,
 }) {
   const selectable = !!setSelectedRepIds;
-  const minWidth = (showSpectacleCol ? 1780 : 1600) + 124;
+  const { widths, startResize, resetWidth } = useColumnWidths();
+  const cols = showSpectacleCol ? [SPECTACLE_COL, ...columns] : columns;
+  const widthOf = (c) => widths[c.key] || colDefaultWidth(c);
+  // Fixed layout: the table is exactly as wide as its columns, so a resize
+  // moves only the dragged column's edge (hidden columns take no space).
+  const tableWidth =
+    cols.reduce((sum, c) => sum + widthOf(c), 0) + (selectable ? CHECKBOX_COL_WIDTH : 0);
 
   // Clicking anywhere on a row expands the record, like a row click in Airtable.
   // Selection (when enabled) is therefore driven by the checkbox column only,
@@ -56,7 +141,7 @@ export function RepresentationsTable({
         </h3>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => downloadRepsCsv(filteredReps, weekDeltas, showSpectacleCol, title)}
+            onClick={() => downloadRepsCsv(filteredReps, columns, weekDeltas, showSpectacleCol, title)}
             className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded border border-gray-gray200 dark:border-gray-gray500
                        text-gray-gray600 dark:text-gray-gray300 hover:bg-gray-gray100 dark:hover:bg-gray-gray600 transition-colors"
             title="Exporter le tableau en CSV"
@@ -77,9 +162,25 @@ export function RepresentationsTable({
           </label>
         </div>
       </div>
-      {/* City and Venue filters */}
-      {(uniqueVilles.length > 1 || uniqueSalles.length > 1) && (
-        <div className="flex items-center gap-3 mb-3">
+      {/* Show, City and Venue filters */}
+      {(uniqueSpectacles.length > 1 || uniqueVilles.length > 1 || uniqueSalles.length > 1) && (
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          {uniqueSpectacles.length > 1 && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Spectacle:</label>
+              <select
+                value={filterSpectacle}
+                onChange={(e) => setFilterSpectacle(e.target.value)}
+                className="text-xs rounded border border-gray-gray200 dark:border-gray-gray500 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
+                style={{ fontSize: 11, padding: "3px 8px", minWidth: 160 }}
+              >
+                <option value="">Tous</option>
+                {uniqueSpectacles.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name || "(Sans nom)"}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {uniqueVilles.length > 1 && (
             <div className="flex items-center gap-2">
               <label className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Ville:</label>
@@ -120,11 +221,20 @@ export function RepresentationsTable({
             table, so it stays reachable however long the list is. The header is
             sticky inside the same container. */}
         <div style={{ overflow: "auto", maxHeight: SCROLL_MAX_HEIGHT }}>
-          <table className="w-full text-sm text-gray-gray700 dark:text-gray-gray200" style={{ minWidth }}>
+          <table
+            className="text-sm text-gray-gray700 dark:text-gray-gray200"
+            style={{ tableLayout: "fixed", width: tableWidth }}
+          >
+            <colgroup>
+              {selectable && <col style={{ width: CHECKBOX_COL_WIDTH }} />}
+              {cols.map((c) => (
+                <col key={c.key} style={{ width: widthOf(c) }} />
+              ))}
+            </colgroup>
             <thead>
               <tr className="text-gray-gray600 dark:text-gray-gray300 text-left text-xs">
                 {selectable && (
-                  <th className={`${TH} w-8`}>
+                  <th className={TH}>
                     <input
                       type="checkbox"
                       checked={filteredReps.length > 0 && filteredReps.every((r) => selectedRepIds.has(r.id))}
@@ -139,29 +249,19 @@ export function RepresentationsTable({
                     />
                   </th>
                 )}
-                {showSpectacleCol && <th className={`${TH} font-semibold`}>Spectacle</th>}
-                <th className={`${TH} font-semibold`}>J. restants</th>
-                <th className={`${TH} font-semibold whitespace-nowrap`} style={{ minWidth: 150 }}>Date</th>
-                <th className={`${TH} font-semibold`}>Salle</th>
-                <th className={`${TH} font-semibold`}>Ville</th>
-                <th className={`${TH} font-semibold text-right`}>Capacite</th>
-                <th className={`${TH} font-semibold text-right`}>Places bloq.</th>
-                <th className={`${TH} font-semibold text-right`}>Billets dispo</th>
-                <th className={`${TH} font-semibold text-right`}>Total vendus</th>
-                <th className={`${TH} font-semibold text-right`}>Total gratuits</th>
-                <th className={`${TH} font-semibold text-right`} title="Dernière semaine complète (lundi → lundi)">Vendus (sem.)</th>
-                <th className={`${TH} font-semibold text-right`} title="Dernière semaine complète (lundi → lundi)">Revenus (sem.)</th>
-                <th className={`${TH} font-semibold text-right`}>Assistance</th>
-                <th className={`${TH} font-semibold`} style={{ minWidth: 120 }}>Taux remplissage</th>
-                <th className={`${TH} font-semibold text-right`}>Revenus billetterie</th>
-                <th className={`${TH} font-semibold`}>Statut rapport</th>
-                <th className={`${TH} font-semibold text-right`}>Objectif revenus</th>
-                <th className={`${TH} font-semibold`}>Mise a jour</th>
-                <th className={`${TH} font-semibold`}>Priorisation</th>
-                <th className={`${TH} font-semibold`}>Billetterie Salle</th>
-                <th className={`${TH} font-semibold`}>Note</th>
-                <th className={`${TH} font-semibold`}>Statut</th>
-                <th className={`${TH} font-semibold`}>Site web</th>
+                {cols.map((c) => (
+                  <th
+                    key={c.key}
+                    className={`${TH} font-semibold truncate${isRight(c) ? " text-right" : ""}`}
+                    title={c.title || c.label}
+                  >
+                    {c.label}
+                    <ResizeHandle
+                      onPointerDown={(e) => startResize(c.key, widthOf(c), e)}
+                      onReset={() => resetWidth(c.key)}
+                    />
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -179,13 +279,13 @@ export function RepresentationsTable({
                                 selectable && selectedRepIds.has(rep.id)
                                   ? "bg-blue-blueLight3 dark:bg-blue-blueDark1 font-medium"
                                   : rep.isFree
-                                    ? "bg-free-light dark:bg-free-dark hover:bg-free-lightHover dark:hover:bg-free-darkHover"
+                                    ? FREE_ROW
                                     : "hover:bg-gray-gray25 dark:hover:bg-gray-gray600"
                               }`}
                 >
                   {selectable && (
                     <td
-                      className="px-3 py-2 text-center"
+                      className={`${TD} text-center`}
                       onClick={(e) => e.stopPropagation()}
                       title="Selectionner pour le graphique"
                     >
@@ -207,49 +307,16 @@ export function RepresentationsTable({
                       />
                     </td>
                   )}
-                  {showSpectacleCol && (
-                    <td className="px-3 py-2 font-medium text-gray-gray800 dark:text-gray-gray100">{rep.spectacleName || "—"}</td>
-                  )}
-                  <td className="px-3 py-2">{rep.colJoursRestants}</td>
-                  <td className="px-3 py-2 whitespace-nowrap" style={{ minWidth: 150 }}>{rep.colDateRep}</td>
-                  <td className="px-3 py-2">{rep.colSalle}</td>
-                  <td className="px-3 py-2">{rep.colVille}</td>
-                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colCapacite)}</td>
-                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colPlacesBloques)}</td>
-                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colBilletsDispo)}</td>
-                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colTotalBilletsVendus)}</td>
-                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colTotalBilletsGratuits)}</td>
-                  <td className="px-3 py-2 text-right">{fmtNumber(weekDeltas[rep.id]?.sold)}</td>
-                  <td className="px-3 py-2 text-right">{fmtCurrency(weekDeltas[rep.id]?.revenue)}</td>
-                  <td className="px-3 py-2 text-right">{fmtNumber(rep.colAssistance)}</td>
-                  <td className="px-3 py-2" style={{ minWidth: 120 }}>
-                    {rep.colTauxRemplissage !== null ? (() => {
-                      const pct = Math.min(100, Math.round(rep.colTauxRemplissage * 100));
-                      const barColor = pct >= 80 ? "#20c933" : pct >= 50 ? "#fcb400" : "#f82b60";
-                      return (
-                        <div className="flex items-center gap-1">
-                          <div className="flex-1 bg-gray-gray200 dark:bg-gray-gray600 rounded-full h-2" style={{ minWidth: 60 }}>
-                            <div
-                              className="rounded-full h-2"
-                              style={{ width: `${pct}%`, backgroundColor: barColor }}
-                            />
-                          </div>
-                          <span className="text-xs text-gray-gray500 dark:text-gray-gray400 whitespace-nowrap">
-                            {pct}%
-                          </span>
-                        </div>
-                      );
-                    })() : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right">{fmtCurrency(rep.colRevenus)}</td>
-                  <td className="px-3 py-2"><SelectBadge value={rep.colStatutRapport} /></td>
-                  <td className="px-3 py-2 text-right">{fmtCurrency(rep.colObjectifRevenus)}</td>
-                  <td className="px-3 py-2"><SelectBadge value={rep.colMiseAJour} /></td>
-                  <td className="px-3 py-2"><SelectBadge value={rep.colPriorisation} /></td>
-                  <td className="px-3 py-2"><SelectBadge value={rep.colBilleterieSalle} /></td>
-                  <td className="px-3 py-2"><SelectBadge value={rep.colNote} /></td>
-                  <td className="px-3 py-2"><SelectBadge value={rep.colStatut} /></td>
-                  <td className="px-3 py-2"><SelectBadge value={rep.colSiteWeb} /></td>
+                  {cols.map((c) => (
+                    <td
+                      key={c.key}
+                      className={`${TD} truncate${isRight(c) ? " text-right" : ""}${
+                        c.type === "spectacle" ? " font-medium text-gray-gray800 dark:text-gray-gray100" : ""
+                      }`}
+                    >
+                      {renderCell(c, rep, weekDeltas)}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
