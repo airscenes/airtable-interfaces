@@ -39,6 +39,21 @@ const fmtNumber = (v) =>
     ? "\u2014"
     : Number(v).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 
+// Supabase matches ISRCs exactly, in Believe's CC-XXX-YY-NNNNN form. Airtable
+// entries are typed by hand ("CA H68 24 00113", trailing spaces), so we also
+// query the canonical form. The raw (trimmed) value is kept too: Believe itself
+// has a few non-canonical ISRCs (e.g. "Ca-H69-14-00002").
+function normalizeIsrc(raw) {
+  const compact = (raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (compact.length !== 12) return compact;
+  return `${compact.slice(0, 2)}-${compact.slice(2, 5)}-${compact.slice(5, 7)}-${compact.slice(7)}`;
+}
+
+function isrcVariants(raw) {
+  const trimmed = (raw || "").trim();
+  return [...new Set([trimmed, normalizeIsrc(trimmed)])].filter(Boolean);
+}
+
 // Chart color palette for tracks
 const TRACK_COLORS = [
   "#4a90d9", "#6aa84f", "#e06666", "#f6b26b", "#8e7cc3",
@@ -326,17 +341,18 @@ function DetailPage({
     if (!oeuvresRecords || !isrcField) return [];
     return oeuvresRecords
       .map((rec) => {
-        const isrc = rec.getCellValueAsString(isrcField);
+        const variants = isrcVariants(rec.getCellValueAsString(isrcField));
+        const isrc = variants[variants.length - 1];
         const title = trackTitleField ? rec.getCellValueAsString(trackTitleField) : "";
-        return { isrc, title, label: title || isrc, recordId: rec.id };
+        return { isrc, variants, title, label: title || isrc, recordId: rec.id };
       })
       .filter((t) => t.isrc);
   }, [oeuvresRecords, isrcField, trackTitleField]);
 
-  const isrcList = useMemo(() => tracks.map((t) => t.isrc), [tracks]);
+  const isrcList = useMemo(() => [...new Set(tracks.flatMap((t) => t.variants))], [tracks]);
   const isrcToLabel = useMemo(() => {
     const map = {};
-    tracks.forEach((t) => { map[t.isrc] = t.label; });
+    tracks.forEach((t) => { t.variants.forEach((v) => { map[v] = t.label; }); });
     return map;
   }, [tracks]);
 
