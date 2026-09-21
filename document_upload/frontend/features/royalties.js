@@ -96,6 +96,30 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
         refreshHistory();
     }, [refreshHistory]);
 
+    // On-demand recompute of the monthly totals the report extensions read
+    // (royalty_monthly_summary). Imports already refresh their own file; this
+    // is the fallback after rows were edited or deleted by hand.
+    const [recalc, setRecalc] = useState({phase: 'idle', message: null}); // idle | running | done | error
+    const onRecalculate = async () => {
+        setRecalc({phase: 'running', message: null});
+        try {
+            const res = await callEdgeFunction({
+                supabaseUrl,
+                apiKey,
+                clientId,
+                uploadSecret,
+                name: 'refresh-royalty-summary',
+                body: {client_id: clientId},
+            });
+            setRecalc({
+                phase: 'done',
+                message: `Totaux recalculés : ${res.files} fichier${res.files > 1 ? 's' : ''}.`,
+            });
+        } catch (err) {
+            setRecalc({phase: 'error', message: `Échec du recalcul : ${err.message}`});
+        }
+    };
+
     const validateFile = (f) => {
         if (!f) return 'Aucun fichier sélectionné.';
         if (!FILENAME_RE.test(f.name)) {
@@ -307,6 +331,19 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
                     </span>
                     <div className="flex items-center gap-2">
                         {historyLoading && <span className="text-xs text-gray-gray400">Chargement...</span>}
+                        {recalc.message && (
+                            <span className={`text-xs ${recalc.phase === 'error' ? 'text-red-red' : 'text-green-green'}`}>
+                                {recalc.message}
+                            </span>
+                        )}
+                        <button
+                            onClick={onRecalculate}
+                            disabled={recalc.phase === 'running' || phase === 'importing'}
+                            title="Recalcule les totaux mensuels utilisés par les rapports (fait automatiquement après chaque import)"
+                            className="text-xs px-2 py-1 rounded bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray300 hover:bg-gray-gray200 dark:hover:bg-gray-gray500 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {recalc.phase === 'running' ? 'Recalcul…' : 'Recalculer les totaux'}
+                        </button>
                         <button
                             onClick={refreshHistory}
                             title="Rafraîchir"
