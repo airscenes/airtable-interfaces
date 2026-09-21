@@ -373,9 +373,72 @@ function EditableGrid({ title, choices, monthIndices, inputs, onChange, existing
   );
 }
 
+// --- UI: Help badge ("?" pill that toggles a popover; closes on outside click) ---
+
+function HelpBadge({ title, children }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title={title}
+        className={`w-7 h-7 rounded-full text-sm font-bold flex items-center justify-center ${
+          open
+            ? "bg-blue-blue text-white"
+            : "bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray200 hover:bg-gray-gray200"
+        }`}
+      >
+        ?
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 top-9 z-20 w-80 max-w-[calc(100vw-2rem)] p-4 rounded-lg shadow-lg
+                     bg-white dark:bg-gray-gray700 border border-gray-gray200 dark:border-gray-gray600
+                     text-sm text-gray-gray700 dark:text-gray-gray100 space-y-3"
+        >
+          <div className="font-semibold text-base">{title}</div>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Display string of a link/lookup cell. getCellValueAsString CSV-quotes names
+// containing commas ("5633 | Publicité Web (Facebook, etc.)"), so join names directly.
+function getLinkNames(rec, field) {
+  if (!field) return "";
+  const v = rec.getCellValue(field);
+  if (Array.isArray(v) && v.length > 0 && v.every((x) => x && typeof x.name === "string")) {
+    return v.map((x) => x.name).join(", ");
+  }
+  return rec.getCellValueAsString(field);
+}
+
 // --- UI: Existing entries list ---
 
 function ExistingEntriesList({ title, entries, dateField, montantField, categorieField, descriptionField, fournisseurField }) {
+  // Expanded budget lines (compte names); all collapsed by default.
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggleGroup = (key) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
   if (!entries || entries.length === 0) {
     return (
       <div className="mt-3 text-sm text-gray-gray500 italic">
@@ -401,17 +464,28 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
   // Group by Comptes (catégorie), preserving chronological order within each group
   const groups = new Map();
   for (const r of sortedEntries) {
-    const key = categorieField ? r.getCellValueAsString(categorieField) || "—" : "—";
+    const key = getLinkNames(r, categorieField) || "—";
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(r);
   }
   const sortedGroups = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b, "fr"));
   const colCount = 2 + (fournisseurField ? 1 : 0) + (descriptionField ? 1 : 0);
+  const allCollapsed = sortedGroups.every(([k]) => !expanded.has(k));
 
   return (
     <div className="mt-3">
-      <div className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300 mb-1">
-        {title} déjà saisis ({entries.length}) — total {fmtCurrency(total)}
+      <div className="flex items-center justify-between gap-3 mb-1">
+        <div className="text-sm font-medium text-gray-gray600 dark:text-gray-gray300">
+          {title} déjà saisis ({entries.length}) — total {fmtCurrency(total)}
+        </div>
+        <button
+          onClick={() =>
+            setExpanded(allCollapsed ? new Set(sortedGroups.map(([k]) => k)) : new Set())
+          }
+          className="text-sm text-blue-blue hover:underline"
+        >
+          {allCollapsed ? "Tout déplier" : "Tout replier"}
+        </button>
       </div>
       <div className="border border-gray-gray100 dark:border-gray-gray600 rounded overflow-hidden">
         <table className="w-full text-sm table-fixed">
@@ -432,17 +506,27 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
           <tbody>
             {sortedGroups.map(([compte, rows]) => {
               const groupTotal = rows.reduce((s, r) => s + (Number(r.getCellValue(montantField)) || 0), 0);
+              const isCollapsed = !expanded.has(compte);
               return (
                 <Fragment key={compte}>
-                  <tr className="bg-gray-gray100 dark:bg-gray-gray800 border-t border-gray-gray200 dark:border-gray-gray600">
+                  <tr
+                    onClick={() => toggleGroup(compte)}
+                    className="bg-gray-gray100 dark:bg-gray-gray800 border-t border-gray-gray200 dark:border-gray-gray600 cursor-pointer select-none hover:bg-gray-gray200 dark:hover:bg-gray-gray600"
+                  >
                     <td colSpan={colCount - 1} className="p-2 font-semibold text-gray-gray700 dark:text-gray-gray100">
+                      <span
+                        className="inline-block w-4 text-gray-gray500 transition-transform"
+                        style={{ transform: isCollapsed ? "rotate(-90deg)" : "none" }}
+                      >
+                        ▾
+                      </span>
                       {compte} <span className="text-gray-gray500 font-normal">({rows.length})</span>
                     </td>
                     <td className="p-2 text-right font-semibold text-gray-gray700 dark:text-gray-gray100 whitespace-nowrap">
                       {fmtCurrency(groupTotal)}
                     </td>
                   </tr>
-                  {rows.map((r) => {
+                  {!isCollapsed && rows.map((r) => {
                     let dateIso = r.getCellValue(dateField);
                     if (Array.isArray(dateIso)) dateIso = dateIso[0];
                     if (dateIso && typeof dateIso === "object" && dateIso.value) dateIso = dateIso.value;
@@ -607,7 +691,7 @@ async function exportFromTemplate({
   existingRevenus.forEach((rec, idx) => {
     const r = revListRow + idx;
     const date = readDateForExport(rec, revenusDateField, revenusDateWriteField);
-    const cat = revenusCategorieField ? rec.getCellValueAsString(revenusCategorieField) : "";
+    const cat = getLinkNames(rec, revenusCategorieField);
     const notes = revenusNotesField ? rec.getCellValueAsString(revenusNotesField) : "";
     const desc = revenusDescriptionField ? rec.getCellValueAsString(revenusDescriptionField) : "";
     const m = Number(rec.getCellValue(revenusMontantField)) || 0;
@@ -684,6 +768,35 @@ async function exportFromTemplate({
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Promise cache for Supabase calls: effect re-runs share the in-flight request instead
+// of starting a new one, and a cancelled effect never throws a response away.
+function cachedFetch(cache, key, fetcher) {
+  if (!cache.has(key)) {
+    const p = fetcher();
+    cache.set(key, p);
+    p.catch(() => cache.delete(key)); // let a failed call be retried
+  }
+  return cache.get(key);
+}
+
+async function postSupabaseRpc(supabaseUrl, anonKey, clientId, fn, body) {
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+      "Content-Type": "application/json",
+      "x-client-id": clientId,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Supabase ${response.status} ${response.statusText}${detail ? " — " + detail.slice(0, 200) : ""}`);
+  }
+  return response.json();
+}
+
 // Read a Compte's numero from the configured field, fallback parses from name.
 // Used to classify comptes: < 5000 = Revenu, >= 5000 = Dépense.
 function getCompteCode(rec, numeroField) {
@@ -698,21 +811,20 @@ function getCompteCode(rec, numeroField) {
 
 // --- Saisies editor (Revenus or Dépenses, per-line) ---
 
-function SaisiesEditor({ title, rows, onChange, comptesRecords, comptesNumeroField, monthIndices }) {
+// comptes: [{id, name, code}] (see comptesSeenRef in ReportInner)
+function SaisiesEditor({ title, rows, onChange, comptes, monthIndices }) {
   const comptesByType = useMemo(() => {
     const revenu = [];
     const depense = [];
-    for (const rec of comptesRecords || []) {
-      const code = getCompteCode(rec, comptesNumeroField);
-      if (code == null) continue;
-      if (code >= 4000 && code < 5000) revenu.push(rec);
-      else if (code >= 5000 && code < 6000) depense.push(rec);
+    for (const c of comptes) {
+      if (c.code >= 4000 && c.code < 5000) revenu.push(c);
+      else if (c.code >= 5000 && c.code < 6000) depense.push(c);
     }
     const cmp = (a, b) => (a.name || "").localeCompare(b.name || "", "fr");
     revenu.sort(cmp);
     depense.sort(cmp);
     return { revenu, depense };
-  }, [comptesRecords, comptesNumeroField]);
+  }, [comptes]);
 
   const addRow = () => onChange([...rows, { type: "revenu", compteId: "", notes: "", montant: "", month: monthIndices[0] }]);
   const updateRow = (idx, patch) => onChange(rows.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
@@ -802,8 +914,8 @@ function SaisiesEditor({ title, rows, onChange, comptesRecords, comptesNumeroFie
                     className="bg-white dark:bg-gray-gray700 border border-gray-gray200 dark:border-gray-gray600 rounded px-2 py-1 text-base w-full"
                   >
                     <option value="">— Choisir —</option>
-                    {(r.type === "depense" ? comptesByType.depense : comptesByType.revenu).map((rec) => (
-                      <option key={rec.id} value={rec.id}>{rec.name}</option>
+                    {(r.type === "depense" ? comptesByType.depense : comptesByType.revenu).map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
                 </td>
@@ -927,6 +1039,21 @@ function ReportInner({ cfg }) {
   const revenusRecords = useRecords(revenusTable);
   const depensesRecords = useRecords(depensesTable);
   const comptesRecords = useRecords(comptesTable);
+
+  // The interface page's search bar also filters useRecords, so typing e.g. a canal
+  // name there empties the Comptes list. Accumulate every compte seen so far so a
+  // search can only hide comptes from useRecords, never from the dropdown.
+  const comptesSeenRef = useRef(new Map());
+  const comptes = useMemo(() => {
+    const seen = comptesSeenRef.current;
+    for (const rec of comptesRecords || []) {
+      const code = getCompteCode(rec, comptesNumeroField);
+      // Skip records whose cell values aren't loaded yet rather than caching a null code.
+      if (code == null) continue;
+      seen.set(rec.id, { id: rec.id, name: rec.name, code });
+    }
+    return Array.from(seen.values());
+  }, [comptesRecords, comptesNumeroField]);
   // useRecords crashes on null; fall back to a known table when not yet configured.
   const oeuvresRecords = useRecords(oeuvresTable || canauxTable);
 
@@ -1066,6 +1193,11 @@ function ReportInner({ cfg }) {
     return out;
   }, [selectedCanalId, canauxRecords, oeuvresLinkField, oeuvresRecords, isrcField]);
 
+  // Stable value keys for the fetch effects' deps (see the royalties effect).
+  const isrcKey = isrcList.join(",");
+  const existingRoyaltyMonthsKey = [...monthsWithExistingRoyalty].sort((a, b) => a - b).join(",");
+  const existingShopifyMonthsKey = [...monthsWithExistingShopify].sort((a, b) => a - b).join(",");
+
   // Fetch royalties from Supabase for the selected period and pre-fill the Royalties column
   useEffect(() => {
     if (saving) return; // don't mutate revenusInputs while a save is in flight
@@ -1100,47 +1232,29 @@ function ReportInner({ cfg }) {
       });
     };
 
-    if (royaltiesCacheRef.current.has(cacheKey)) {
-      applyData(royaltiesCacheRef.current.get(cacheKey));
-      return;
-    }
-
     setRoyaltiesLoading(true);
     setRoyaltiesError(null);
+    cachedFetch(royaltiesCacheRef.current, cacheKey, () =>
+      postSupabaseRpc(supabaseUrl, supabaseAnonKey, clientId, "get_royalties_summary", {
+        p_client_id: clientId,
+        p_isrcs: isrcList,
+        p_from: dateFrom,
+        p_to: dateTo,
+      }),
+    )
+      .then((data) => { if (!didCancel) applyData(data); })
+      .catch((err) => { if (!didCancel) setRoyaltiesError(err.message || String(err)); })
+      .finally(() => { if (!didCancel) setRoyaltiesLoading(false); });
 
-    (async () => {
-      try {
-        const response = await fetch(`${supabaseUrl}/rest/v1/rpc/get_royalties_summary`, {
-          method: "POST",
-          headers: {
-            apikey: supabaseAnonKey,
-            Authorization: `Bearer ${supabaseAnonKey}`,
-            "Content-Type": "application/json",
-            "x-client-id": clientId,
-          },
-          body: JSON.stringify({
-            p_client_id: clientId,
-            p_isrcs: isrcList,
-            p_from: dateFrom,
-            p_to: dateTo,
-          }),
-        });
-        if (!response.ok) throw new Error(`Supabase ${response.status} ${response.statusText}`);
-        const data = await response.json();
-        if (didCancel) return;
-        royaltiesCacheRef.current.set(cacheKey, data);
-        applyData(data);
-      } catch (err) {
-        if (!didCancel) setRoyaltiesError(err.message || String(err));
-      } finally {
-        if (!didCancel) setRoyaltiesLoading(false);
-      }
-    })();
-
-    return () => { didCancel = true; };
+    return () => {
+      didCancel = true;
+      setRoyaltiesLoading(false);
+    };
+    // Deps are value keys, not the Set/array themselves: those are rebuilt on every
+    // render (useRecords returns a new array), which used to cancel the request in a loop.
     // monthIndices derived from half; safe to omit
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCanalId, year, half, isrcList, supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn, royaltiesRefreshKey, monthsWithExistingRoyalty]);
+  }, [selectedCanalId, year, half, isrcKey, supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn, royaltiesRefreshKey, existingRoyaltyMonthsKey]);
 
   // Fetch Shopify sales from Supabase for the selected period and pre-fill the Shopify column.
   // The Shopify project_id is the Airtable canal record id.
@@ -1178,47 +1292,28 @@ function ReportInner({ cfg }) {
       });
     };
 
-    if (shopifyCacheRef.current.has(cacheKey)) {
-      applyData(shopifyCacheRef.current.get(cacheKey));
-      return;
-    }
-
     setShopifyLoading(true);
     setShopifyError(null);
+    cachedFetch(shopifyCacheRef.current, cacheKey, () =>
+      postSupabaseRpc(supabaseUrl, supabaseAnonKey, clientId, "get_shopify_sales_summary", {
+        p_client_id: clientId,
+        p_project_ids: [selectedCanalId],
+        p_from: dateFrom,
+        p_to: dateTo,
+      }),
+    )
+      .then((data) => { if (!didCancel) applyData(data); })
+      .catch((err) => { if (!didCancel) setShopifyError(err.message || String(err)); })
+      .finally(() => { if (!didCancel) setShopifyLoading(false); });
 
-    (async () => {
-      try {
-        const response = await fetch(`${supabaseUrl}/rest/v1/rpc/get_shopify_sales_summary`, {
-          method: "POST",
-          headers: {
-            apikey: supabaseAnonKey,
-            Authorization: `Bearer ${supabaseAnonKey}`,
-            "Content-Type": "application/json",
-            "x-client-id": clientId,
-          },
-          body: JSON.stringify({
-            p_client_id: clientId,
-            p_project_ids: [selectedCanalId],
-            p_from: dateFrom,
-            p_to: dateTo,
-          }),
-        });
-        if (!response.ok) throw new Error(`Supabase ${response.status} ${response.statusText}`);
-        const data = await response.json();
-        if (didCancel) return;
-        shopifyCacheRef.current.set(cacheKey, data);
-        applyData(data);
-      } catch (err) {
-        if (!didCancel) setShopifyError(err.message || String(err));
-      } finally {
-        if (!didCancel) setShopifyLoading(false);
-      }
-    })();
-
-    return () => { didCancel = true; };
+    return () => {
+      didCancel = true;
+      setShopifyLoading(false);
+    };
+    // See the royalties effect for why the deps are value keys.
     // monthIndices derived from half; safe to omit
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCanalId, year, half, supabaseUrl, supabaseAnonKey, clientId, shopifyRefreshKey, monthsWithExistingShopify]);
+  }, [selectedCanalId, year, half, supabaseUrl, supabaseAnonKey, clientId, shopifyRefreshKey, existingShopifyMonthsKey]);
 
   const canaux = useMemo(() => {
     if (!canauxRecords) return [];
@@ -1239,6 +1334,19 @@ function ReportInner({ cfg }) {
     () => canaux.find((c) => c.id === selectedCanalId) || null,
     [canaux, selectedCanalId],
   );
+
+  // In-app canal search (replaces the interface page's search bar, which also
+  // filters the Comptes/Revenus/Dépenses tables). Case- and accent-insensitive.
+  const [canalSearch, setCanalSearch] = useState("");
+  const filteredCanaux = useMemo(() => {
+    const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const terms = fold(canalSearch).split(/\s+/).filter(Boolean);
+    if (terms.length === 0) return canaux;
+    return canaux.filter((c) => {
+      const haystack = fold(`${c.name} ${c.subtitle}`);
+      return terms.every((t) => haystack.includes(t));
+    });
+  }, [canaux, canalSearch]);
 
   const monthIndices = half === "H1" ? [1, 2, 3, 4, 5, 6] : [7, 8, 9, 10, 11, 12];
 
@@ -1274,7 +1382,7 @@ function ReportInner({ cfg }) {
   // Each grid column = { id (used as input key), name (column header), compteId (for link write), label (Notes write) }
   // We use the label as the unique id so 2 columns sharing the same compte still get separate cells.
   const revenusChoices = useMemo(
-    () => columnsConfig.revenus.map((c) => ({ id: c.label, name: c.label, compteId: c.compteId, group: c.group })),
+    () => columnsConfig.revenus.map((c) => ({ id: c.label, name: c.label, label: c.label, compteId: c.compteId, group: c.group })),
     [columnsConfig],
   );
 
@@ -1351,17 +1459,22 @@ function ReportInner({ cfg }) {
     return { fields };
   };
 
-  const newRevenusToCreate = useMemo(() => {
-    const fromGrid = collectRecords(revenusInputs, revenusChoices, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField);
-    const fromSaisies = saisies
+  // Each section saves independently: the Revenus grid and the Saisies lines.
+  const gridRevenusToCreate = useMemo(
+    () => collectRecords(revenusInputs, revenusChoices, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [revenusInputs, revenusChoices, year, selectedCanalId, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField],
+  );
+
+  const saisiesRevenusToCreate = useMemo(() => {
+    return saisies
       .filter((r) => r.type !== "depense")
       .map((r) => buildSaisieRecord(r, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField))
       .filter(Boolean);
-    return [...fromGrid, ...fromSaisies];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [revenusInputs, saisies, revenusChoices, year, selectedCanalId, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField]);
+  }, [saisies, year, selectedCanalId, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField]);
 
-  const newDepensesToCreate = useMemo(() => {
+  const saisiesDepensesToCreate = useMemo(() => {
     return saisies
       .filter((r) => r.type === "depense")
       .map((r) => buildSaisieRecord(r, depensesDateWriteField, depensesMontantField, depensesCategorieField, depensesCanalLinkField, depensesNotesField))
@@ -1369,25 +1482,27 @@ function ReportInner({ cfg }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saisies, year, selectedCanalId, depensesDateWriteField, depensesMontantField, depensesCategorieField, depensesCanalLinkField, depensesNotesField]);
 
-  const totalToCreate = newRevenusToCreate.length + newDepensesToCreate.length;
+  // Save status per section: { scope: "grid" | "saisies", text }
+  const [saveMsg, setSaveMsg] = useState(null);
+  useEffect(() => setSaveMsg(null), [selectedCanalId, year, half]);
 
-  const handleSave = async () => {
-    if (totalToCreate === 0 || saving) return;
+  const saveRecords = async (scope, revenusToCreate, depensesToCreate, onDone) => {
+    const count = revenusToCreate.length + depensesToCreate.length;
+    if (count === 0 || saving) return;
     setSaving(true);
-    setSavedMsg(null);
+    setSaveMsg(null);
     try {
-      for (let i = 0; i < newRevenusToCreate.length; i += 50) {
-        await revenusTable.createRecordsAsync(newRevenusToCreate.slice(i, i + 50));
+      for (let i = 0; i < revenusToCreate.length; i += 50) {
+        await revenusTable.createRecordsAsync(revenusToCreate.slice(i, i + 50));
       }
-      for (let i = 0; i < newDepensesToCreate.length; i += 50) {
-        await depensesTable.createRecordsAsync(newDepensesToCreate.slice(i, i + 50));
+      for (let i = 0; i < depensesToCreate.length; i += 50) {
+        await depensesTable.createRecordsAsync(depensesToCreate.slice(i, i + 50));
       }
-      setRevenusInputs({});
-      setSaisies([]);
-      setSavedMsg(`${totalToCreate} entrée${totalToCreate > 1 ? "s" : ""} sauvegardée${totalToCreate > 1 ? "s" : ""}.`);
+      onDone();
+      setSaveMsg({ scope, text: `${count} entrée${count > 1 ? "s" : ""} sauvegardée${count > 1 ? "s" : ""}.` });
     } catch (err) {
       console.error("Save failed:", err);
-      setSavedMsg(`Erreur : ${err.message || err}`);
+      setSaveMsg({ scope, text: `Erreur : ${err.message || err}` });
     } finally {
       setSaving(false);
     }
@@ -1477,17 +1592,64 @@ function ReportInner({ cfg }) {
 
   // --- Render ---
 
+  // Save bar rendered at the bottom of a section's card; saves only that section.
+  const renderSaveBar = (scope, count, onSave) => (
+    <div className="flex items-center justify-end gap-3 mt-3">
+      {saveMsg && saveMsg.scope === scope && (
+        <span className="text-sm text-gray-gray600 dark:text-gray-gray200">{saveMsg.text}</span>
+      )}
+      <button
+        onClick={onSave}
+        disabled={count === 0 || saving}
+        className={`px-4 py-2 rounded text-sm font-medium ${
+          count === 0 || saving
+            ? "bg-gray-gray200 text-gray-gray500 cursor-not-allowed"
+            : "bg-blue-blue text-white hover:bg-blue-blueDark1"
+        }`}
+      >
+        {saving
+          ? "Sauvegarde…"
+          : count === 0
+          ? "Aucune entrée à sauvegarder"
+          : `Sauvegarder ${count} entrée${count > 1 ? "s" : ""}`}
+      </button>
+    </div>
+  );
+
   if (!selectedCanal) {
     return (
       <div className="min-h-screen bg-gray-gray50 dark:bg-gray-gray800 p-4 sm:p-6">
-        <h1 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100 mb-4">
-          Rapports — Sélectionne un spectacle
-        </h1>
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <h1 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100">
+            Rapports — Sélectionne un enregistrement
+          </h1>
+          <div className="relative w-full sm:w-80">
+            <input
+              type="text"
+              value={canalSearch}
+              onChange={(e) => setCanalSearch(e.target.value)}
+              placeholder="Rechercher un canal…"
+              autoFocus
+              className="w-full bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 pl-3 pr-8 py-2 rounded border border-gray-gray200 dark:border-gray-gray600 focus:border-blue-blue focus:outline-none"
+            />
+            {canalSearch && (
+              <button
+                onClick={() => setCanalSearch("")}
+                title="Effacer"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-gray400 hover:text-gray-gray700 dark:hover:text-gray-gray100"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
         {canaux.length === 0 ? (
           <div className="text-gray-gray500">Aucun canal disponible dans la table sélectionnée.</div>
+        ) : filteredCanaux.length === 0 ? (
+          <div className="text-gray-gray500">Aucun canal ne correspond à « {canalSearch} ».</div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {canaux.map((c) => (
+            {filteredCanaux.map((c) => (
               <CanalCard key={c.id} {...c} onClick={() => setSelectedCanalId(c.id)} />
             ))}
           </div>
@@ -1562,27 +1724,63 @@ function ReportInner({ cfg }) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+      {/* KPIs stay pinned while scrolling (sm+ only: stacked on mobile they'd eat the screen). */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800">
         <KpiTile label="Total Revenus" value={totalRevenus} accent="green" />
         <KpiTile label="Total Dépenses" value={totalDepenses} accent="red" />
         <KpiTile label="Solde" value={totalRevenus - totalDepenses} accent="blue" />
       </div>
 
-      <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
+      <div className="relative bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
+        <div className="absolute top-3 right-3">
+          <HelpBadge title="Comment ça marche">
+            <p><strong>1. Ajouter une ligne</strong><br />
+              Clique sur <strong>+ Ajouter une ligne</strong> pour saisir une entrée ponctuelle : une dépense,
+              ou un revenu qui n&apos;a pas de colonne dans le tableau Revenus.</p>
+            <p><strong>2. Remplir</strong><br />
+              Choisis <strong>Revenu</strong> ou <strong>Dépense</strong>, le mois, puis le compte. La liste des
+              comptes change selon le type choisi. Ajoute une description et le montant.</p>
+            <p><strong>3. Sauvegarder</strong><br />
+              Les lignes ne sont pas enregistrées tant que tu n&apos;as pas cliqué sur <strong>Sauvegarder</strong> en
+              bas à droite de ce bloc. Une ligne sans compte ou sans montant est ignorée.</p>
+            <p><strong>4. Après la sauvegarde</strong><br />
+              Les lignes disparaissent de Saisies et apparaissent dans la liste « Existants » du Revenu ou de la
+              Dépense correspondant.</p>
+          </HelpBadge>
+        </div>
         <SaisiesEditor
           title="Saisies"
           rows={saisies}
           onChange={setSaisies}
-          comptesRecords={comptesRecords}
-          comptesNumeroField={comptesNumeroField}
+          comptes={comptes}
           monthIndices={monthIndices}
         />
+        {renderSaveBar("saisies", saisiesRevenusToCreate.length + saisiesDepensesToCreate.length, () =>
+          saveRecords("saisies", saisiesRevenusToCreate, saisiesDepensesToCreate, () => setSaisies([])),
+        )}
       </div>
 
       <h2 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100 mt-2 mb-3">
         Revenus ventes albums
       </h2>
-      <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
+      <div className="relative bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
+        <div className="absolute top-3 right-3">
+          <HelpBadge title="Comment ça marche">
+            <p><strong>1. Saisir</strong><br />
+              Tape les montants dans les cellules vides. Les montants Royalties (Believe) et Shopify se
+              remplissent automatiquement quand ils sont disponibles. Tu peux les corriger avant de sauvegarder.</p>
+            <p><strong>2. Sauvegarder</strong><br />
+              Rien n&apos;est enregistré tant que tu n&apos;as pas cliqué sur <strong>Sauvegarder</strong> en bas
+              à droite. Chaque cellule remplie devient alors une entrée dans la table Revenus.</p>
+            <p><strong>3. Le crochet ✓</strong><br />
+              Un montant avec un ✓ est déjà enregistré dans Airtable. Il ne se modifie pas ici. Pour le changer,
+              modifie ou supprime l&apos;entrée dans la table Revenus : le tableau se met à jour tout seul.</p>
+            <p><strong>4. Rafraîchir (↺ Royalties / ↺ Shopify)</strong><br />
+              Ces boutons vont chercher à nouveau les derniers chiffres, par exemple après l&apos;import d&apos;un
+              nouveau rapport Believe. Seules les cellules sans ✓ sont mises à jour. Attention : une correction
+              faite à la main et pas encore sauvegardée sera remplacée.</p>
+          </HelpBadge>
+        </div>
         <EditableGrid
           title="Saisie"
           choices={revenusChoices}
@@ -1591,6 +1789,9 @@ function ReportInner({ cfg }) {
           onChange={handleRevenusChange}
           existing={existingRevenusByCell}
         />
+        {renderSaveBar("grid", gridRevenusToCreate.length, () =>
+          saveRecords("grid", gridRevenusToCreate, [], () => setRevenusInputs({})),
+        )}
       </div>
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-6">
         <h3 className="text-base font-semibold text-gray-gray700 dark:text-gray-gray100 mb-2">
@@ -1633,21 +1834,6 @@ function ReportInner({ cfg }) {
           className="px-4 py-2 rounded text-sm font-medium bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 border border-gray-gray200 dark:border-gray-gray600 hover:bg-gray-gray50 dark:hover:bg-gray-gray800"
         >
           Télécharger Excel
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={totalToCreate === 0 || saving}
-          className={`px-4 py-2 rounded text-sm font-medium ${
-            totalToCreate === 0 || saving
-              ? "bg-gray-gray200 text-gray-gray500 cursor-not-allowed"
-              : "bg-blue-blue text-white hover:bg-blue-blueDark1"
-          }`}
-        >
-          {saving
-            ? "Sauvegarde…"
-            : totalToCreate === 0
-            ? "Aucune entrée à sauvegarder"
-            : `Sauvegarder ${totalToCreate} entrée${totalToCreate > 1 ? "s" : ""}`}
         </button>
       </div>
     </div>
