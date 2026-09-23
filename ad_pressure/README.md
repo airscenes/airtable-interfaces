@@ -44,6 +44,9 @@ All fields are set from the settings panel; defaults are auto-detected by name.
 - **Titre affiché au survol** (`Titre du contenu`) — optional, names the ads listed in the hover
   breakdown. Falls back to the primary field, which an interface extension can only read when that
   field is exposed.
+- **Objectif** (`Objectifs`) — optional, groups the hover breakdown under a per-objective subtitle.
+  Only the **first** value is used as the key: an ad carrying several objectives would otherwise be
+  listed twice and the group sizes would no longer add up to the cell count.
 - **Plafond de messages par marché** — optional, left empty on purpose. An invented number would
   look authoritative on screen. Until it is set, the grid counts without judging.
 
@@ -57,9 +60,11 @@ All fields are set from the settings panel; defaults are auto-detected by name.
   Monday 31 August, which is exactly where that block's content starts. No yearly maintenance, and
   no dependency on the manually-filled `Bloc` field, which does not agree with the dates.
 - **Rows are sorted by peak**, so the busiest market of the period sits on top.
-- **Hovering a cell breaks the count down**: every ad live that week, with its flight dates. A count
-  on its own invites the question *which ones?*, and answering it in the base means rebuilding the
-  same overlap filter by hand. Long lists are capped at twelve with a remainder.
+- **Hovering a cell breaks the count down**: every ad live that week, with its flight dates, grouped
+  under a per-objective subtitle (largest group first). A count on its own invites the question
+  *which ones?*, and answering it in the base means rebuilding the same overlap filter by hand. Ads
+  with no objective are grouped last — a missing objective is a gap in the data, not a category.
+  Long lists are capped at twelve with a remainder.
 - **The ceiling only colours the market view** — that is the level it is defined at.
 - **Excluded content is reported under the grid**, never silently dropped: rows with no date at all,
   and rows whose end precedes their start. Those are data-entry errors, and hiding them would
