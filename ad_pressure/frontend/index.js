@@ -274,6 +274,16 @@ function getCustomProperties(base) {
             shouldFieldBeAllowed: isCategoryLike,
             defaultValue: byName(contentTable, isCategoryLike, 'titre du contenu', 'identifiant'),
         },
+        // Groups the hover breakdown. Only the first value is used as the key, so an ad carrying
+        // several objectives is listed once and the group sizes still add up to the cell count.
+        {
+            key: 'objectiveField',
+            label: 'Objectif (regroupe les publicités au survol)',
+            type: 'field',
+            table: contentTable,
+            shouldFieldBeAllowed: isCategoryLike,
+            defaultValue: byName(contentTable, isCategoryLike, 'objectif'),
+        },
         // Left empty on purpose until the client sets its ceiling: an invented number would look
         // authoritative on screen.
         {
@@ -296,6 +306,7 @@ function AdPressureApp() {
     const fallbackDateField = customPropertyValueByKey.fallbackDateField;
     const filterField = customPropertyValueByKey.filterField;
     const labelField = customPropertyValueByKey.labelField;
+    const objectiveField = customPropertyValueByKey.objectiveField;
     const thresholdRaw = customPropertyValueByKey.threshold;
 
     const contentRecords = useRecords(contentTable);
@@ -348,11 +359,16 @@ function AdPressureApp() {
                 record.name ||
                 '(sans titre)';
 
-            out.push({record, start, end, label});
+            const objective = objectiveField ? readTextValues(record, objectiveField)[0] : null;
+
+            out.push({record, start, end, label, objective});
         }
 
         return {items: out, skippedNoDate: noDate, skippedInverted: inverted};
-    }, [configured, contentRecords, startField, endField, fallbackDateField, labelField]);
+    }, [
+        configured, contentRecords, startField, endField, fallbackDateField,
+        labelField, objectiveField,
+    ]);
 
     // Offered years come from the data, so the selector never lands on an empty grid.
     const fiscalYears = useMemo(() => {
@@ -683,6 +699,16 @@ function AdPressureApp() {
                 </p>
             )}
 
+            {/* Organic content has no flight, only a publication date. Leaving the fallback
+                unset silently drops it — which looks like missing data rather than a setting. */}
+            {!fallbackDateField && skippedNoDate > 0 && (
+                <p className="mt-1 rounded border border-orange-orangeLight1 bg-orange-orangeLight3 p-2 text-orange-orangeDark1">
+                    Aucune date de repli n’est configurée. Les contenus organiques n’ont pas de
+                    date de début : pointez « Date de repli » sur <em>Date de publication</em> dans
+                    les réglages pour les faire apparaître.
+                </p>
+            )}
+
             {threshold === null ? (
                 <p className="mt-1 text-gray-gray600 dark:text-gray-gray400">
                     Aucun plafond défini : renseignez-le dans les réglages de l’extension pour
@@ -716,28 +742,56 @@ function CellTooltip({hover}) {
     const shown = items.slice(0, TOOLTIP_MAX_ITEMS);
     const rest = items.length - shown.length;
 
+    // Grouped by objective, largest group first, with the unlabelled ads last — an ad missing its
+    // objective is a gap in the data, not a category, so it should not head the list.
+    const groups = [];
+    const byObjective = new Map();
+    for (const it of shown) {
+        const key = it.objective ?? null;
+        let group = byObjective.get(key);
+        if (!group) {
+            group = {key, items: []};
+            byObjective.set(key, group);
+            groups.push(group);
+        }
+        group.items.push(it);
+    }
+    groups.sort((a, b) => {
+        if ((a.key === null) !== (b.key === null)) return a.key === null ? 1 : -1;
+        return b.items.length - a.items.length;
+    });
+
     return (
         <div
             className="pointer-events-none fixed z-50 rounded border border-gray-gray300 bg-white p-2 shadow-lg dark:border-gray-gray600 dark:bg-gray-gray800"
             style={{left, width, ...position}}
         >
-            <div className="mb-1 font-semibold">
+            <div className="font-semibold">
                 {rowLabel} — semaine du {fmtShort(week)}
             </div>
-            <div className="mb-1 text-gray-gray600 dark:text-gray-gray400">
+            <div className="text-gray-gray600 dark:text-gray-gray400">
                 {items.length} publicité{items.length > 1 ? 's' : ''} active
                 {items.length > 1 ? 's' : ''}
             </div>
-            {shown.map((it, i) => (
-                <div key={i} className="leading-tight">
-                    {it.label}{' '}
-                    <span className="text-gray-gray600 dark:text-gray-gray400">
-                        ({fmtShort(it.start)} → {fmtShort(it.end)})
-                    </span>
+
+            {groups.map((group) => (
+                <div key={group.key ?? '—'} className="mt-2">
+                    <div className="border-b border-gray-gray200 pb-px font-semibold uppercase tracking-wide text-blue-blueDusty dark:border-gray-gray600 dark:text-blue-blueLight1">
+                        {group.key ?? 'Sans objectif'} ({group.items.length})
+                    </div>
+                    {group.items.map((it, i) => (
+                        <div key={i} className="mt-px leading-tight">
+                            {it.label}{' '}
+                            <span className="text-gray-gray600 dark:text-gray-gray400">
+                                ({fmtShort(it.start)} → {fmtShort(it.end)})
+                            </span>
+                        </div>
+                    ))}
                 </div>
             ))}
+
             {rest > 0 && (
-                <div className="mt-1 text-gray-gray600 dark:text-gray-gray400">
+                <div className="mt-2 text-gray-gray600 dark:text-gray-gray400">
                     + {rest} autre{rest > 1 ? 's' : ''}
                 </div>
             )}
