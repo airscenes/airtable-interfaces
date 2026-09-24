@@ -5,6 +5,7 @@ import {
   useCustomProperties,
 } from "@airtable/blocks/interface/ui";
 import ExcelJS from "exceljs";
+import { fillTemplate, normalizeWorkbookForExcel } from "./excelTemplate";
 import "./style.css";
 
 // --- Helpers ---
@@ -20,7 +21,7 @@ const SHOPIFY_COLUMN = "Shopify";
 const fmtCurrency = (v) =>
   v == null || (typeof v === "number" && isNaN(v))
     ? "—"
-    : `${Number(v).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} $`;
+    : `${Number(v).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $`;
 
 function monthIsoDate(year, monthIdx) {
   const mm = String(monthIdx).padStart(2, "0");
@@ -79,6 +80,8 @@ function getCustomProperties(base) {
     findTable("depense", "dépense") || tables[2] || tables[0];
   const oeuvresTable =
     findTable("oeuvre", "piste") || tables[0];
+  const ayantsTable = findTable("ayant") || tables[0];
+  const etatsTable = findTable("état", "etat") || tables[0];
 
   const anyField = () => true;
 
@@ -121,13 +124,28 @@ function getCustomProperties(base) {
 
     // --- Comptes (pour les lignes ad-hoc) ---
     { key: "comptesTable", label: "Table des Comptes", type: "table" },
-    { key: "comptesNumeroField", label: "Champ numero_compte (Comptes) — < 5000 = Revenu, ≥ 5000 = Dépense", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("compte")) || tables[0], shouldFieldBeAllowed: anyField },
+    // Exact "Comptes" first: a partial match picks "categorie_compte" or "États de compte".
+    { key: "comptesNumeroField", label: "Champ numero_compte (Comptes) — < 5000 = Revenu, ≥ 5000 = Dépense", type: "field", table: tables.find((t) => t.name.toLowerCase() === "comptes") || findTable("compte") || tables[0], shouldFieldBeAllowed: anyField },
 
     // --- Template Excel ---
     { key: "templateAttachmentField", label: "Champ attachement Template Excel", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
 
+    // --- Ayants-droits (section PARTAGE du rapport Excel) ---
+    { key: "ayantsTable", label: "Table des Ayants-droits", type: "table" },
+    { key: "ayantsCanalLinkField", label: "Lien Canal (Ayants-droits)", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField },
+    { key: "ayantsNomField", label: "Champ Nom (Ayants-droits) — ex. lien Organismes", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField },
+    { key: "ayantsPartField", label: "Champ Part % (Ayants-droits)", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField },
+
     // --- États de compte ---
     { key: "etatsTable", label: "Table des États de compte", type: "table" },
+    { key: "etatsCanalLinkField", label: "Lien Canal (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
+    { key: "etatsDateField", label: "Champ Date (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
+    { key: "etatsOuvertureField", label: "Champ Solde d'ouverture (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
+    { key: "etatsFermetureField", label: "Champ Solde fermeture (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
+    { key: "etatsPaiementField", label: "Champ Paiement (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
+    { key: "etatsRevenusLinkField", label: "Lien Revenus (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
+    { key: "etatsDepensesLinkField", label: "Lien Dépenses (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
+    { key: "soldeOuvertureCompte", label: "No de compte Solde d'ouverture (numero_compte, ex. 4000)", type: "string", defaultValue: "4000" },
 
     // --- Colonnes des grilles (mapping label → record Compte) ---
     {
@@ -561,25 +579,22 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
   );
 }
 
-// --- Excel export — template-based export using ExcelJS — preserves logos/styles/formulas.
+// --- Excel export — fills the canal's attached template (ExcelJS). Cells are
+// located by the tags the template carries, never by row number: see
+// excelTemplate.js for the mechanics (row repetition, formula re-pointing).
 //
-// Template layout (worksheet "Rapport"):
-//   A1 (merged): "Revenus/Dépenses - {{nom_spectacle}} - {{periode}}"
-//   B12:C17  Dépenses (Fabrication, Pub/Placement) × 6 mois
-//   F12:J17  Revenus  (Propagande, Bandcamp Phys, Shopify, Believe, Bandcamp Num) × 6 mois
-//   Row 24: headers Dépenses sur période
-//   Row 25+: rows to insert (existing dépenses)
-//   I34: Droits synchro / Autres single value (bumped after dep insertion)
-//   I36-I38: Subventions (free entries area, bumped accordingly)
-//   J47: {{nom_artiste}}
-//
-// Strategy:
-//   - Replace {{tags}} everywhere
-//   - Write top grids by direct cell access
-//   - Insert (depCount-1) empty rows at row 26 to make room for all dépenses
-//   - Fill rows 25 to 25+depCount-1 with existing dépenses
-//   - Update G(26+depCount-1) SUM range
-//   - Append free revenus rows in subventions area (single block)
+// Tags available to the template:
+//   Scalars  ${nom_spectacle} ${nom_artiste} ${periode} ${annee}
+//            ${total_revenus} ${total_depenses} ${net} (revenus − dépenses of the period)
+//            ${solde_precedent} ${total_a_spliter} (net + solde précédent) ${deficit_reporte} (≤ 0)
+//            ${colonne.c1}…${colonne.cN}  Revenus grid column labels (revenusColumnsJson order)
+//            ${m1.nom}…${m6.nom}          month names of the half-year
+//            ${m1.c1}…${m6.cN}            grid amount for month i × column j, as shown on screen
+//   One-row blocks (the row is repeated per record)
+//            ${depense.no_facture|date|mode_paiement|fournisseur|poste|artiste|montant|description}
+//            ${revenu.libelle|date|categorie|description|montant}  saved revenus not in the grid
+//            ${ayant_droit.nom|part|montant}  part = fraction (format the cell as %),
+//                                             montant = max(total_a_spliter, 0) × part
 
 function readDateForExport(rec, dateField, dateWriteField) {
   const tryRead = (f) => {
@@ -593,15 +608,11 @@ function readDateForExport(rec, dateField, dateWriteField) {
   return tryRead(dateField) || tryRead(dateWriteField) || "";
 }
 
-const REV_COL_MAP = ["F", "H", "I", "J"];   // 4 revenus columns (G = Bandcamp physique, retiré)
-const DEP_FIRST_ROW = 25;
-const REV_LIST_ROW = 34;    // first row for existing revenus consolidated list
-
 async function exportFromTemplate({
   templateUrl,
   canalName, year, half,
   monthIndices,
-  revenusInputs, revenusChoices,
+  revenusInputs, revenusChoices, existingRevenusByCell,
   existingDepenses,
   depensesDateField, depensesDateWriteField,
   depensesMontantField, depensesNotesField, depensesFournisseurField, depensesDescriptionField,
@@ -609,6 +620,7 @@ async function exportFromTemplate({
   existingRevenus,
   revenusDateField, revenusDateWriteField,
   revenusMontantField, revenusCategorieField, revenusNotesField, revenusDescriptionField,
+  ayantsDroits, soldePrecedent,
 }) {
   const periodLabel = half === "H1" ? `JAN - JUIN ${year}` : `JUIL - DEC ${year}`;
 
@@ -621,139 +633,91 @@ async function exportFromTemplate({
   const ws = wb.getWorksheet("Rapport") || wb.worksheets[0];
   if (!ws) throw new Error("Feuille 'Rapport' introuvable dans le template");
 
-  // 1. Replace tags everywhere
-  const replaceTags = (s) =>
-    s.replace(/\{\{nom_spectacle\}\}/g, canalName)
-      .replace(/\{\{periode\}\}/g, periodLabel)
-      .replace(/\{\{nom_artiste\}\}/g, canalName);
-  ws.eachRow({ includeEmpty: false }, (row) => {
-    row.eachCell({ includeEmpty: false }, (cell) => {
-      if (typeof cell.value === "string") cell.value = replaceTags(cell.value);
-      else if (cell.value && typeof cell.value === "object" && typeof cell.value.text === "string") {
-        cell.value = { ...cell.value, text: replaceTags(cell.value.text) };
-      }
+  // A grid cell as shown on screen: saved amount (✓) + unsaved input, same sum
+  // as EditableGrid's column totals.
+  const gridCellValue = (m, choiceId) => {
+    const raw = (revenusInputs[m] && revenusInputs[m][choiceId]) || "";
+    const typed = parseFloat(String(raw).replace(",", "."));
+    const saved = existingRevenusByCell[m] && existingRevenusByCell[m][choiceId];
+    return (isNaN(typed) ? 0 : typed) + (typeof saved === "number" ? saved : 0);
+  };
+
+  const tags = {
+    nom_spectacle: canalName,
+    nom_artiste: canalName,
+    periode: periodLabel,
+    annee: String(year),
+  };
+  revenusChoices.forEach((c, j) => {
+    tags[`colonne.c${j + 1}`] = c.name;
+  });
+  let gridTotal = 0;
+  monthIndices.forEach((m, i) => {
+    tags[`m${i + 1}.nom`] = MONTHS_FR[m - 1];
+    revenusChoices.forEach((c, j) => {
+      const v = gridCellValue(m, c.id);
+      gridTotal += v;
+      tags[`m${i + 1}.c${j + 1}`] = v || "";
     });
   });
 
-  // 2. Fill top grid — Revenus (F12:J17, G = Bandcamp physique retiré)
-  for (let i = 0; i < 6 && i < monthIndices.length; i++) {
-    const m = monthIndices[i];
-    for (let j = 0; j < revenusChoices.length && j < REV_COL_MAP.length; j++) {
-      const col = REV_COL_MAP[j];
-      const choice = revenusChoices[j];
-      const raw = (revenusInputs[m] && revenusInputs[m][choice.id]) || "";
-      const v = parseFloat(String(raw).replace(",", "."));
-      if (!isNaN(v) && v !== 0) ws.getCell(`${col}${12 + i}`).value = v;
-    }
-  }
-
-  // 3. Insert dynamic rows for existing Dépenses (DÉPENSES SUR PÉRIODE)
-  // duplicateRow preserves the source row's styles/format on each new copy.
-  const depCount = existingDepenses.length;
-  if (depCount > 1) {
-    ws.duplicateRow(DEP_FIRST_ROW, depCount - 1, true);
-  }
-
-  // Fill data rows (25 .. 25 + depCount - 1)
-  existingDepenses.forEach((rec, idx) => {
-    const r = DEP_FIRST_ROW + idx;
-    const date = readDateForExport(rec, depensesDateField, depensesDateWriteField);
-    const noFacture = depensesNoFactureField ? rec.getCellValueAsString(depensesNoFactureField) : "";
-    const modePaiement = depensesModePaiementField ? rec.getCellValueAsString(depensesModePaiementField) : "";
-    const fournisseur = depensesFournisseurField ? rec.getCellValueAsString(depensesFournisseurField) : "";
-    const notes = depensesNotesField ? rec.getCellValueAsString(depensesNotesField) : "";
-    const artiste = depensesArtisteField ? rec.getCellValueAsString(depensesArtisteField) : "";
-    const desc = depensesDescriptionField ? rec.getCellValueAsString(depensesDescriptionField) : "";
-    const m = Number(rec.getCellValue(depensesMontantField)) || 0;
-    // Columns: A No facture, B Date facture, C Mode paiement, D Fournisseur,
-    //          E Poste budgétaire, F Artiste, G Montant, H Description
-    ws.getCell(`A${r}`).value = noFacture || "";
-    ws.getCell(`B${r}`).value = typeof date === "string" ? date.slice(0, 10) : "";
-    ws.getCell(`C${r}`).value = modePaiement || "";
-    ws.getCell(`D${r}`).value = fournisseur || "";
-    ws.getCell(`E${r}`).value = notes || "";
-    ws.getCell(`F${r}`).value = artiste || "";
-    ws.getCell(`G${r}`).value = m;
-    ws.getCell(`H${r}`).value = desc || "";
-  });
-
-  // (Formulas in the moved cells aren't auto-updated to span the new ranges,
-  // so we compute every total in JS and write numeric values directly.)
-
-  // 4. Insert existing Revenus list at REV_LIST_ROW (DROITS SYNCHRO area).
-  // After dep insertion, this row has shifted by (depCount-1).
-  const depOffset = Math.max(0, depCount - 1);
-  const revListRow = REV_LIST_ROW + depOffset;
-  const revCount = existingRevenus.length;
-  if (revCount > 1) {
-    ws.duplicateRow(revListRow, revCount - 1, true);
-  }
-  existingRevenus.forEach((rec, idx) => {
-    const r = revListRow + idx;
-    const date = readDateForExport(rec, revenusDateField, revenusDateWriteField);
-    const cat = getLinkNames(rec, revenusCategorieField);
-    const notes = revenusNotesField ? rec.getCellValueAsString(revenusNotesField) : "";
-    const desc = revenusDescriptionField ? rec.getCellValueAsString(revenusDescriptionField) : "";
-    const m = Number(rec.getCellValue(revenusMontantField)) || 0;
-    const dateStr = typeof date === "string" ? date.slice(0, 10) : "";
-    const label = notes || cat || desc || "Revenu";
-    ws.getCell(`A${r}`).value = `${label}${dateStr ? " (" + dateStr + ")" : ""}${desc && desc !== label ? " — " + desc : ""}`;
-    ws.getCell(`I${r}`).value = m;
-  });
-
-  // 5. Compute and write all totals as numeric values (no formulas).
-  // Insertions break formula references; computing in JS is reliable.
-  const revOffset = Math.max(0, revCount - 1);
-
-  const gridColSum = (inputs, choiceId) => {
-    let s = 0;
-    for (const m of monthIndices) {
-      const raw = (inputs[m] && inputs[m][choiceId]) || "";
-      const v = parseFloat(String(raw).replace(",", "."));
-      if (!isNaN(v)) s += v;
-    }
-    return s;
+  const str = (rec, f) => (f ? rec.getCellValueAsString(f) : "");
+  const isoDate = (rec, f, fw) => {
+    const d = readDateForExport(rec, f, fw);
+    return typeof d === "string" ? d.slice(0, 10) : "";
   };
+  const byDate = (a, b) => a.date.localeCompare(b.date);
 
-  // Top grid monthly totals (row 18) — Revenus only
-  const revColSums = [];
-  REV_COL_MAP.forEach((col, idx) => {
-    const choice = revenusChoices[idx];
-    const s = choice ? gridColSum(revenusInputs, choice.id) : 0;
-    revColSums.push(s);
-    ws.getCell(`${col}18`).value = s;
-  });
+  const depense = existingDepenses
+    .map((rec) => ({
+      no_facture: str(rec, depensesNoFactureField),
+      date: isoDate(rec, depensesDateField, depensesDateWriteField),
+      mode_paiement: str(rec, depensesModePaiementField),
+      fournisseur: str(rec, depensesFournisseurField),
+      poste: str(rec, depensesNotesField),
+      artiste: str(rec, depensesArtisteField),
+      montant: Number(rec.getCellValue(depensesMontantField)) || 0,
+      description: str(rec, depensesDescriptionField),
+    }))
+    .sort(byDate);
 
-  const revGridTotal = revColSums.reduce((s, v) => s + v, 0);
-  ws.getCell(`F20`).value = revGridTotal;
+  const revenu = existingRevenus
+    .map((rec) => {
+      const date = isoDate(rec, revenusDateField, revenusDateWriteField);
+      const categorie = getLinkNames(rec, revenusCategorieField);
+      const notes = str(rec, revenusNotesField);
+      const description = str(rec, revenusDescriptionField);
+      const label = notes || categorie || description || "Revenu";
+      return {
+        libelle: `${label}${date ? ` (${date})` : ""}${description && description !== label ? ` — ${description}` : ""}`,
+        date,
+        categorie,
+        description,
+        montant: Number(rec.getCellValue(revenusMontantField)) || 0,
+      };
+    })
+    .sort(byDate);
 
-  // Existing dépenses sub-total (G26 area, shifted by depOffset)
-  const depExistingTotal = existingDepenses.reduce(
-    (s, r) => s + (Number(r.getCellValue(depensesMontantField)) || 0),
-    0,
-  );
-  ws.getCell(`G${26 + depOffset}`).value = depExistingTotal;
-  ws.getCell(`G${28 + depOffset}`).value = -depExistingTotal;
+  const totalDepenses = depense.reduce((s, d) => s + d.montant, 0);
+  const totalRevenus = gridTotal + revenu.reduce((s, r) => s + r.montant, 0);
+  const net = totalRevenus - totalDepenses;
+  tags.total_revenus = totalRevenus;
+  tags.total_depenses = totalDepenses;
+  tags.net = net;
+  // Report: a negative total is not split, it is carried to the next period.
+  const totalASpliter = net + soldePrecedent;
+  tags.solde_precedent = soldePrecedent;
+  tags.total_a_spliter = totalASpliter;
+  tags.deficit_reporte = Math.min(totalASpliter, 0);
 
-  // VENTES ALBUM (I32, shifted by depOffset)
-  ws.getCell(`I${32 + depOffset}`).value = revGridTotal;
+  const ayant_droit = ayantsDroits.map((a) => ({ nom: a.nom, part: a.part, montant: Math.max(totalASpliter, 0) * a.part }));
 
-  // TOTAL REVENUS PÉRIODE (I39) and TOTAL period (I42), shifted by depOffset+revOffset
-  const revExistingTotal = existingRevenus.reduce(
-    (s, r) => s + (Number(r.getCellValue(revenusMontantField)) || 0),
-    0,
-  );
-  const totalRevenusPeriode = revGridTotal + revExistingTotal;
-  ws.getCell(`I${39 + depOffset + revOffset}`).value = totalRevenusPeriode;
-  ws.getCell(`I${42 + depOffset + revOffset}`).value = totalRevenusPeriode - depExistingTotal;
-  // I44 = I42 + I43 (solde précédent, kept as-is — usually 0 / N/A)
-  // We leave I44 untouched if existing formula handles it; if not, we zero it.
-  // (Most templates leave I44 with formula =I42+I43 — the recalc flag below handles it.)
+  fillTemplate(ws, { tags, blocks: { depense, revenu, ayant_droit } });
 
-  // 6. Force Excel to recalculate any remaining formulas when opening
+  // Force Excel to recalculate the template's formulas when opening
   wb.calcProperties = { ...(wb.calcProperties || {}), fullCalcOnLoad: true };
+  normalizeWorkbookForExcel(wb);
 
-  // 7. Save and download
   const out = await wb.xlsx.writeBuffer();
   const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
@@ -1032,6 +996,9 @@ function ReportInner({ cfg }) {
     comptesTable, comptesNumeroField,
     templateAttachmentField,
     oeuvresTable, oeuvresLinkField, isrcField,
+    ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField,
+    etatsTable, etatsCanalLinkField, etatsDateField, etatsOuvertureField, etatsFermetureField,
+    etatsPaiementField, etatsRevenusLinkField, etatsDepensesLinkField, soldeOuvertureCompte,
     supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn,
   } = cfg;
 
@@ -1056,6 +1023,8 @@ function ReportInner({ cfg }) {
   }, [comptesRecords, comptesNumeroField]);
   // useRecords crashes on null; fall back to a known table when not yet configured.
   const oeuvresRecords = useRecords(oeuvresTable || canauxTable);
+  const ayantsRecords = useRecords(ayantsTable || canauxTable);
+  const etatsRecords = useRecords(etatsTable || canauxTable);
 
   const columnsConfig = useMemo(() => {
     const parseOne = (raw) => {
@@ -1389,9 +1358,12 @@ function ReportInner({ cfg }) {
   // Map existing (already-saved) revenus records onto grid cells: { month: { colId: amount } }.
   // A record matches a column by its Notes label, falling back to its Compte link.
   // This lets the grid display saved values without re-including them in the records to create.
-  const existingRevenusByCell = useMemo(() => {
+  // `gridIds` = records placed in the grid, so the export can keep them out of the
+  // "Droits synchro / autres" list (they'd be counted twice otherwise).
+  const { byCell: existingRevenusByCell, gridIds: revenusInGridIds } = useMemo(() => {
     const map = {};
-    if (!revenusMontantField || !revenusCategorieField || revenusChoices.length === 0) return map;
+    const gridIds = new Set();
+    if (!revenusMontantField || !revenusCategorieField || revenusChoices.length === 0) return { byCell: map, gridIds };
     const dateFields = [revenusDateField, revenusDateWriteField].filter(Boolean);
     for (const rec of existingRevenus) {
       let d = null;
@@ -1412,9 +1384,77 @@ function ReportInner({ cfg }) {
       const amt = Number(rec.getCellValue(revenusMontantField)) || 0;
       if (!map[parts.month]) map[parts.month] = {};
       map[parts.month][col.id] = (map[parts.month][col.id] || 0) + amt;
+      gridIds.add(rec.id);
     }
-    return map;
+    return { byCell: map, gridIds };
   }, [existingRevenus, revenusChoices, revenusMontantField, revenusCategorieField, revenusNotesField, revenusDateField, revenusDateWriteField]);
+
+  // Ayants-droits of the selected canal, for the PARTAGE section of the Excel report.
+  // `part` is the fraction stored by the percent field (0.5 = 50 %).
+  const ayantsDroits = useMemo(() => {
+    if (!ayantsTable || !ayantsCanalLinkField || !ayantsPartField || !ayantsRecords || !selectedCanalId) return [];
+    return ayantsRecords
+      .filter((rec) => {
+        const links = rec.getCellValue(ayantsCanalLinkField);
+        return Array.isArray(links) && links.some((l) => l.id === selectedCanalId);
+      })
+      .map((rec) => ({
+        nom: (ayantsNomField && rec.getCellValueAsString(ayantsNomField)) || rec.name || "",
+        part: Number(rec.getCellValue(ayantsPartField)) || 0,
+      }));
+  }, [ayantsRecords, ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField, selectedCanalId]);
+
+  // --- Solde précédent / clôture ---
+  // Solde précédent = Solde fermeture of the canal's last État de compte before this period
+  //                 + entries on the "Solde d'ouverture" compte (manual opening balance, saved or not).
+  // The period is closed by creating an État de compte for it (see handleCloture).
+  const periodStart = half === "H1" ? `${year}-01-01` : `${year}-07-01`;
+  const periodEnd = half === "H1" ? `${year}-06-30` : `${year}-12-31`;
+
+  const { previousEtat, currentEtat } = useMemo(() => {
+    const out = { previousEtat: null, currentEtat: null };
+    if (!etatsTable || !etatsCanalLinkField || !etatsDateField || !etatsRecords || !selectedCanalId) return out;
+    const dated = etatsRecords
+      .filter((rec) => {
+        const links = rec.getCellValue(etatsCanalLinkField);
+        return Array.isArray(links) && links.some((l) => l.id === selectedCanalId);
+      })
+      .map((rec) => ({ rec, date: String(rec.getCellValueAsString(etatsDateField) || "").slice(0, 10) }))
+      .filter((e) => e.date)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    for (const e of dated) {
+      if (e.date < periodStart) out.previousEtat = e;
+      else if (e.date <= periodEnd) out.currentEtat = e;
+    }
+    return out;
+  }, [etatsRecords, etatsTable, etatsCanalLinkField, etatsDateField, selectedCanalId, periodStart, periodEnd]);
+
+  const soldeFermeturePrecedent = previousEtat && etatsFermetureField
+    ? Number(previousEtat.rec.getCellValue(etatsFermetureField)) || 0
+    : 0;
+
+  const soldeCompteId = useMemo(() => {
+    const code = parseInt(String(soldeOuvertureCompte || "").trim(), 10);
+    if (isNaN(code)) return null;
+    const c = comptes.find((x) => x.code === code);
+    return c ? c.id : null;
+  }, [comptes, soldeOuvertureCompte]);
+
+  const isSoldeEntry = (rec) => {
+    if (!soldeCompteId || !revenusCategorieField) return false;
+    const cat = rec.getCellValue(revenusCategorieField);
+    return Array.isArray(cat) && cat.some((c) => c.id === soldeCompteId);
+  };
+  const soldeEntriesTotal = existingRevenus
+    .filter(isSoldeEntry)
+    .reduce((s, r) => s + (Number(r.getCellValue(revenusMontantField)) || 0), 0);
+  const soldeSaisiesTotal = saisies
+    .filter((r) => r.type !== "depense" && soldeCompteId && r.compteId === soldeCompteId)
+    .reduce((s, r) => {
+      const v = parseFloat(String(r.montant || "").replace(",", "."));
+      return s + (isNaN(v) ? 0 : v);
+    }, 0);
+  const soldePrecedent = soldeFermeturePrecedent + soldeEntriesTotal + soldeSaisiesTotal;
 
   const handleRevenusChange = (m, choiceId, val) => {
     setRevenusInputs((prev) => ({ ...prev, [m]: { ...(prev[m] || {}), [choiceId]: val } }));
@@ -1508,26 +1548,27 @@ function ReportInner({ cfg }) {
     }
   };
 
+  // Returns true once the file is downloaded (the clôture relies on it).
   const handleExport = async () => {
-    if (!selectedCanal) return;
+    if (!selectedCanal) return false;
     if (!templateAttachmentField) {
       setSavedMsg("Erreur : champ Template Excel non configuré.");
-      return;
+      return false;
     }
     const canalRec = (canauxRecords || []).find((r) => r.id === selectedCanalId);
     if (!canalRec) {
       setSavedMsg("Erreur : canal introuvable.");
-      return;
+      return false;
     }
     const attachments = canalRec.getCellValue(templateAttachmentField);
     if (!Array.isArray(attachments) || attachments.length === 0) {
       setSavedMsg("Erreur : aucun template attaché sur ce canal.");
-      return;
+      return false;
     }
     const templateUrl = attachments[0].url;
     if (!templateUrl) {
       setSavedMsg("Erreur : URL du template introuvable.");
-      return;
+      return false;
     }
     setSavedMsg("Génération du rapport…");
     try {
@@ -1536,19 +1577,23 @@ function ReportInner({ cfg }) {
         canalName: selectedCanal.name,
         year, half,
         monthIndices,
-        revenusInputs, revenusChoices,
+        revenusInputs, revenusChoices, existingRevenusByCell,
         existingDepenses,
         depensesDateField, depensesDateWriteField,
         depensesMontantField, depensesNotesField, depensesFournisseurField, depensesDescriptionField,
         depensesNoFactureField, depensesModePaiementField, depensesArtisteField,
-        existingRevenus,
+        existingRevenus: existingRevenus.filter((r) => !revenusInGridIds.has(r.id) && !isSoldeEntry(r)),
+        soldePrecedent,
         revenusDateField, revenusDateWriteField,
         revenusMontantField, revenusCategorieField, revenusNotesField, revenusDescriptionField,
+        ayantsDroits,
       });
       setSavedMsg("Rapport téléchargé.");
+      return true;
     } catch (err) {
       console.error("Export failed:", err);
       setSavedMsg(`Erreur export : ${err.message || err}`);
+      return false;
     }
   };
 
@@ -1583,12 +1628,59 @@ function ReportInner({ cfg }) {
     return existing + saisiesTotals.depense;
   }, [existingDepenses, depensesMontantField, saisiesTotals]);
 
-  const totalRevenus = useMemo(() => {
-    const existing = revenusMontantField
-      ? existingRevenus.reduce((s, r) => s + (Number(r.getCellValue(revenusMontantField)) || 0), 0)
-      : 0;
-    return existing + sumInputs(revenusInputs) + saisiesTotals.revenu;
-  }, [existingRevenus, revenusInputs, saisiesTotals, revenusMontantField]);
+  // Revenus of the period: the opening-balance entries count in Solde précédent instead.
+  const totalRevenus = (revenusMontantField
+    ? existingRevenus.reduce((s, r) => s + (Number(r.getCellValue(revenusMontantField)) || 0), 0)
+    : 0) - soldeEntriesTotal + sumInputs(revenusInputs) + saisiesTotals.revenu - soldeSaisiesTotal;
+  const totalASpliter = totalRevenus - totalDepenses + soldePrecedent;
+
+  // --- Clôture ---
+  // Closing a period = downloading its report, then creating an État de compte linked to the
+  // canal with every entry of the period. Solde fermeture (Airtable formula) = ouverture +
+  // période − paiement: paying out the positive total leaves 0, a deficit is left as the
+  // closing balance and becomes the next period's solde précédent.
+  const [clotureStep, setClotureStep] = useState(null); // null | "confirm" | "running"
+  useEffect(() => setClotureStep(null), [selectedCanalId, year, half]);
+
+  const unsavedCount = gridRevenusToCreate.length + saisiesRevenusToCreate.length + saisiesDepensesToCreate.length;
+  const clotureConfigured = etatsTable && etatsCanalLinkField && etatsDateField && etatsOuvertureField
+    && etatsPaiementField && etatsRevenusLinkField && etatsDepensesLinkField;
+  const clotureBlocker = !clotureConfigured
+    ? "Configure les champs États de compte dans les propriétés de l'extension."
+    : currentEtat
+    ? `Période déjà clôturée (état de compte du ${currentEtat.date}).`
+    : unsavedCount > 0
+    ? "Sauvegarde d'abord les entrées en cours."
+    : null;
+
+  const handleCloture = async () => {
+    if (clotureBlocker || saving) return;
+    setClotureStep("running");
+    try {
+      // Report first: once closed, the period's entries are linked to the État and leave this screen.
+      const ok = await handleExport();
+      if (!ok) return;
+      const round2 = (v) => Math.round(v * 100) / 100;
+      await etatsTable.createRecordAsync({
+        [etatsCanalLinkField.id]: [{ id: selectedCanalId }],
+        [etatsDateField.id]: periodEnd,
+        [etatsOuvertureField.id]: round2(soldeFermeturePrecedent),
+        [etatsPaiementField.id]: round2(Math.max(totalASpliter, 0)),
+        [etatsRevenusLinkField.id]: existingRevenus.map((r) => ({ id: r.id })),
+        [etatsDepensesLinkField.id]: existingDepenses.map((r) => ({ id: r.id })),
+      });
+      setSavedMsg(
+        totalASpliter < 0
+          ? `Période clôturée. Déficit reporté : ${fmtCurrency(totalASpliter)}.`
+          : `Période clôturée. Paiement à verser : ${fmtCurrency(totalASpliter)}.`,
+      );
+    } catch (err) {
+      console.error("Clôture failed:", err);
+      setSavedMsg(`Erreur clôture : ${err.message || err}`);
+    } finally {
+      setClotureStep(null);
+    }
+  };
 
   // --- Render ---
 
@@ -1725,10 +1817,11 @@ function ReportInner({ cfg }) {
       )}
 
       {/* KPIs stay pinned while scrolling (sm+ only: stacked on mobile they'd eat the screen). */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800">
         <KpiTile label="Total Revenus" value={totalRevenus} accent="green" />
         <KpiTile label="Total Dépenses" value={totalDepenses} accent="red" />
-        <KpiTile label="Solde" value={totalRevenus - totalDepenses} accent="blue" />
+        <KpiTile label="Solde précédent" value={soldePrecedent} />
+        <KpiTile label={totalASpliter < 0 ? "Déficit reporté" : "Total à splitter"} value={totalASpliter} accent={totalASpliter < 0 ? "red" : "blue"} />
       </div>
 
       <div className="relative bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
@@ -1835,6 +1928,38 @@ function ReportInner({ cfg }) {
         >
           Télécharger Excel
         </button>
+        {clotureStep === "confirm" ? (
+          <>
+            <span className="text-sm text-gray-gray600 dark:text-gray-gray200">
+              Télécharger le rapport et clôturer {half === "H1" ? "janv.–juin" : "juil.–déc."} {year} ?
+            </span>
+            <button
+              onClick={() => setClotureStep(null)}
+              className="px-3 py-2 rounded text-sm font-medium text-gray-gray600 dark:text-gray-gray200 hover:bg-gray-gray100 dark:hover:bg-gray-gray700"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={handleCloture}
+              className="px-4 py-2 rounded text-sm font-medium bg-blue-blue text-white hover:bg-blue-blueDark1"
+            >
+              Confirmer
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => setClotureStep("confirm")}
+            disabled={!!clotureBlocker || clotureStep === "running" || saving}
+            title={clotureBlocker || ""}
+            className={`px-4 py-2 rounded text-sm font-medium ${
+              clotureBlocker || clotureStep === "running" || saving
+                ? "bg-gray-gray200 text-gray-gray500 cursor-not-allowed"
+                : "bg-blue-blue text-white hover:bg-blue-blueDark1"
+            }`}
+          >
+            {clotureStep === "running" ? "Clôture…" : "Clôturer la période"}
+          </button>
+        )}
       </div>
     </div>
   );
