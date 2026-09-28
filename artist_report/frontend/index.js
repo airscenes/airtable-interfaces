@@ -1419,7 +1419,11 @@ function ReportInner({ cfg }) {
         const links = rec.getCellValue(etatsCanalLinkField);
         return Array.isArray(links) && links.some((l) => l.id === selectedCanalId);
       })
-      .map((rec) => ({ rec, date: String(rec.getCellValueAsString(etatsDateField) || "").slice(0, 10) }))
+      .map((rec) => {
+        // Raw value is ISO; the string form follows the field's display format (e.g. 30/06/2026).
+        const raw = rec.getCellValue(etatsDateField);
+        return { rec, date: String(typeof raw === "string" ? raw : rec.getCellValueAsString(etatsDateField) || "").slice(0, 10) };
+      })
       .filter((e) => e.date)
       .sort((a, b) => a.date.localeCompare(b.date));
     for (const e of dated) {
@@ -1661,14 +1665,16 @@ function ReportInner({ cfg }) {
       const ok = await handleExport();
       if (!ok) return;
       const round2 = (v) => Math.round(v * 100) / 100;
-      await etatsTable.createRecordAsync({
+      const fields = {
         [etatsCanalLinkField.id]: [{ id: selectedCanalId }],
         [etatsDateField.id]: periodEnd,
-        [etatsOuvertureField.id]: round2(soldeFermeturePrecedent),
         [etatsPaiementField.id]: round2(Math.max(totalASpliter, 0)),
         [etatsRevenusLinkField.id]: existingRevenus.map((r) => ({ id: r.id })),
         [etatsDepensesLinkField.id]: existingDepenses.map((r) => ({ id: r.id })),
-      });
+      };
+      // Solde d'ouverture may be computed in Airtable (formula/rollup): only set it when writable.
+      if (!etatsOuvertureField.isComputed) fields[etatsOuvertureField.id] = round2(soldeFermeturePrecedent);
+      await etatsTable.createRecordAsync(fields);
       setSavedMsg(
         totalASpliter < 0
           ? `Période clôturée. Déficit reporté : ${fmtCurrency(totalASpliter)}.`
