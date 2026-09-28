@@ -146,6 +146,7 @@ function getCustomProperties(base) {
     { key: "etatsRevenusLinkField", label: "Lien Revenus (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
     { key: "etatsDepensesLinkField", label: "Lien Dépenses (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
     { key: "soldeOuvertureCompte", label: "No de compte Solde d'ouverture (numero_compte, ex. 4000)", type: "string", defaultValue: "4000" },
+    { key: "soldeReporteCompte", label: "No de compte Solde reporté (dépense, numero_compte, ex. 5000)", type: "string", defaultValue: "5000" },
 
     // --- Colonnes des grilles (mapping label → record Compte) ---
     {
@@ -998,7 +999,7 @@ function ReportInner({ cfg }) {
     oeuvresTable, oeuvresLinkField, isrcField,
     ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField,
     etatsTable, etatsCanalLinkField, etatsDateField, etatsOuvertureField, etatsFermetureField,
-    etatsPaiementField, etatsRevenusLinkField, etatsDepensesLinkField, soldeOuvertureCompte,
+    etatsPaiementField, etatsRevenusLinkField, etatsDepensesLinkField, soldeOuvertureCompte, soldeReporteCompte,
     supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn,
   } = cfg;
 
@@ -1437,28 +1438,38 @@ function ReportInner({ cfg }) {
     ? Number(previousEtat.rec.getCellValue(etatsFermetureField)) || 0
     : 0;
 
-  const soldeCompteId = useMemo(() => {
-    const code = parseInt(String(soldeOuvertureCompte || "").trim(), 10);
+  const compteIdByCode = (raw) => {
+    const code = parseInt(String(raw || "").trim(), 10);
     if (isNaN(code)) return null;
     const c = comptes.find((x) => x.code === code);
     return c ? c.id : null;
-  }, [comptes, soldeOuvertureCompte]);
-
-  const isSoldeEntry = (rec) => {
-    if (!soldeCompteId || !revenusCategorieField) return false;
-    const cat = rec.getCellValue(revenusCategorieField);
-    return Array.isArray(cat) && cat.some((c) => c.id === soldeCompteId);
   };
-  const soldeEntriesTotal = existingRevenus
-    .filter(isSoldeEntry)
-    .reduce((s, r) => s + (Number(r.getCellValue(revenusMontantField)) || 0), 0);
-  const soldeSaisiesTotal = saisies
-    .filter((r) => r.type !== "depense" && soldeCompteId && r.compteId === soldeCompteId)
+  const soldeCompteId = useMemo(() => compteIdByCode(soldeOuvertureCompte), [comptes, soldeOuvertureCompte]);
+  const soldeReporteCompteId = useMemo(() => compteIdByCode(soldeReporteCompte), [comptes, soldeReporteCompte]);
+
+  const hasCompte = (rec, field, compteId) => {
+    if (!compteId || !field) return false;
+    const cat = rec.getCellValue(field);
+    return Array.isArray(cat) && cat.some((c) => c.id === compteId);
+  };
+  const sumSaisies = (pred) => saisies
+    .filter(pred)
     .reduce((s, r) => {
       const v = parseFloat(String(r.montant || "").replace(",", "."));
       return s + (isNaN(v) ? 0 : v);
     }, 0);
-  const soldePrecedent = soldeFermeturePrecedent + soldeEntriesTotal + soldeSaisiesTotal;
+  const sumMontant = (recs, field) => !field ? 0 : recs.reduce((s, r) => s + (Number(r.getCellValue(field)) || 0), 0);
+
+  // Revenus on the "Solde d'ouverture" compte (4000) add to Solde précédent.
+  const isSoldeEntry = (rec) => hasCompte(rec, revenusCategorieField, soldeCompteId);
+  const soldeEntriesTotal = sumMontant(existingRevenus.filter(isSoldeEntry), revenusMontantField);
+  const soldeSaisiesTotal = sumSaisies((r) => r.type !== "depense" && soldeCompteId && r.compteId === soldeCompteId);
+  // Dépenses on the "Solde reporté" compte (5000) subtract from Solde précédent.
+  const isSoldeReporteEntry = (rec) => hasCompte(rec, depensesCategorieField, soldeReporteCompteId);
+  const soldeReporteEntriesTotal = sumMontant(existingDepenses.filter(isSoldeReporteEntry), depensesMontantField);
+  const soldeReporteSaisiesTotal = sumSaisies((r) => r.type === "depense" && soldeReporteCompteId && r.compteId === soldeReporteCompteId);
+  const soldePrecedent = soldeFermeturePrecedent + soldeEntriesTotal + soldeSaisiesTotal
+    - soldeReporteEntriesTotal - soldeReporteSaisiesTotal;
 
   const handleRevenusChange = (m, choiceId, val) => {
     setRevenusInputs((prev) => ({ ...prev, [m]: { ...(prev[m] || {}), [choiceId]: val } }));
@@ -1582,7 +1593,7 @@ function ReportInner({ cfg }) {
         year, half,
         monthIndices,
         revenusInputs, revenusChoices, existingRevenusByCell,
-        existingDepenses,
+        existingDepenses: existingDepenses.filter((r) => !isSoldeReporteEntry(r)),
         depensesDateField, depensesDateWriteField,
         depensesMontantField, depensesNotesField, depensesFournisseurField, depensesDescriptionField,
         depensesNoFactureField, depensesModePaiementField, depensesArtisteField,
@@ -1625,12 +1636,9 @@ function ReportInner({ cfg }) {
     return acc;
   }, [saisies]);
 
-  const totalDepenses = useMemo(() => {
-    const existing = depensesMontantField
-      ? existingDepenses.reduce((s, r) => s + (Number(r.getCellValue(depensesMontantField)) || 0), 0)
-      : 0;
-    return existing + saisiesTotals.depense;
-  }, [existingDepenses, depensesMontantField, saisiesTotals]);
+  // Dépenses of the period: the solde reporté entries count in Solde précédent instead.
+  const totalDepenses = sumMontant(existingDepenses, depensesMontantField)
+    - soldeReporteEntriesTotal + saisiesTotals.depense - soldeReporteSaisiesTotal;
 
   // Revenus of the period: the opening-balance entries count in Solde précédent instead.
   const totalRevenus = (revenusMontantField
