@@ -447,7 +447,7 @@ function getLinkNames(rec, field) {
 
 // --- UI: Existing entries list ---
 
-function ExistingEntriesList({ title, entries, dateField, montantField, categorieField, descriptionField, fournisseurField }) {
+function ExistingEntriesList({ title, entries, dateField, montantField, categorieField, descriptionField, fournisseurField, noFactureField }) {
   // Expanded budget lines (compte names); all collapsed by default.
   const [expanded, setExpanded] = useState(() => new Set());
   const toggleGroup = (key) =>
@@ -488,7 +488,7 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
     groups.get(key).push(r);
   }
   const sortedGroups = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b, "fr"));
-  const colCount = 2 + (fournisseurField ? 1 : 0) + (descriptionField ? 1 : 0);
+  const colCount = 2 + (noFactureField ? 1 : 0) + (fournisseurField ? 1 : 0) + (descriptionField ? 1 : 0);
   const allCollapsed = sortedGroups.every(([k]) => !expanded.has(k));
 
   return (
@@ -510,6 +510,7 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
         <table className="w-full text-sm table-fixed">
           <colgroup>
             <col style={{ width: 100 }} />
+            {noFactureField && <col style={{ width: 110 }} />}
             {fournisseurField && <col />}
             {descriptionField && <col />}
             <col style={{ width: 130 }} />
@@ -517,6 +518,7 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
           <thead className="bg-gray-gray50 dark:bg-gray-gray800">
             <tr>
               <th className="text-left p-2">Date</th>
+              {noFactureField && <th className="text-left p-2">No facture</th>}
               {fournisseurField && <th className="text-left p-2">Fournisseur</th>}
               {descriptionField && <th className="text-left p-2">Description</th>}
               <th className="text-right p-2">Montant</th>
@@ -550,6 +552,7 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
                     if (Array.isArray(dateIso)) dateIso = dateIso[0];
                     if (dateIso && typeof dateIso === "object" && dateIso.value) dateIso = dateIso.value;
                     if (dateIso == null) dateIso = r.getCellValueAsString(dateField);
+                    const noFacture = noFactureField ? r.getCellValueAsString(noFactureField) : "";
                     const fournisseur = fournisseurField ? r.getCellValueAsString(fournisseurField) : "";
                     const desc = descriptionField ? r.getCellValueAsString(descriptionField) : "";
                     const m = Number(r.getCellValue(montantField)) || 0;
@@ -558,6 +561,9 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
                         <td className="p-2 text-gray-gray600 dark:text-gray-gray300 whitespace-nowrap">
                           {typeof dateIso === "string" ? dateIso.slice(0, 10) : ""}
                         </td>
+                        {noFactureField && (
+                          <td className="p-2 text-gray-gray600 dark:text-gray-gray300 truncate">{noFacture}</td>
+                        )}
                         {fournisseurField && (
                           <td className="p-2 text-gray-gray600 dark:text-gray-gray300">{fournisseur}</td>
                         )}
@@ -1927,6 +1933,7 @@ function ReportInner({ cfg }) {
           dateField={depensesDateField}
           montantField={depensesMontantField}
           categorieField={depensesCategorieField}
+          noFactureField={depensesNoFactureField}
           fournisseurField={depensesFournisseurField}
           descriptionField={depensesDescriptionField}
         />
