@@ -51,6 +51,11 @@ function parseIsoParts(value) {
   return { year: y, month: m, day: d };
 }
 
+// "YYYY-MM-DD" from parseIsoParts output ("" when unparseable), for string comparisons.
+function isoFromParts(p) {
+  return p ? `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}` : "";
+}
+
 function isInPeriod(iso, year, half) {
   const p = parseIsoParts(iso);
   if (!p || p.year !== year) return false;
@@ -447,7 +452,7 @@ function getLinkNames(rec, field) {
 
 // --- UI: Existing entries list ---
 
-function ExistingEntriesList({ title, entries, dateField, montantField, categorieField, descriptionField, fournisseurField, noFactureField }) {
+function ExistingEntriesList({ title, entries, dateField, montantField, categorieField, descriptionField, fournisseurField, noFactureField, periodStart }) {
   // Expanded budget lines (compte names); all collapsed by default.
   const [expanded, setExpanded] = useState(() => new Set());
   const toggleGroup = (key) =>
@@ -560,6 +565,11 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
                       <tr key={r.id} className="border-t border-gray-gray100 dark:border-gray-gray700">
                         <td className="p-2 text-gray-gray600 dark:text-gray-gray300 whitespace-nowrap">
                           {typeof dateIso === "string" ? dateIso.slice(0, 10) : ""}
+                          {periodStart && isoFromParts(parseIsoParts(dateIso)) && isoFromParts(parseIsoParts(dateIso)) < periodStart && (
+                            <span className="ml-1 px-1 rounded text-xs bg-orange-orangeLight2 text-orange-orangeDark1" title="Période antérieure jamais rapportée">
+                              rattrapage
+                            </span>
+                          )}
                         </td>
                         {noFactureField && (
                           <td className="p-2 text-gray-gray600 dark:text-gray-gray300 truncate">{noFacture}</td>
@@ -1326,91 +1336,6 @@ function ReportInner({ cfg }) {
 
   const monthIndices = half === "H1" ? [1, 2, 3, 4, 5, 6] : [7, 8, 9, 10, 11, 12];
 
-  const filterEntries = (records, canalLinkField, etatLinkField, dateField, dateWriteField) => {
-    const dateFields = [dateField, dateWriteField].filter(Boolean);
-    if (!records || !selectedCanalId || !canalLinkField || !etatLinkField || dateFields.length === 0) return [];
-    return records.filter((rec) => {
-      const links = rec.getCellValue(canalLinkField);
-      if (!Array.isArray(links) || !links.some((l) => l.id === selectedCanalId)) return false;
-      const etat = rec.getCellValue(etatLinkField);
-      if (Array.isArray(etat) && etat.length > 0) return false;
-      // Try each available date field, take the first non-empty
-      let d = null;
-      for (const f of dateFields) {
-        d = rec.getCellValue(f);
-        if (d == null) d = rec.getCellValueAsString(f);
-        if (d != null && d !== "") break;
-      }
-      if (!isInPeriod(d, year, half)) return false;
-      return true;
-    });
-  };
-
-  const existingRevenus = useMemo(
-    () => filterEntries(revenusRecords, revenusCanalLinkField, revenusEtatLinkField, revenusDateField, revenusDateWriteField),
-    [revenusRecords, selectedCanalId, year, half, revenusCanalLinkField, revenusEtatLinkField, revenusDateField, revenusDateWriteField],
-  );
-  const existingDepenses = useMemo(
-    () => filterEntries(depensesRecords, depensesCanalLinkField, depensesEtatLinkField, depensesDateField, depensesDateWriteField),
-    [depensesRecords, selectedCanalId, year, half, depensesCanalLinkField, depensesEtatLinkField, depensesDateField, depensesDateWriteField],
-  );
-
-  // Each grid column = { id (used as input key), name (column header), compteId (for link write), label (Notes write) }
-  // We use the label as the unique id so 2 columns sharing the same compte still get separate cells.
-  const revenusChoices = useMemo(
-    () => columnsConfig.revenus.map((c) => ({ id: c.label, name: c.label, label: c.label, compteId: c.compteId, group: c.group })),
-    [columnsConfig],
-  );
-
-  // Map existing (already-saved) revenus records onto grid cells: { month: { colId: amount } }.
-  // A record matches a column by its Notes label, falling back to its Compte link.
-  // This lets the grid display saved values without re-including them in the records to create.
-  // `gridIds` = records placed in the grid, so the export can keep them out of the
-  // "Droits synchro / autres" list (they'd be counted twice otherwise).
-  const { byCell: existingRevenusByCell, gridIds: revenusInGridIds } = useMemo(() => {
-    const map = {};
-    const gridIds = new Set();
-    if (!revenusMontantField || !revenusCategorieField || revenusChoices.length === 0) return { byCell: map, gridIds };
-    const dateFields = [revenusDateField, revenusDateWriteField].filter(Boolean);
-    for (const rec of existingRevenus) {
-      let d = null;
-      for (const f of dateFields) {
-        d = rec.getCellValue(f);
-        if (d == null) d = rec.getCellValueAsString(f);
-        if (d != null && d !== "") break;
-      }
-      const parts = parseIsoParts(d);
-      if (!parts) continue;
-      const cat = rec.getCellValue(revenusCategorieField);
-      const compteId = Array.isArray(cat) && cat[0] ? cat[0].id : null;
-      const notes = revenusNotesField ? rec.getCellValueAsString(revenusNotesField) : "";
-      let col = revenusChoices.find((c) => c.label === notes && c.compteId === compteId);
-      if (!col) col = revenusChoices.find((c) => c.label === notes);
-      if (!col) col = revenusChoices.find((c) => c.compteId === compteId);
-      if (!col) continue;
-      const amt = Number(rec.getCellValue(revenusMontantField)) || 0;
-      if (!map[parts.month]) map[parts.month] = {};
-      map[parts.month][col.id] = (map[parts.month][col.id] || 0) + amt;
-      gridIds.add(rec.id);
-    }
-    return { byCell: map, gridIds };
-  }, [existingRevenus, revenusChoices, revenusMontantField, revenusCategorieField, revenusNotesField, revenusDateField, revenusDateWriteField]);
-
-  // Ayants-droits of the selected canal, for the PARTAGE section of the Excel report.
-  // `part` is the fraction stored by the percent field (0.5 = 50 %).
-  const ayantsDroits = useMemo(() => {
-    if (!ayantsTable || !ayantsCanalLinkField || !ayantsPartField || !ayantsRecords || !selectedCanalId) return [];
-    return ayantsRecords
-      .filter((rec) => {
-        const links = rec.getCellValue(ayantsCanalLinkField);
-        return Array.isArray(links) && links.some((l) => l.id === selectedCanalId);
-      })
-      .map((rec) => ({
-        nom: (ayantsNomField && rec.getCellValueAsString(ayantsNomField)) || rec.name || "",
-        part: Number(rec.getCellValue(ayantsPartField)) || 0,
-      }));
-  }, [ayantsRecords, ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField, selectedCanalId]);
-
   // --- Solde précédent / clôture ---
   // Solde précédent = Solde fermeture of the canal's last État de compte before this period
   //                 + entries on the "Solde d'ouverture" compte (manual opening balance, saved or not).
@@ -1439,6 +1364,100 @@ function ReportInner({ cfg }) {
     }
     return out;
   }, [etatsRecords, etatsTable, etatsCanalLinkField, etatsDateField, selectedCanalId, periodStart, periodEnd]);
+
+  // Rattrapages: entries dated before the period and never linked to an État are pulled into
+  // the first open period (the one right after the canal's last État), then linked to its État.
+  const prevPeriodStart = half === "H1" ? `${year - 1}-07-01` : `${year}-01-01`;
+  const acceptsRattrapages = !currentEtat && !!previousEtat && previousEtat.date >= prevPeriodStart;
+
+  // Closed period (État exists): the entries linked to that État, whatever their date.
+  // Open period: unlinked entries of the period, plus rattrapages when applicable.
+  const filterEntries = (records, canalLinkField, etatLinkField, dateField, dateWriteField) => {
+    const dateFields = [dateField, dateWriteField].filter(Boolean);
+    if (!records || !selectedCanalId || !canalLinkField || !etatLinkField || dateFields.length === 0) return [];
+    return records.filter((rec) => {
+      const links = rec.getCellValue(canalLinkField);
+      if (!Array.isArray(links) || !links.some((l) => l.id === selectedCanalId)) return false;
+      const etat = rec.getCellValue(etatLinkField);
+      const linked = Array.isArray(etat) && etat.length > 0;
+      if (currentEtat) return linked && etat.some((e) => e.id === currentEtat.rec.id);
+      if (linked) return false;
+      // Try each available date field, take the first non-empty
+      let d = null;
+      for (const f of dateFields) {
+        d = rec.getCellValue(f);
+        if (d == null) d = rec.getCellValueAsString(f);
+        if (d != null && d !== "") break;
+      }
+      if (isInPeriod(d, year, half)) return true;
+      return acceptsRattrapages && isoFromParts(parseIsoParts(d)) < periodStart;
+    });
+  };
+
+  const existingRevenus = useMemo(
+    () => filterEntries(revenusRecords, revenusCanalLinkField, revenusEtatLinkField, revenusDateField, revenusDateWriteField),
+    [revenusRecords, selectedCanalId, year, half, currentEtat, acceptsRattrapages, revenusCanalLinkField, revenusEtatLinkField, revenusDateField, revenusDateWriteField],
+  );
+  const existingDepenses = useMemo(
+    () => filterEntries(depensesRecords, depensesCanalLinkField, depensesEtatLinkField, depensesDateField, depensesDateWriteField),
+    [depensesRecords, selectedCanalId, year, half, currentEtat, acceptsRattrapages, depensesCanalLinkField, depensesEtatLinkField, depensesDateField, depensesDateWriteField],
+  );
+
+  // Each grid column = { id (used as input key), name (column header), compteId (for link write), label (Notes write) }
+  // We use the label as the unique id so 2 columns sharing the same compte still get separate cells.
+  const revenusChoices = useMemo(
+    () => columnsConfig.revenus.map((c) => ({ id: c.label, name: c.label, label: c.label, compteId: c.compteId, group: c.group })),
+    [columnsConfig],
+  );
+
+  // Map existing (already-saved) revenus records onto grid cells: { month: { colId: amount } }.
+  // A record matches a column by its Notes label, falling back to its Compte link.
+  // This lets the grid display saved values without re-including them in the records to create.
+  // `gridIds` = records placed in the grid, so the export can keep them out of the
+  // "Droits synchro / autres" list (they'd be counted twice otherwise).
+  const { byCell: existingRevenusByCell, gridIds: revenusInGridIds } = useMemo(() => {
+    const map = {};
+    const gridIds = new Set();
+    if (!revenusMontantField || !revenusCategorieField || revenusChoices.length === 0) return { byCell: map, gridIds };
+    const dateFields = [revenusDateField, revenusDateWriteField].filter(Boolean);
+    for (const rec of existingRevenus) {
+      let d = null;
+      for (const f of dateFields) {
+        d = rec.getCellValue(f);
+        if (d == null) d = rec.getCellValueAsString(f);
+        if (d != null && d !== "") break;
+      }
+      const parts = parseIsoParts(d);
+      if (!parts || !isInPeriod(d, year, half)) continue;
+      const cat = rec.getCellValue(revenusCategorieField);
+      const compteId = Array.isArray(cat) && cat[0] ? cat[0].id : null;
+      const notes = revenusNotesField ? rec.getCellValueAsString(revenusNotesField) : "";
+      let col = revenusChoices.find((c) => c.label === notes && c.compteId === compteId);
+      if (!col) col = revenusChoices.find((c) => c.label === notes);
+      if (!col) col = revenusChoices.find((c) => c.compteId === compteId);
+      if (!col) continue;
+      const amt = Number(rec.getCellValue(revenusMontantField)) || 0;
+      if (!map[parts.month]) map[parts.month] = {};
+      map[parts.month][col.id] = (map[parts.month][col.id] || 0) + amt;
+      gridIds.add(rec.id);
+    }
+    return { byCell: map, gridIds };
+  }, [existingRevenus, year, half, revenusChoices, revenusMontantField, revenusCategorieField, revenusNotesField, revenusDateField, revenusDateWriteField]);
+
+  // Ayants-droits of the selected canal, for the PARTAGE section of the Excel report.
+  // `part` is the fraction stored by the percent field (0.5 = 50 %).
+  const ayantsDroits = useMemo(() => {
+    if (!ayantsTable || !ayantsCanalLinkField || !ayantsPartField || !ayantsRecords || !selectedCanalId) return [];
+    return ayantsRecords
+      .filter((rec) => {
+        const links = rec.getCellValue(ayantsCanalLinkField);
+        return Array.isArray(links) && links.some((l) => l.id === selectedCanalId);
+      })
+      .map((rec) => ({
+        nom: (ayantsNomField && rec.getCellValueAsString(ayantsNomField)) || rec.name || "",
+        part: Number(rec.getCellValue(ayantsPartField)) || 0,
+      }));
+  }, [ayantsRecords, ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField, selectedCanalId]);
 
   const soldeFermeturePrecedent = previousEtat && etatsFermetureField
     ? Number(previousEtat.rec.getCellValue(etatsFermetureField)) || 0
@@ -1688,6 +1707,9 @@ function ReportInner({ cfg }) {
       };
       // Solde d'ouverture may be computed in Airtable (formula/rollup): only set it when writable.
       if (!etatsOuvertureField.isComputed) fields[etatsOuvertureField.id] = round2(soldeFermeturePrecedent);
+      // Solde fermeture is frozen at clôture (the positive total is paid out, a deficit is carried),
+      // so later edits to linked entries don't change the next period's solde précédent.
+      if (etatsFermetureField && !etatsFermetureField.isComputed) fields[etatsFermetureField.id] = round2(Math.min(totalASpliter, 0));
       await etatsTable.createRecordAsync(fields);
       setSavedMsg(
         totalASpliter < 0
@@ -1917,6 +1939,7 @@ function ReportInner({ cfg }) {
           montantField={revenusMontantField}
           categorieField={revenusCategorieField}
           descriptionField={revenusDescriptionField}
+          periodStart={periodStart}
         />
       </div>
 
@@ -1925,7 +1948,9 @@ function ReportInner({ cfg }) {
       </h2>
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-6">
         <h3 className="text-base font-semibold text-gray-gray700 dark:text-gray-gray100 mb-2">
-          Existantes sur la période (non encore rapportées)
+          {currentEtat
+            ? `Rapportées dans l'état de compte du ${currentEtat.date}`
+            : "Existantes sur la période (non encore rapportées)"}
         </h3>
         <ExistingEntriesList
           title="Dépenses"
@@ -1936,6 +1961,7 @@ function ReportInner({ cfg }) {
           noFactureField={depensesNoFactureField}
           fournisseurField={depensesFournisseurField}
           descriptionField={depensesDescriptionField}
+          periodStart={periodStart}
         />
       </div>
 
