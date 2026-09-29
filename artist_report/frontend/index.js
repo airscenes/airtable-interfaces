@@ -3,6 +3,7 @@ import {
   initializeBlock,
   useRecords,
   useCustomProperties,
+  expandRecord,
 } from "@airtable/blocks/interface/ui";
 import ExcelJS from "exceljs";
 import { fillTemplate, normalizeWorkbookForExcel } from "./excelTemplate";
@@ -452,7 +453,7 @@ function getLinkNames(rec, field) {
 
 // --- UI: Existing entries list ---
 
-function ExistingEntriesList({ title, entries, dateField, montantField, categorieField, descriptionField, fournisseurField, noFactureField, periodStart }) {
+function ExistingEntriesList({ title, entries, dateField, montantField, categorieField, descriptionField, fournisseurField, noFactureField, periodStart, expandable }) {
   // Expanded budget lines (compte names); all collapsed by default.
   const [expanded, setExpanded] = useState(() => new Set());
   const toggleGroup = (key) =>
@@ -562,7 +563,11 @@ function ExistingEntriesList({ title, entries, dateField, montantField, categori
                     const desc = descriptionField ? r.getCellValueAsString(descriptionField) : "";
                     const m = Number(r.getCellValue(montantField)) || 0;
                     return (
-                      <tr key={r.id} className="border-t border-gray-gray100 dark:border-gray-gray700">
+                      <tr
+                        key={r.id}
+                        onClick={expandable ? () => expandRecord(r) : undefined}
+                        className={`border-t border-gray-gray100 dark:border-gray-gray700${expandable ? " cursor-pointer hover:bg-gray-gray50 dark:hover:bg-gray-gray600" : ""}`}
+                      >
                         <td className="p-2 text-gray-gray600 dark:text-gray-gray300 whitespace-nowrap">
                           {typeof dateIso === "string" ? dateIso.slice(0, 10) : ""}
                           {periodStart && isoFromParts(parseIsoParts(dateIso)) && isoFromParts(parseIsoParts(dateIso)) < periodStart && (
@@ -1962,6 +1967,7 @@ function ReportInner({ cfg }) {
           fournisseurField={depensesFournisseurField}
           descriptionField={depensesDescriptionField}
           periodStart={periodStart}
+          expandable
         />
       </div>
 
