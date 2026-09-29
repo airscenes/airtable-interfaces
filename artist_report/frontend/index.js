@@ -171,8 +171,8 @@ function getCustomProperties(base) {
     // --- Royalties Supabase ---
     { key: "supabaseUrl", label: "Supabase URL", type: "string", defaultValue: "" },
     { key: "supabaseAnonKey", label: "Supabase Anon Key", type: "string", defaultValue: "" },
-    { key: "clientId", label: "Client UUID (royalties)", type: "string", defaultValue: "" },
-    { key: "royaltiesColumn", label: "Label colonne Royalties (dans JSON Revenus)", type: "string", defaultValue: "Believe" },
+    { key: "clientId", label: "Client UUID (Believe)", type: "string", defaultValue: "" },
+    { key: "royaltiesColumn", label: "Label colonne Believe (dans JSON Revenus)", type: "string", defaultValue: "Believe" },
   ];
 }
 
@@ -1818,11 +1818,11 @@ function ReportInner({ cfg }) {
             {royaltiesLoading && (
               <span className="flex items-center gap-2 text-gray-gray500">
                 <span className="inline-block w-3 h-3 border-2 border-blue-blue border-t-transparent rounded-full animate-spin"></span>
-                Chargement royalties…
+                Chargement Believe…
               </span>
             )}
             {royaltiesError && (
-              <span className="text-red-redDark1">Erreur royalties : {royaltiesError}</span>
+              <span className="text-red-redDark1">Erreur Believe : {royaltiesError}</span>
             )}
             {shopifyLoading && (
               <span className="flex items-center gap-2 text-gray-gray500">
@@ -1838,10 +1838,10 @@ function ReportInner({ cfg }) {
                 royaltiesCacheRef.current.clear();
                 setRoyaltiesRefreshKey((k) => k + 1);
               }}
-              title="Rafraîchir les royalties Supabase"
+              title="Rafraîchir les données Believe (Supabase)"
               className="px-2 py-1 rounded text-sm bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray200 hover:bg-gray-gray200"
             >
-              ↺ Royalties
+              ↺ Believe
             </button>
             <button
               onClick={() => {
@@ -1915,7 +1915,7 @@ function ReportInner({ cfg }) {
             <p><strong>3. Le crochet ✓</strong><br />
               Un montant avec un ✓ est déjà enregistré dans Airtable. Il ne se modifie pas ici. Pour le changer,
               modifie ou supprime l&apos;entrée dans la table Revenus : le tableau se met à jour tout seul.</p>
-            <p><strong>4. Rafraîchir (↺ Royalties / ↺ Shopify)</strong><br />
+            <p><strong>4. Rafraîchir (↺ Believe / ↺ Shopify)</strong><br />
               Ces boutons vont chercher à nouveau les derniers chiffres, par exemple après l&apos;import d&apos;un
               nouveau rapport Believe. Seules les cellules sans ✓ sont mises à jour. Attention : une correction
               faite à la main et pas encore sauvegardée sera remplacée.</p>
