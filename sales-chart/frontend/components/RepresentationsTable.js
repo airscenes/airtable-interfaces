@@ -107,6 +107,10 @@ export function RepresentationsTable({
   setFilterVille,
   filterSalle,
   setFilterSalle,
+  dateFrom = "",
+  setDateFrom,
+  dateTo = "",
+  setDateTo,
   showAll,
   setShowAll,
   selectedRepIds,
@@ -117,6 +121,9 @@ export function RepresentationsTable({
   columns,
 }) {
   const selectable = !!setSelectedRepIds;
+  // Date range picker is opt-in (only the all-events page passes the setters).
+  const withDateRange = !!(setDateFrom && setDateTo);
+  const hasDateRange = !!(dateFrom || dateTo);
   const { widths, startResize, resetWidth } = useColumnWidths();
   const cols = showSpectacleCol ? [SPECTACLE_COL, ...columns] : columns;
   const widthOf = (c) => widths[c.key] || colDefaultWidth(c);
@@ -151,10 +158,17 @@ export function RepresentationsTable({
             </svg>
             Exporter CSV
           </button>
-          <label className="flex items-center gap-2 text-xs text-gray-gray500 dark:text-gray-gray400 cursor-pointer select-none">
+          {/* An explicit date range replaces the upcoming/past toggle. */}
+          <label
+            className={`flex items-center gap-2 text-xs text-gray-gray500 dark:text-gray-gray400 select-none ${
+              hasDateRange ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+            }`}
+            title={hasDateRange ? "La plage de dates remplace ce filtre" : undefined}
+          >
             <input
               type="checkbox"
               checked={showAll}
+              disabled={hasDateRange}
               onChange={(e) => setShowAll(e.target.checked)}
               className="rounded"
             />
@@ -162,9 +176,43 @@ export function RepresentationsTable({
           </label>
         </div>
       </div>
-      {/* Show, City and Venue filters */}
-      {(uniqueSpectacles.length > 1 || uniqueVilles.length > 1 || uniqueSalles.length > 1) && (
+      {/* Date range, Show, City and Venue filters */}
+      {(withDateRange || uniqueSpectacles.length > 1 || uniqueVilles.length > 1 || uniqueSalles.length > 1) && (
         <div className="flex items-center gap-3 mb-3 flex-wrap">
+          {withDateRange && (
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Du:</label>
+              <input
+                type="date"
+                value={dateFrom}
+                max={dateTo || undefined}
+                onChange={(e) => setDateFrom(e.target.value)}
+                className="text-xs rounded border border-gray-gray200 dark:border-gray-gray500 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
+                style={{ fontSize: 11, padding: "2px 6px" }}
+              />
+              <label className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Au:</label>
+              <input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(e) => setDateTo(e.target.value)}
+                className="text-xs rounded border border-gray-gray200 dark:border-gray-gray500 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray200"
+                style={{ fontSize: 11, padding: "2px 6px" }}
+              />
+              {hasDateRange && (
+                <button
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                  }}
+                  className="text-xs text-gray-gray500 hover:text-gray-gray700 dark:text-gray-gray400 dark:hover:text-gray-gray200"
+                  title="Effacer la plage de dates"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
           {uniqueSpectacles.length > 1 && (
             <div className="flex items-center gap-2">
               <label className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Spectacle:</label>

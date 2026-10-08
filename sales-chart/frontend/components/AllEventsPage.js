@@ -9,6 +9,8 @@ export function AllEventsPage({ allReps, repRecords, repColumns, onBack }) {
     filterSpectacle, setFilterSpectacle,
     filterVille, setFilterVille,
     filterSalle, setFilterSalle,
+    dateFrom, setDateFrom,
+    dateTo, setDateTo,
     uniqueSpectacles, uniqueVilles, uniqueSalles,
     filteredReps,
   } = useRepFilters(allReps);
@@ -43,6 +45,10 @@ export function AllEventsPage({ allReps, repRecords, repColumns, onBack }) {
         setFilterVille={setFilterVille}
         filterSalle={filterSalle}
         setFilterSalle={setFilterSalle}
+        dateFrom={dateFrom}
+        setDateFrom={setDateFrom}
+        dateTo={dateTo}
+        setDateTo={setDateTo}
         showAll={showAll}
         setShowAll={setShowAll}
         repRecords={repRecords}

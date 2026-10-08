@@ -7,17 +7,32 @@ export function useRepFilters(representations) {
   const [filterSpectacle, setFilterSpectacle] = useState(""); // spectacle record id
   const [filterVille, setFilterVille] = useState("");
   const [filterSalle, setFilterSalle] = useState("");
+  // Optional date range, as YYYY-MM-DD strings ("" = open bound).
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const hasDateRange = !!(dateFrom || dateTo);
 
-  // Default filter: upcoming events only (date >= today). Everything else
-  // (statut, site web, en vente) is deliberately NOT filtered — those values
-  // vary too much from one base to the next to be a safe default, and are
-  // visible as columns in the table anyway.
+  // Default filter: upcoming events only (date >= today). An explicit date
+  // range replaces that default (otherwise a past range would always be
+  // empty); undated events are then excluded. Everything else (statut, site
+  // web, en vente) is deliberately NOT filtered — those values vary too much
+  // from one base to the next to be a safe default, and are visible as
+  // columns in the table anyway.
   const filteredByDate = useMemo(() => {
+    if (hasDateRange) {
+      // ISO date strings compare correctly as plain strings.
+      return representations.filter(
+        (rep) =>
+          rep.dateRepIso &&
+          (!dateFrom || rep.dateRepIso >= dateFrom) &&
+          (!dateTo || rep.dateRepIso <= dateTo),
+      );
+    }
     if (showAll) return representations;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     return representations.filter((rep) => !(rep.rawDate && rep.rawDate < today));
-  }, [representations, showAll]);
+  }, [representations, showAll, hasDateRange, dateFrom, dateTo]);
 
   const uniqueVilles = useMemo(() => {
     const set = new Set(filteredByDate.map((r) => r.colVille).filter(Boolean));
@@ -61,6 +76,8 @@ export function useRepFilters(representations) {
     filterSpectacle, setFilterSpectacle,
     filterVille, setFilterVille,
     filterSalle, setFilterSalle,
+    dateFrom, setDateFrom,
+    dateTo, setDateTo,
     uniqueSpectacles, uniqueVilles, uniqueSalles,
     filteredReps,
   };
