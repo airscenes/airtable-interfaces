@@ -1,4 +1,4 @@
-import {useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {
     initializeBlock,
     useRecords,
@@ -32,7 +32,6 @@ const UNASSIGNED_LABEL = '(non assigné)';
 // remainder instead.
 const TOOLTIP_MAX_ITEMS = 12;
 const ALL_BLOCS = 'all';
-const ALL_VALUES = '';
 
 // === DATE HELPERS ===
 
@@ -314,7 +313,9 @@ function AdPressureApp() {
     const [dimensionKey, setDimensionKey] = useState(DIMENSIONS[0].key);
     const [yearOverride, setYearOverride] = useState(null);
     const [blocKey, setBlocKey] = useState(ALL_BLOCS);
-    const [filterValue, setFilterValue] = useState(ALL_VALUES);
+    // Empty means "all". Multi-select because the paid/organic field splits paid delivery across
+    // two values (`Paid` and `Organique + sponsorisé`) that have to be summed to be meaningful.
+    const [filterValues, setFilterValues] = useState([]);
     const [hideEmpty, setHideEmpty] = useState(false);
     const [hover, setHover] = useState(null);
 
@@ -431,7 +432,12 @@ function AdPressureApp() {
 
         for (const item of items) {
             const {record, start, end} = item;
-            if (filterValue && !readTextValues(record, filterField).includes(filterValue)) continue;
+            if (
+                filterValues.length &&
+                !readTextValues(record, filterField).some((v) => filterValues.includes(v))
+            ) {
+                continue;
+            }
 
             const from = Math.max(0, weekIndexOf(periodStart, start));
             const to = Math.min(lastIndex, weekIndexOf(periodStart, end));
@@ -463,7 +469,7 @@ function AdPressureApp() {
 
         return hideEmpty ? all.filter((r) => r.peak > 0) : all;
     }, [
-        items, dimensionField, filterField, filterValue,
+        items, dimensionField, filterField, filterValues,
         periodStart, numWeeks, hideEmpty,
     ]);
 
@@ -561,18 +567,12 @@ function AdPressureApp() {
                 </select>
 
                 {filterField && filterOptions.length > 0 && (
-                    <select
-                        value={filterValue}
-                        onChange={(e) => setFilterValue(e.target.value)}
-                        className="cursor-pointer rounded border border-gray-gray300 px-2 py-1 dark:border-gray-gray600 dark:bg-gray-gray800"
-                    >
-                        <option value={ALL_VALUES}>Tous les contenus</option>
-                        {filterOptions.map((v) => (
-                            <option key={v} value={v}>
-                                {v}
-                            </option>
-                        ))}
-                    </select>
+                    <MultiSelectFilter
+                        allLabel="Tous les contenus"
+                        options={filterOptions}
+                        selected={filterValues}
+                        onChange={setFilterValues}
+                    />
                 )}
 
                 <label className="flex cursor-pointer items-center gap-1">
@@ -721,6 +721,76 @@ function AdPressureApp() {
             ) : null}
 
             {hover && <CellTooltip hover={hover} />}
+        </div>
+    );
+}
+
+// Checkbox dropdown. An empty selection means "all", so the grid shows everything until the
+// reader narrows it — never an empty table on first open.
+function MultiSelectFilter({allLabel, options, selected, onChange}) {
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    // Without this the panel stays open behind the grid once the reader clicks elsewhere.
+    useEffect(() => {
+        if (!open) return undefined;
+        const onPointerDown = (e) => {
+            if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+        };
+        document.addEventListener('mousedown', onPointerDown);
+        return () => document.removeEventListener('mousedown', onPointerDown);
+    }, [open]);
+
+    const toggle = (value) =>
+        onChange(
+            selected.includes(value)
+                ? selected.filter((v) => v !== value)
+                : [...selected, value],
+        );
+
+    const summary =
+        selected.length === 0
+            ? allLabel
+            : selected.length === 1
+                ? selected[0]
+                : `${selected.length} catégories`;
+
+    return (
+        <div ref={ref} className="relative">
+            <button
+                type="button"
+                onClick={() => setOpen(!open)}
+                className="cursor-pointer rounded border border-gray-gray300 px-2 py-1 dark:border-gray-gray600 dark:bg-gray-gray800"
+            >
+                {summary} ▾
+            </button>
+            {open && (
+                <div className="absolute left-0 z-40 mt-1 max-h-64 w-64 overflow-y-auto rounded border border-gray-gray300 bg-white p-1 shadow-lg dark:border-gray-gray600 dark:bg-gray-gray800">
+                    <label className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-gray-gray100 dark:hover:bg-gray-gray700">
+                        <input
+                            type="checkbox"
+                            checked={selected.length === 0}
+                            onChange={() => onChange([])}
+                            className="cursor-pointer"
+                        />
+                        {allLabel}
+                    </label>
+                    {options.map((v) => (
+                        <label
+                            key={v}
+                            className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 hover:bg-gray-gray100 dark:hover:bg-gray-gray700"
+                        >
+                            <input
+                                type="checkbox"
+                                checked={selected.includes(v)}
+                                onChange={() => toggle(v)}
+                                className="cursor-pointer"
+                            />
+                            {v}
+                        </label>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }
