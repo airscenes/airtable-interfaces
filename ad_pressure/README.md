@@ -39,8 +39,10 @@ All fields are set from the settings panel; defaults are auto-detected by name.
 - **Marché**, **Campagne** (`Campagnes_META`), **Ensemble de publicités** — the three row
   dimensions, switchable from the toolbar. Rows are grouped by the linked record's **name**, so the
   linked tables never need to be exposed to the extension.
-- **Champ de filtre** (`Paid/Organique`) — optional. Populates a dropdown with the values actually
-  present, to restrict the count to paid content.
+- **Champ de filtre** (`Paid/Organique`) — optional. Populates a checkbox dropdown with the values
+  actually present. Multi-select, because paid delivery is split across two values in this base
+  (`Paid` and `Organique + sponsorisé`): a single-choice filter could never show paid pressure
+  without also pulling in purely organic posts. An empty selection means all.
 - **Titre affiché au survol** (`Titre du contenu`) — optional, names the ads listed in the hover
   breakdown. Falls back to the primary field, which an interface extension can only read when that
   field is exposed.
