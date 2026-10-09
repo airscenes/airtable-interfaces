@@ -6,7 +6,7 @@ import {
   expandRecord,
 } from "@airtable/blocks/interface/ui";
 import ExcelJS from "exceljs";
-import { fillTemplate, normalizeWorkbookForExcel } from "./excelTemplate";
+import { fillTemplate, fixOverlappingMerges, normalizeWorkbookForExcel } from "./excelTemplate";
 import "./style.css";
 
 // --- Helpers ---
@@ -646,7 +646,7 @@ async function exportFromTemplate({
   const buf = await res.arrayBuffer();
 
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buf);
+  await wb.xlsx.load(await fixOverlappingMerges(buf));
   const ws = wb.getWorksheet("Rapport") || wb.worksheets[0];
   if (!ws) throw new Error("Feuille 'Rapport' introuvable dans le template");
 

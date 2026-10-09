@@ -22,6 +22,8 @@
 // block row refers to its own copy's row. A lone block-row reference passed to
 // a function (`SUM(G25)`, as Google Sheets saves `SUM(G25:G25)`) is widened too.
 
+import JSZip from "jszip";
+
 const TAG_RE = /\$\{([\w.]+)\}|\{\{([\w.]+)\}\}/g;
 const MERGE_RANGE = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/;
 // A1 reference or range. The prefix/lookahead keep it off function names
@@ -64,6 +66,32 @@ export function normalizeWorkbookForExcel(wb) {
   wb.eachSheet((ws) => {
     delete ws.properties.outlineProperties;
   });
+}
+
+// Google Sheets can save a merged row as several overlapping multi-row ranges
+// (H22:K42 + H23:K43) while showing two clean one-row merges. ExcelJS refuses
+// to even load such a file ("Cannot merge already merged cells"), so before
+// loading, every merge that overlaps another one is cut down to its first row.
+// Takes and returns the raw .xlsx bytes.
+export async function fixOverlappingMerges(buffer) {
+  const zip = await JSZip.loadAsync(buffer);
+  const colNum = (c) => [...c].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+  let changed = false;
+  for (const path of Object.keys(zip.files).filter((p) => /^xl\/worksheets\/[^/]+\.xml$/.test(p))) {
+    const xml = await zip.file(path).async("string");
+    const ranges = [...xml.matchAll(/<mergeCell ref="([A-Z]+)(\d+):([A-Z]+)(\d+)"\s*\/>/g)].map((m) => ({
+      c1: colNum(m[1]), r1: Number(m[2]), c2: colNum(m[3]), r2: Number(m[4]), startCol: m[1], endCol: m[3],
+    }));
+    const overlaps = (a, b) => a !== b && a.c1 <= b.c2 && b.c1 <= a.c2 && a.r1 <= b.r2 && b.r1 <= a.r2;
+    if (!ranges.some((a) => ranges.some((b) => overlaps(a, b)))) continue;
+    const kept = new Set(
+      ranges.map((a) => (ranges.some((b) => overlaps(a, b)) ? `${a.startCol}${a.r1}:${a.endCol}${a.r1}` : `${a.startCol}${a.r1}:${a.endCol}${a.r2}`)),
+    );
+    const cells = [...kept].map((ref) => `<mergeCell ref="${ref}"/>`).join("");
+    zip.file(path, xml.replace(/<mergeCells[^>]*>[\s\S]*?<\/mergeCells>/, `<mergeCells count="${kept.size}">${cells}</mergeCells>`));
+    changed = true;
+  }
+  return changed ? zip.generateAsync({ type: "arraybuffer" }) : buffer;
 }
 
 // Replace the tags of one cell. `lookup(key)` returns undefined for a tag it
@@ -178,7 +206,6 @@ function rebuildMerges(ws, originalRanges, imagesOf) {
     }
   }
 
-  for (const range of [...(ws.model.merges || [])]) ws.unMergeCells(range);
   for (const range of wanted) {
     try {
       ws.mergeCells(range);
@@ -198,7 +225,21 @@ function rebuildMerges(ws, originalRanges, imagesOf) {
 export function fillTemplate(ws, { tags = {}, blocks = {} }) {
   unshareFormulas(ws);
 
+  // Unmerge everything up front: ExcelJS doesn't move merges with spliced rows,
+  // so a merge left in place would stay behind at its old row. Styles are
+  // saved first since unmerging wipes the secondary cells' styles.
   const originalMerges = [...(ws.model.merges || [])];
+  const mergedStyles = [];
+  for (const range of originalMerges) {
+    const [tl, br] = range.split(":").map((a) => ws.getCell(a));
+    for (let r = tl.row; r <= br.row; r++) {
+      for (let c = tl.col; c <= br.col; c++) {
+        mergedStyles.push({ r, c, style: JSON.parse(JSON.stringify(ws.getCell(r, c).style || {})) });
+      }
+    }
+  }
+  for (const range of originalMerges) ws.unMergeCells(range);
+  for (const { r, c, style } of mergedStyles) ws.getCell(r, c).style = style;
   const origCount = ws.rowCount;
   // layout[finalRow - 1] = template row now sitting there. Rows are only ever
   // inserted (never removed), so every template row keeps at least one image.
