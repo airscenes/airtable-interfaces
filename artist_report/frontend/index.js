@@ -6,7 +6,7 @@ import {
   expandRecord,
 } from "@airtable/blocks/interface/ui";
 import ExcelJS from "exceljs";
-import { fillTemplate, normalizeWorkbookForExcel } from "./excelTemplate";
+import { fillTemplate, fixOverlappingMerges, normalizeWorkbookForExcel } from "./excelTemplate";
 import "./style.css";
 
 // --- Helpers ---
@@ -107,6 +107,10 @@ function getCustomProperties(base) {
     { key: "revenusEtatLinkField", label: "Lien État de compte (Revenus)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
     { key: "revenusNotesField", label: "Champ Notes (Revenus) — reçoit le label de colonne", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
     { key: "revenusDescriptionField", label: "Champ Description (Revenus, optionnel)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+    { key: "revenusNoFactureField", label: "Champ No facture (Revenus, optionnel)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+    { key: "revenusModePaiementField", label: "Champ Mode paiement (Revenus, optionnel)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+    { key: "revenusFournisseurField", label: "Champ Fournisseur / Payeur (Revenus, optionnel)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+    { key: "revenusArtisteField", label: "Champ Artiste (Revenus, optionnel)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
 
     // --- Dépenses ---
     { key: "depensesTable", label: "Table des Dépenses", type: "table" },
@@ -603,7 +607,8 @@ function ExistingEntriesList({ title, table, entries, dateField, montantField, c
 //            ${m1.c1}…${m6.cN}            grid amount for month i × column j, as shown on screen
 //   One-row blocks (the row is repeated per record)
 //            ${depense.no_facture|date|mode_paiement|fournisseur|poste|artiste|montant|description}
-//            ${revenu.libelle|date|categorie|description|montant}  saved revenus not in the grid
+//            ${revenu.no_facture|date|mode_paiement|fournisseur|poste|artiste|montant|description}
+//            ${revenu.libelle|categorie}  saved revenus not in the grid (poste = notes, else categorie)
 //            ${ayant_droit.nom|part|montant}  part = fraction (format the cell as %),
 //                                             montant = max(total_a_spliter, 0) × part
 
@@ -631,6 +636,7 @@ async function exportFromTemplate({
   existingRevenus,
   revenusDateField, revenusDateWriteField,
   revenusMontantField, revenusCategorieField, revenusNotesField, revenusDescriptionField,
+  revenusNoFactureField, revenusModePaiementField, revenusFournisseurField, revenusArtisteField,
   ayantsDroits, soldePrecedent,
 }) {
   const periodLabel = half === "H1" ? `JAN - JUIN ${year}` : `JUIL - DEC ${year}`;
@@ -640,7 +646,7 @@ async function exportFromTemplate({
   const buf = await res.arrayBuffer();
 
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buf);
+  await wb.xlsx.load(await fixOverlappingMerges(buf));
   const ws = wb.getWorksheet("Rapport") || wb.worksheets[0];
   if (!ws) throw new Error("Feuille 'Rapport' introuvable dans le template");
 
@@ -701,7 +707,12 @@ async function exportFromTemplate({
       const label = notes || categorie || description || "Revenu";
       return {
         libelle: `${label}${date ? ` (${date})` : ""}${description && description !== label ? ` — ${description}` : ""}`,
+        no_facture: str(rec, revenusNoFactureField),
         date,
+        mode_paiement: str(rec, revenusModePaiementField),
+        fournisseur: str(rec, revenusFournisseurField),
+        poste: notes || categorie,
+        artiste: str(rec, revenusArtisteField),
         categorie,
         description,
         montant: Number(rec.getCellValue(revenusMontantField)) || 0,
@@ -1000,6 +1011,7 @@ function ReportInner({ cfg }) {
     canauxTable, canalImageField, canalSubtitleField,
     revenusTable, revenusCanalLinkField, revenusDateField, revenusDateWriteField, revenusMontantField,
     revenusCategorieField, revenusEtatLinkField, revenusNotesField, revenusDescriptionField,
+    revenusNoFactureField, revenusModePaiementField, revenusFournisseurField, revenusArtisteField,
     depensesTable, depensesCanalLinkField, depensesDateField, depensesDateWriteField, depensesMontantField,
     depensesCategorieField, depensesEtatLinkField, depensesFournisseurField, depensesNotesField, depensesDescriptionField,
     depensesNoFactureField, depensesModePaiementField, depensesArtisteField,
@@ -1597,6 +1609,7 @@ function ReportInner({ cfg }) {
         soldePrecedent,
         revenusDateField, revenusDateWriteField,
         revenusMontantField, revenusCategorieField, revenusNotesField, revenusDescriptionField,
+        revenusNoFactureField, revenusModePaiementField, revenusFournisseurField, revenusArtisteField,
         ayantsDroits,
       });
       setSavedMsg("Rapport téléchargé.");
