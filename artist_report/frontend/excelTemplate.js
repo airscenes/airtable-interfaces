@@ -19,7 +19,8 @@
 // Template formulas are kept and re-pointed after rows are inserted (ExcelJS
 // does not do it): `SUM(G25:G25)` over a block row becomes `SUM(G25:G31)`, a
 // reference to a row below the block follows it down, and a formula inside a
-// block row refers to its own copy's row.
+// block row refers to its own copy's row. A lone block-row reference passed to
+// a function (`SUM(G25)`, as Google Sheets saves `SUM(G25:G25)`) is widened too.
 
 const TAG_RE = /\$\{([\w.]+)\}|\{\{([\w.]+)\}\}/g;
 const MERGE_RANGE = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/;
@@ -130,8 +131,18 @@ function translateFormula(formula, { selfOriginal, selfFinal, imagesOf, origCoun
     .map((part, i) =>
       i % 2 === 1
         ? part
-        : part.replace(REF_RE, (m, pre, col1, row1, col2, row2) => {
-          if (col2 === undefined) return `${pre}${col1}${mapRow(Number(row1), false)}`;
+        : part.replace(REF_RE, (m, pre, col1, row1, col2, row2, offset, str) => {
+          if (col2 === undefined) {
+            // A lone function argument on a block row (`SUM(G23)`, which Google
+            // Sheets writes for `SUM(G23:G23)`) spans every copy of that row.
+            const r = Number(row1);
+            const images = r === selfOriginal ? [] : imagesOf(r);
+            const isArg = /^[(,;]$/.test(pre) && /^[),;]$/.test(str[offset + m.length] ?? "");
+            if (isArg && r <= origCount && images.length > 1) {
+              return `${pre}${col1}${images[0]}:${col1}${images[images.length - 1]}`;
+            }
+            return `${pre}${col1}${mapRow(r, false)}`;
+          }
           return `${pre}${col1}${mapRow(Number(row1), false)}:${col2}${mapRow(Number(row2), true)}`;
         }),
     )
