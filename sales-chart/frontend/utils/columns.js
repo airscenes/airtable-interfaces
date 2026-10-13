@@ -6,6 +6,7 @@
 //   text | num | currency | select | pct | weekSold | weekRevenue
 // `width` overrides the per-type default width (users can still resize).
 const WEEK_TITLE = "Dernière semaine complète (lundi → lundi)";
+const DAY_TITLE = "Dernière journée complète (hier)";
 
 export const REP_COLUMNS = [
   { key: "colJoursRestants", label: "J. restants", type: "text", configKey: "colJoursRestants", width: 90 },
@@ -33,8 +34,14 @@ export const REP_COLUMNS = [
 ];
 
 // Columns enabled by the custom properties `cp` (field mapped / toggle on).
+// The weekly delta columns are relabelled when `salesWindow` is "24h".
 export function visibleRepColumns(cp) {
-  return REP_COLUMNS.filter((c) => !!cp[c.configKey]);
+  const day = cp.salesWindow === "24h";
+  return REP_COLUMNS.filter((c) => !!cp[c.configKey]).map((c) =>
+    day && (c.type === "weekSold" || c.type === "weekRevenue")
+      ? { ...c, label: c.label.replace("(sem.)", "(jour)"), title: DAY_TITLE }
+      : c,
+  );
 }
 
 const DEFAULT_WIDTH_BY_TYPE = {

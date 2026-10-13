@@ -4,6 +4,7 @@ import { defaultDateRange } from "../utils/format";
 import {
   aggregateSalesByDate,
   lastCompleteWeekBounds,
+  lastCompleteDayBounds,
   computeWeekDeltas,
   buildObjectiveSeries,
 } from "../utils/salesData";
@@ -23,6 +24,7 @@ export function DetailPage({
   onBack,
   repRecords,
   repColumns,
+  salesWindow = "7d",
 }) {
   const [selectedRepIds, setSelectedRepIds] = useState(new Set());
   const [salesData, setSalesData] = useState([]);
@@ -199,12 +201,14 @@ export function DetailPage({
     };
   }, [allRepIds, supabaseUrl, supabaseAnonKey, baseId, refreshKey]);
 
-  // Weekly table columns: per-rep deltas over the last complete Mon→Mon week.
+  // Per-rep deltas for the Vendus/Revenus table columns. Window is
+  // configurable: "7d" = last complete Mon→Mon week, "24h" = last complete day.
   const weekDeltas = useMemo(() => {
     if (!salesRows.length) return {};
-    const { start, end } = lastCompleteWeekBounds();
+    const { start, end } =
+      salesWindow === "24h" ? lastCompleteDayBounds() : lastCompleteWeekBounds();
     return computeWeekDeltas(salesRows, start, end);
-  }, [salesRows]);
+  }, [salesRows, salesWindow]);
 
   const localDateStr = (d) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

@@ -80,6 +80,21 @@ export function lastCompleteWeekBounds(ref = new Date()) {
   return { start: iso(start), end: iso(end) };
 }
 
+// Bounds of the last *complete* day relative to `ref` (today is still in
+// progress): end = yesterday, start = the day before. computeWeekDeltas then
+// yields the sales accrued during yesterday — the 24h analog of
+// lastCompleteWeekBounds.
+export function lastCompleteDayBounds(ref = new Date()) {
+  const iso = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const d = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  const end = new Date(d);
+  end.setDate(d.getDate() - 1);
+  const start = new Date(d);
+  start.setDate(d.getDate() - 2);
+  return { start: iso(start), end: iso(end) };
+}
+
 // Per-representation weekly deltas. rows: [{ record_id, date, sold, total }].
 // - sold delta = cumulative `sold` at endISO minus at startISO (running max; sold
 //   is maintained live).

@@ -321,6 +321,17 @@ export function getCustomProperties(base, selectedSpectaclesTableId, selectedRep
       type: "boolean",
       defaultValue: true,
     },
+    // Window of the Vendus/Revenus delta columns.
+    {
+      key: "salesWindow",
+      label: "Fenetre Vendus/Revenus (colonnes)",
+      type: "enum",
+      possibleValues: [
+        { value: "7d", label: "7 jours (derniere semaine complete)" },
+        { value: "24h", label: "24h (derniere journee complete)" },
+      ],
+      defaultValue: "7d",
+    },
     // --- Supabase ---
     {
       key: "supabaseUrl",

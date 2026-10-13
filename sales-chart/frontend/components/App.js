@@ -461,6 +461,7 @@ function SalesChartLoaded({ base, cp }) {
         onBack={() => setSelectedSpectacleId(null)}
         repRecords={repRecords}
         repColumns={repColumns}
+        salesWindow={cp.salesWindow || "7d"}
       />
     );
   }
