@@ -52,6 +52,11 @@ function parseIsoParts(value) {
   return { year: y, month: m, day: d };
 }
 
+// "YYYY-MM-DD" from parseIsoParts output ("" when unparseable), for string comparisons.
+function isoFromParts(p) {
+  return p ? `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}` : "";
+}
+
 function isInPeriod(iso, year, half) {
   const p = parseIsoParts(iso);
   if (!p || p.year !== year) return false;
@@ -151,6 +156,7 @@ function getCustomProperties(base) {
     { key: "etatsRevenusLinkField", label: "Lien Revenus (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
     { key: "etatsDepensesLinkField", label: "Lien Dépenses (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
     { key: "soldeOuvertureCompte", label: "No de compte Solde d'ouverture (numero_compte, ex. 4000)", type: "string", defaultValue: "4000" },
+    { key: "soldeReporteCompte", label: "No de compte Solde reporté (dépense, numero_compte, ex. 5000)", type: "string", defaultValue: "5000" },
 
     // --- Colonnes des grilles (mapping label → record Compte) ---
     {
@@ -169,8 +175,8 @@ function getCustomProperties(base) {
     // --- Royalties Supabase ---
     { key: "supabaseUrl", label: "Supabase URL", type: "string", defaultValue: "" },
     { key: "supabaseAnonKey", label: "Supabase Anon Key", type: "string", defaultValue: "" },
-    { key: "clientId", label: "Client UUID (royalties)", type: "string", defaultValue: "" },
-    { key: "royaltiesColumn", label: "Label colonne Royalties (dans JSON Revenus)", type: "string", defaultValue: "Believe" },
+    { key: "clientId", label: "Client UUID (Believe)", type: "string", defaultValue: "" },
+    { key: "royaltiesColumn", label: "Label colonne Believe (dans JSON Revenus)", type: "string", defaultValue: "Believe" },
   ];
 }
 
@@ -451,7 +457,7 @@ function getLinkNames(rec, field) {
 
 // --- UI: Existing entries list ---
 
-function ExistingEntriesList({ title, table, entries, dateField, montantField, categorieField, descriptionField, fournisseurField }) {
+function ExistingEntriesList({ title, table, entries, dateField, montantField, categorieField, descriptionField, fournisseurField, noFactureField, periodStart }) {
   // Expanded budget lines (compte names); all collapsed by default.
   const [expanded, setExpanded] = useState(() => new Set());
   // Clicking an entry opens its record detail (side sheet, per the page's
@@ -495,7 +501,7 @@ function ExistingEntriesList({ title, table, entries, dateField, montantField, c
     groups.get(key).push(r);
   }
   const sortedGroups = Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b, "fr"));
-  const colCount = 2 + (fournisseurField ? 1 : 0) + (descriptionField ? 1 : 0);
+  const colCount = 2 + (noFactureField ? 1 : 0) + (fournisseurField ? 1 : 0) + (descriptionField ? 1 : 0);
   const allCollapsed = sortedGroups.every(([k]) => !expanded.has(k));
 
   return (
@@ -517,6 +523,7 @@ function ExistingEntriesList({ title, table, entries, dateField, montantField, c
         <table className="w-full text-sm table-fixed">
           <colgroup>
             <col style={{ width: 100 }} />
+            {noFactureField && <col style={{ width: 110 }} />}
             {fournisseurField && <col />}
             {descriptionField && <col />}
             <col style={{ width: 130 }} />
@@ -524,6 +531,7 @@ function ExistingEntriesList({ title, table, entries, dateField, montantField, c
           <thead className="bg-gray-gray50 dark:bg-gray-gray800">
             <tr>
               <th className="text-left p-2">Date</th>
+              {noFactureField && <th className="text-left p-2">No facture</th>}
               {fournisseurField && <th className="text-left p-2">Fournisseur</th>}
               {descriptionField && <th className="text-left p-2">Description</th>}
               <th className="text-right p-2">Montant</th>
@@ -557,6 +565,7 @@ function ExistingEntriesList({ title, table, entries, dateField, montantField, c
                     if (Array.isArray(dateIso)) dateIso = dateIso[0];
                     if (dateIso && typeof dateIso === "object" && dateIso.value) dateIso = dateIso.value;
                     if (dateIso == null) dateIso = r.getCellValueAsString(dateField);
+                    const noFacture = noFactureField ? r.getCellValueAsString(noFactureField) : "";
                     const fournisseur = fournisseurField ? r.getCellValueAsString(fournisseurField) : "";
                     const desc = descriptionField ? r.getCellValueAsString(descriptionField) : "";
                     const m = Number(r.getCellValue(montantField)) || 0;
@@ -571,7 +580,15 @@ function ExistingEntriesList({ title, table, entries, dateField, montantField, c
                       >
                         <td className="p-2 text-gray-gray600 dark:text-gray-gray300 whitespace-nowrap">
                           {typeof dateIso === "string" ? dateIso.slice(0, 10) : ""}
+                          {periodStart && isoFromParts(parseIsoParts(dateIso)) && isoFromParts(parseIsoParts(dateIso)) < periodStart && (
+                            <span className="ml-1 px-1 rounded text-xs bg-orange-orangeLight2 text-orange-orangeDark1" title="Période antérieure jamais rapportée">
+                              rattrapage
+                            </span>
+                          )}
                         </td>
+                        {noFactureField && (
+                          <td className="p-2 text-gray-gray600 dark:text-gray-gray300 truncate">{noFacture}</td>
+                        )}
                         {fournisseurField && (
                           <td className="p-2 text-gray-gray600 dark:text-gray-gray300">{fournisseur}</td>
                         )}
@@ -1021,7 +1038,7 @@ function ReportInner({ cfg }) {
     oeuvresTable, oeuvresLinkField, isrcField,
     ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField,
     etatsTable, etatsCanalLinkField, etatsDateField, etatsOuvertureField, etatsFermetureField,
-    etatsPaiementField, etatsRevenusLinkField, etatsDepensesLinkField, soldeOuvertureCompte,
+    etatsPaiementField, etatsRevenusLinkField, etatsDepensesLinkField, soldeOuvertureCompte, soldeReporteCompte,
     supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn,
   } = cfg;
 
@@ -1342,6 +1359,42 @@ function ReportInner({ cfg }) {
 
   const monthIndices = half === "H1" ? [1, 2, 3, 4, 5, 6] : [7, 8, 9, 10, 11, 12];
 
+  // --- Solde précédent / clôture ---
+  // Solde précédent = Solde fermeture of the canal's last État de compte before this period
+  //                 + entries on the "Solde d'ouverture" compte (manual opening balance, saved or not).
+  // The period is closed by creating an État de compte for it (see handleCloture).
+  const periodStart = half === "H1" ? `${year}-01-01` : `${year}-07-01`;
+  const periodEnd = half === "H1" ? `${year}-06-30` : `${year}-12-31`;
+
+  const { previousEtat, currentEtat } = useMemo(() => {
+    const out = { previousEtat: null, currentEtat: null };
+    if (!etatsTable || !etatsCanalLinkField || !etatsDateField || !etatsRecords || !selectedCanalId) return out;
+    const dated = etatsRecords
+      .filter((rec) => {
+        const links = rec.getCellValue(etatsCanalLinkField);
+        return Array.isArray(links) && links.some((l) => l.id === selectedCanalId);
+      })
+      .map((rec) => {
+        // Raw value is ISO; the string form follows the field's display format (e.g. 30/06/2026).
+        const raw = rec.getCellValue(etatsDateField);
+        return { rec, date: String(typeof raw === "string" ? raw : rec.getCellValueAsString(etatsDateField) || "").slice(0, 10) };
+      })
+      .filter((e) => e.date)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    for (const e of dated) {
+      if (e.date < periodStart) out.previousEtat = e;
+      else if (e.date <= periodEnd) out.currentEtat = e;
+    }
+    return out;
+  }, [etatsRecords, etatsTable, etatsCanalLinkField, etatsDateField, selectedCanalId, periodStart, periodEnd]);
+
+  // Rattrapages: entries dated before the period and never linked to an État are pulled into
+  // the first open period (the one right after the canal's last État), then linked to its État.
+  const prevPeriodStart = half === "H1" ? `${year - 1}-07-01` : `${year}-01-01`;
+  const acceptsRattrapages = !currentEtat && !!previousEtat && previousEtat.date >= prevPeriodStart;
+
+  // Closed period (État exists): the entries linked to that État, whatever their date.
+  // Open period: unlinked entries of the period, plus rattrapages when applicable.
   const filterEntries = (records, canalLinkField, etatLinkField, dateField, dateWriteField) => {
     const dateFields = [dateField, dateWriteField].filter(Boolean);
     if (!records || !selectedCanalId || !canalLinkField || !etatLinkField || dateFields.length === 0) return [];
@@ -1349,7 +1402,9 @@ function ReportInner({ cfg }) {
       const links = rec.getCellValue(canalLinkField);
       if (!Array.isArray(links) || !links.some((l) => l.id === selectedCanalId)) return false;
       const etat = rec.getCellValue(etatLinkField);
-      if (Array.isArray(etat) && etat.length > 0) return false;
+      const linked = Array.isArray(etat) && etat.length > 0;
+      if (currentEtat) return linked && etat.some((e) => e.id === currentEtat.rec.id);
+      if (linked) return false;
       // Try each available date field, take the first non-empty
       let d = null;
       for (const f of dateFields) {
@@ -1357,18 +1412,18 @@ function ReportInner({ cfg }) {
         if (d == null) d = rec.getCellValueAsString(f);
         if (d != null && d !== "") break;
       }
-      if (!isInPeriod(d, year, half)) return false;
-      return true;
+      if (isInPeriod(d, year, half)) return true;
+      return acceptsRattrapages && isoFromParts(parseIsoParts(d)) < periodStart;
     });
   };
 
   const existingRevenus = useMemo(
     () => filterEntries(revenusRecords, revenusCanalLinkField, revenusEtatLinkField, revenusDateField, revenusDateWriteField),
-    [revenusRecords, selectedCanalId, year, half, revenusCanalLinkField, revenusEtatLinkField, revenusDateField, revenusDateWriteField],
+    [revenusRecords, selectedCanalId, year, half, currentEtat, acceptsRattrapages, revenusCanalLinkField, revenusEtatLinkField, revenusDateField, revenusDateWriteField],
   );
   const existingDepenses = useMemo(
     () => filterEntries(depensesRecords, depensesCanalLinkField, depensesEtatLinkField, depensesDateField, depensesDateWriteField),
-    [depensesRecords, selectedCanalId, year, half, depensesCanalLinkField, depensesEtatLinkField, depensesDateField, depensesDateWriteField],
+    [depensesRecords, selectedCanalId, year, half, currentEtat, acceptsRattrapages, depensesCanalLinkField, depensesEtatLinkField, depensesDateField, depensesDateWriteField],
   );
 
   // Each grid column = { id (used as input key), name (column header), compteId (for link write), label (Notes write) }
@@ -1396,7 +1451,7 @@ function ReportInner({ cfg }) {
         if (d != null && d !== "") break;
       }
       const parts = parseIsoParts(d);
-      if (!parts) continue;
+      if (!parts || !isInPeriod(d, year, half)) continue;
       const cat = rec.getCellValue(revenusCategorieField);
       const compteId = Array.isArray(cat) && cat[0] ? cat[0].id : null;
       const notes = revenusNotesField ? rec.getCellValueAsString(revenusNotesField) : "";
@@ -1410,7 +1465,7 @@ function ReportInner({ cfg }) {
       gridIds.add(rec.id);
     }
     return { byCell: map, gridIds };
-  }, [existingRevenus, revenusChoices, revenusMontantField, revenusCategorieField, revenusNotesField, revenusDateField, revenusDateWriteField]);
+  }, [existingRevenus, year, half, revenusChoices, revenusMontantField, revenusCategorieField, revenusNotesField, revenusDateField, revenusDateWriteField]);
 
   // Ayants-droits of the selected canal, for the PARTAGE section of the Excel report.
   // `part` is the fraction stored by the percent field (0.5 = 50 %).
@@ -1427,57 +1482,42 @@ function ReportInner({ cfg }) {
       }));
   }, [ayantsRecords, ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField, selectedCanalId]);
 
-  // --- Solde précédent / clôture ---
-  // Solde précédent = Solde fermeture of the canal's last État de compte before this period
-  //                 + entries on the "Solde d'ouverture" compte (manual opening balance, saved or not).
-  // The period is closed by creating an État de compte for it (see handleCloture).
-  const periodStart = half === "H1" ? `${year}-01-01` : `${year}-07-01`;
-  const periodEnd = half === "H1" ? `${year}-06-30` : `${year}-12-31`;
-
-  const { previousEtat, currentEtat } = useMemo(() => {
-    const out = { previousEtat: null, currentEtat: null };
-    if (!etatsTable || !etatsCanalLinkField || !etatsDateField || !etatsRecords || !selectedCanalId) return out;
-    const dated = etatsRecords
-      .filter((rec) => {
-        const links = rec.getCellValue(etatsCanalLinkField);
-        return Array.isArray(links) && links.some((l) => l.id === selectedCanalId);
-      })
-      .map((rec) => ({ rec, date: String(rec.getCellValueAsString(etatsDateField) || "").slice(0, 10) }))
-      .filter((e) => e.date)
-      .sort((a, b) => a.date.localeCompare(b.date));
-    for (const e of dated) {
-      if (e.date < periodStart) out.previousEtat = e;
-      else if (e.date <= periodEnd) out.currentEtat = e;
-    }
-    return out;
-  }, [etatsRecords, etatsTable, etatsCanalLinkField, etatsDateField, selectedCanalId, periodStart, periodEnd]);
-
   const soldeFermeturePrecedent = previousEtat && etatsFermetureField
     ? Number(previousEtat.rec.getCellValue(etatsFermetureField)) || 0
     : 0;
 
-  const soldeCompteId = useMemo(() => {
-    const code = parseInt(String(soldeOuvertureCompte || "").trim(), 10);
+  const compteIdByCode = (raw) => {
+    const code = parseInt(String(raw || "").trim(), 10);
     if (isNaN(code)) return null;
     const c = comptes.find((x) => x.code === code);
     return c ? c.id : null;
-  }, [comptes, soldeOuvertureCompte]);
-
-  const isSoldeEntry = (rec) => {
-    if (!soldeCompteId || !revenusCategorieField) return false;
-    const cat = rec.getCellValue(revenusCategorieField);
-    return Array.isArray(cat) && cat.some((c) => c.id === soldeCompteId);
   };
-  const soldeEntriesTotal = existingRevenus
-    .filter(isSoldeEntry)
-    .reduce((s, r) => s + (Number(r.getCellValue(revenusMontantField)) || 0), 0);
-  const soldeSaisiesTotal = saisies
-    .filter((r) => r.type !== "depense" && soldeCompteId && r.compteId === soldeCompteId)
+  const soldeCompteId = useMemo(() => compteIdByCode(soldeOuvertureCompte), [comptes, soldeOuvertureCompte]);
+  const soldeReporteCompteId = useMemo(() => compteIdByCode(soldeReporteCompte), [comptes, soldeReporteCompte]);
+
+  const hasCompte = (rec, field, compteId) => {
+    if (!compteId || !field) return false;
+    const cat = rec.getCellValue(field);
+    return Array.isArray(cat) && cat.some((c) => c.id === compteId);
+  };
+  const sumSaisies = (pred) => saisies
+    .filter(pred)
     .reduce((s, r) => {
       const v = parseFloat(String(r.montant || "").replace(",", "."));
       return s + (isNaN(v) ? 0 : v);
     }, 0);
-  const soldePrecedent = soldeFermeturePrecedent + soldeEntriesTotal + soldeSaisiesTotal;
+  const sumMontant = (recs, field) => !field ? 0 : recs.reduce((s, r) => s + (Number(r.getCellValue(field)) || 0), 0);
+
+  // Revenus on the "Solde d'ouverture" compte (4000) add to Solde précédent.
+  const isSoldeEntry = (rec) => hasCompte(rec, revenusCategorieField, soldeCompteId);
+  const soldeEntriesTotal = sumMontant(existingRevenus.filter(isSoldeEntry), revenusMontantField);
+  const soldeSaisiesTotal = sumSaisies((r) => r.type !== "depense" && soldeCompteId && r.compteId === soldeCompteId);
+  // Dépenses on the "Solde reporté" compte (5000) subtract from Solde précédent.
+  const isSoldeReporteEntry = (rec) => hasCompte(rec, depensesCategorieField, soldeReporteCompteId);
+  const soldeReporteEntriesTotal = sumMontant(existingDepenses.filter(isSoldeReporteEntry), depensesMontantField);
+  const soldeReporteSaisiesTotal = sumSaisies((r) => r.type === "depense" && soldeReporteCompteId && r.compteId === soldeReporteCompteId);
+  const soldePrecedent = soldeFermeturePrecedent + soldeEntriesTotal + soldeSaisiesTotal
+    - soldeReporteEntriesTotal - soldeReporteSaisiesTotal;
 
   const handleRevenusChange = (m, choiceId, val) => {
     setRevenusInputs((prev) => ({ ...prev, [m]: { ...(prev[m] || {}), [choiceId]: val } }));
@@ -1601,7 +1641,7 @@ function ReportInner({ cfg }) {
         year, half,
         monthIndices,
         revenusInputs, revenusChoices, existingRevenusByCell,
-        existingDepenses,
+        existingDepenses: existingDepenses.filter((r) => !isSoldeReporteEntry(r)),
         depensesDateField, depensesDateWriteField,
         depensesMontantField, depensesNotesField, depensesFournisseurField, depensesDescriptionField,
         depensesNoFactureField, depensesModePaiementField, depensesArtisteField,
@@ -1645,12 +1685,9 @@ function ReportInner({ cfg }) {
     return acc;
   }, [saisies]);
 
-  const totalDepenses = useMemo(() => {
-    const existing = depensesMontantField
-      ? existingDepenses.reduce((s, r) => s + (Number(r.getCellValue(depensesMontantField)) || 0), 0)
-      : 0;
-    return existing + saisiesTotals.depense;
-  }, [existingDepenses, depensesMontantField, saisiesTotals]);
+  // Dépenses of the period: the solde reporté entries count in Solde précédent instead.
+  const totalDepenses = sumMontant(existingDepenses, depensesMontantField)
+    - soldeReporteEntriesTotal + saisiesTotals.depense - soldeReporteSaisiesTotal;
 
   // Revenus of the period: the opening-balance entries count in Solde précédent instead.
   const totalRevenus = (revenusMontantField
@@ -1685,14 +1722,19 @@ function ReportInner({ cfg }) {
       const ok = await handleExport();
       if (!ok) return;
       const round2 = (v) => Math.round(v * 100) / 100;
-      await etatsTable.createRecordAsync({
+      const fields = {
         [etatsCanalLinkField.id]: [{ id: selectedCanalId }],
         [etatsDateField.id]: periodEnd,
-        [etatsOuvertureField.id]: round2(soldeFermeturePrecedent),
         [etatsPaiementField.id]: round2(Math.max(totalASpliter, 0)),
         [etatsRevenusLinkField.id]: existingRevenus.map((r) => ({ id: r.id })),
         [etatsDepensesLinkField.id]: existingDepenses.map((r) => ({ id: r.id })),
-      });
+      };
+      // Solde d'ouverture may be computed in Airtable (formula/rollup): only set it when writable.
+      if (!etatsOuvertureField.isComputed) fields[etatsOuvertureField.id] = round2(soldeFermeturePrecedent);
+      // Solde fermeture is frozen at clôture (the positive total is paid out, a deficit is carried),
+      // so later edits to linked entries don't change the next period's solde précédent.
+      if (etatsFermetureField && !etatsFermetureField.isComputed) fields[etatsFermetureField.id] = round2(Math.min(totalASpliter, 0));
+      await etatsTable.createRecordAsync(fields);
       setSavedMsg(
         totalASpliter < 0
           ? `Période clôturée. Déficit reporté : ${fmtCurrency(totalASpliter)}.`
@@ -1795,11 +1837,11 @@ function ReportInner({ cfg }) {
             {royaltiesLoading && (
               <span className="flex items-center gap-2 text-gray-gray500">
                 <span className="inline-block w-3 h-3 border-2 border-blue-blue border-t-transparent rounded-full animate-spin"></span>
-                Chargement royalties…
+                Chargement Believe…
               </span>
             )}
             {royaltiesError && (
-              <span className="text-red-redDark1">Erreur royalties : {royaltiesError}</span>
+              <span className="text-red-redDark1">Erreur Believe : {royaltiesError}</span>
             )}
             {shopifyLoading && (
               <span className="flex items-center gap-2 text-gray-gray500">
@@ -1815,10 +1857,10 @@ function ReportInner({ cfg }) {
                 royaltiesCacheRef.current.clear();
                 setRoyaltiesRefreshKey((k) => k + 1);
               }}
-              title="Rafraîchir les royalties Supabase"
+              title="Rafraîchir les données Believe (Supabase)"
               className="px-2 py-1 rounded text-sm bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray200 hover:bg-gray-gray200"
             >
-              ↺ Royalties
+              ↺ Believe
             </button>
             <button
               onClick={() => {
@@ -1892,7 +1934,7 @@ function ReportInner({ cfg }) {
             <p><strong>3. Le crochet ✓</strong><br />
               Un montant avec un ✓ est déjà enregistré dans Airtable. Il ne se modifie pas ici. Pour le changer,
               modifie ou supprime l&apos;entrée dans la table Revenus : le tableau se met à jour tout seul.</p>
-            <p><strong>4. Rafraîchir (↺ Royalties / ↺ Shopify)</strong><br />
+            <p><strong>4. Rafraîchir (↺ Believe / ↺ Shopify)</strong><br />
               Ces boutons vont chercher à nouveau les derniers chiffres, par exemple après l&apos;import d&apos;un
               nouveau rapport Believe. Seules les cellules sans ✓ sont mises à jour. Attention : une correction
               faite à la main et pas encore sauvegardée sera remplacée.</p>
@@ -1922,6 +1964,7 @@ function ReportInner({ cfg }) {
           montantField={revenusMontantField}
           categorieField={revenusCategorieField}
           descriptionField={revenusDescriptionField}
+          periodStart={periodStart}
         />
       </div>
 
@@ -1930,7 +1973,9 @@ function ReportInner({ cfg }) {
       </h2>
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-6">
         <h3 className="text-base font-semibold text-gray-gray700 dark:text-gray-gray100 mb-2">
-          Existantes sur la période (non encore rapportées)
+          {currentEtat
+            ? `Rapportées dans l'état de compte du ${currentEtat.date}`
+            : "Existantes sur la période (non encore rapportées)"}
         </h3>
         <ExistingEntriesList
           title="Dépenses"
@@ -1939,8 +1984,10 @@ function ReportInner({ cfg }) {
           dateField={depensesDateField}
           montantField={depensesMontantField}
           categorieField={depensesCategorieField}
+          noFactureField={depensesNoFactureField}
           fournisseurField={depensesFournisseurField}
           descriptionField={depensesDescriptionField}
+          periodStart={periodStart}
         />
       </div>
 
