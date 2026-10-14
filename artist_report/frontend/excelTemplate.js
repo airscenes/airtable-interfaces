@@ -12,6 +12,11 @@
 // - One-row blocks: a row carrying `${depense.montant}`, `${depense.date}`…
 //   is duplicated once per record, each copy filled with that record. With no
 //   record, the row is kept (so formulas pointing at it stay valid) but emptied.
+// - Sections: several consecutive template rows, each carrying its own prefix
+//   (e.g. a group header `${revenu_compte.nom}` row followed by an item
+//   `${revenu.montant}` row), replaced by an ordered list of rows where each
+//   entry picks the template row to copy by prefix. Used for grouped listings
+//   (header, items, header, items…) that a one-row block can't express.
 //
 // A cell holding exactly one tag whose value is a number receives the number
 // itself (not text), so its number format and the formulas using it work.
@@ -143,6 +148,45 @@ function copyRow(ws, src, dest) {
   });
 }
 
+// Snapshot of one row (values, styles, height), so it can be written elsewhere
+// after the rows around it have been moved or overwritten.
+function snapshotRow(ws, rowNumber) {
+  const row = ws.getRow(rowNumber);
+  const cells = [];
+  row.eachCell({ includeEmpty: true }, (cell, col) => {
+    cells.push({ col, value: cell.value, style: JSON.parse(JSON.stringify(cell.style || {})) });
+  });
+  return { height: row.height, cells };
+}
+
+function writeSnapshot(ws, snap, rowNumber) {
+  const row = ws.getRow(rowNumber);
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.value = null;
+    cell.style = {};
+  });
+  row.height = snap.height;
+  for (const { col, value, style } of snap.cells) {
+    const cell = row.getCell(col);
+    cell.value = value;
+    cell.style = JSON.parse(JSON.stringify(style));
+  }
+}
+
+/**
+ * Copy a worksheet (values, styles, merges, column widths, images, page setup)
+ * into a new tab of the same workbook. ExcelJS has no native sheet copy.
+ * Run `unshareFormulas(src)` first if the source carries shared formulas.
+ */
+export function cloneWorksheet(wb, src, name) {
+  // structuredClone keeps Date cell values (JSON would turn them into strings).
+  // Tables are dropped: their names must be unique across the workbook.
+  const model = structuredClone({ ...src.model, tables: [] });
+  const copy = wb.addWorksheet(name);
+  copy.model = { ...model, id: copy.id, name, mergeCells: model.merges };
+  return copy;
+}
+
 // Re-point a formula's references after rows were inserted.
 // `imagesOf(r)` = final rows the template row r became (several for a block row).
 function translateFormula(formula, { selfOriginal, selfFinal, imagesOf, origCount, delta }) {
@@ -218,11 +262,16 @@ function rebuildMerges(ws, originalRanges, imagesOf) {
 
 /**
  * Fill a worksheet in place.
- * @param ws      ExcelJS worksheet (freshly loaded template)
- * @param tags    { key: string|number } scalar tags
- * @param blocks  { prefix: [{ field: string|number }] } one-row blocks
+ * @param ws        ExcelJS worksheet (freshly loaded template)
+ * @param tags      { key: string|number } scalar tags
+ * @param blocks    { prefix: [{ field: string|number }] } one-row blocks
+ * @param sections  { name: { prefixes: [prefix, …], rows: [{ prefix, data: { field } }] } }
+ *                  The template rows of `prefixes` must be consecutive. Each output row copies
+ *                  the template row of its prefix. Template rows whose prefix never appears in
+ *                  `rows` disappear; with no rows at all, the template rows are kept but emptied.
+ * @returns { imagesOf } imagesOf(templateRow) = final row numbers that template row became.
  */
-export function fillTemplate(ws, { tags = {}, blocks = {} }) {
+export function fillTemplate(ws, { tags = {}, blocks = {}, sections = {} }) {
   unshareFormulas(ws);
 
   // Unmerge everything up front: ExcelJS doesn't move merges with spliced rows,
@@ -241,24 +290,57 @@ export function fillTemplate(ws, { tags = {}, blocks = {} }) {
   for (const range of originalMerges) ws.unMergeCells(range);
   for (const { r, c, style } of mergedStyles) ws.getCell(r, c).style = style;
   const origCount = ws.rowCount;
-  // layout[finalRow - 1] = template row now sitting there. Rows are only ever
-  // inserted (never removed), so every template row keeps at least one image.
+  // layout[finalRow - 1] = template row now sitting there. Blocks only insert
+  // rows; a section may drop a template row whose prefix it doesn't use, which
+  // then has no image (formulas pointing at it are left as they were).
   const layout = Array.from({ length: origCount }, (_, i) => i + 1);
+  const findRow = (prefix) => {
+    for (let r = 1; r <= origCount; r++) if (rowHasTagPrefix(ws, r, prefix)) return r;
+    return null;
+  };
 
-  // Blocks, bottom-up: expanding a block only pushes down rows below it, so
+  // Blocks and sections, bottom-up: expanding one only moves rows below it, so
   // the anchors found above it stay valid.
   const anchors = [];
   for (const prefix of Object.keys(blocks)) {
-    for (let r = 1; r <= origCount; r++) {
-      if (rowHasTagPrefix(ws, r, prefix)) {
-        anchors.push({ prefix, row: r });
-        break;
-      }
+    const row = findRow(prefix);
+    if (row) anchors.push({ prefix, row });
+  }
+  for (const { prefixes = [], rows = [] } of Object.values(sections)) {
+    const rowOf = new Map();
+    for (const prefix of prefixes) {
+      const row = findRow(prefix);
+      if (row) rowOf.set(prefix, row);
     }
+    if (!rowOf.size) continue;
+    const tplRows = [...rowOf.values()];
+    anchors.push({ section: { rowOf, rows }, row: Math.min(...tplRows), end: Math.max(...tplRows) });
   }
   anchors.sort((a, b) => b.row - a.row);
 
-  for (const { prefix, row } of anchors) {
+  for (const { prefix, row, end, section } of anchors) {
+    if (section) {
+      const size = end - row + 1;
+      const snaps = Array.from({ length: size }, (_, i) => snapshotRow(ws, row + i));
+      let out = section.rows
+        .filter((r) => section.rowOf.has(r.prefix))
+        .map((r) => ({ tpl: section.rowOf.get(r.prefix), prefix: r.prefix, data: r.data }));
+      if (!out.length) out = snaps.map((_, i) => ({ tpl: row + i, prefix: null, data: null }));
+      if (out.length > size) ws.spliceRows(end + 1, 0, ...Array.from({ length: out.length - size }, () => []));
+      else if (out.length < size) ws.spliceRows(row + out.length, size - out.length);
+      layout.splice(row - 1, size, ...out.map((o) => o.tpl));
+      out.forEach((o, k) => {
+        writeSnapshot(ws, snaps[o.tpl - row], row + k);
+        ws.getRow(row + k).eachCell({ includeEmpty: false }, (cell) => {
+          if (!o.data) {
+            cell.value = null;
+            return;
+          }
+          fillCell(cell, (key) => (key.startsWith(`${o.prefix}.`) ? (o.data[key.slice(o.prefix.length + 1)] ?? "") : undefined));
+        });
+      });
+      continue;
+    }
     const records = blocks[prefix] || [];
     const extra = records.length - 1;
     if (extra > 0) {
@@ -296,7 +378,8 @@ export function fillTemplate(ws, { tags = {}, blocks = {} }) {
   });
 
   // Re-point formulas, and drop cached results so Excel recalculates them.
-  if (finalCount !== origCount) {
+  // A section can reorder rows without changing the count, so compare the layout itself.
+  if (layout.some((original, i) => original !== i + 1)) {
     ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
       row.eachCell({ includeEmpty: false }, (cell) => {
         if (!isFormula(cell.value)) return;
@@ -314,4 +397,5 @@ export function fillTemplate(ws, { tags = {}, blocks = {} }) {
   }
 
   rebuildMerges(ws, originalMerges, imagesOf);
+  return { imagesOf };
 }
