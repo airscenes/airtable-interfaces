@@ -6,7 +6,7 @@ import {
   expandRecord,
 } from "@airtable/blocks/interface/ui";
 import ExcelJS from "exceljs";
-import { fillTemplate, fixOverlappingMerges, normalizeWorkbookForExcel } from "./excelTemplate";
+import { fillTemplate, fixOverlappingMerges, normalizeWorkbookForExcel, copyWorksheet } from "./excelTemplate";
 import "./style.css";
 
 // --- Helpers ---
@@ -57,11 +57,116 @@ function isoFromParts(p) {
   return p ? `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}` : "";
 }
 
-function isInPeriod(iso, year, half) {
-  const p = parseIsoParts(iso);
-  if (!p || p.year !== year) return false;
-  return half === "H1" ? p.month <= 6 : p.month >= 7;
+const pad2 = (n) => String(n).padStart(2, "0");
+
+// A reporting period: a half-year (H1/H2) or a single month, from the PeriodPicker
+// selection { granularity: "half" | "month", year, half, month }. Bounds are ISO
+// strings compared as strings (no Date objects, so no timezone shift).
+//   start / end  first and last day, inclusive
+//   next         first day after the period (exclusive bound)
+//   prevStart    start of the previous period of the same granularity (rattrapages)
+//   closeFrom    first day of the period's last month: an État de compte dated from
+//                there on closes the period (older États are not always dated on the
+//                last day, e.g. 2025-12-01 for July–December)
+function buildPeriod({ granularity, year, half, month }) {
+  if (granularity === "month") {
+    const lastDay = new Date(year, month, 0).getDate();
+    const [py, pm] = month === 1 ? [year - 1, 12] : [year, month - 1];
+    const [ny, nm] = month === 12 ? [year + 1, 1] : [year, month + 1];
+    return {
+      key: `${year}-${pad2(month)}`,
+      year,
+      months: [month],
+      start: `${year}-${pad2(month)}-01`,
+      end: `${year}-${pad2(month)}-${pad2(lastDay)}`,
+      next: `${ny}-${pad2(nm)}-01`,
+      prevStart: `${py}-${pad2(pm)}-01`,
+      closeFrom: `${year}-${pad2(month)}-01`,
+      label: `${MONTHS_FR[month - 1].toUpperCase()} ${year}`,
+      shortLabel: `${MONTHS_FR[month - 1].toLowerCase()} ${year}`,
+      fileLabel: `${year}-${pad2(month)}`,
+    };
+  }
+  const h1 = half !== "H2";
+  return {
+    key: `${year}-${h1 ? "H1" : "H2"}`,
+    year,
+    months: h1 ? [1, 2, 3, 4, 5, 6] : [7, 8, 9, 10, 11, 12],
+    start: h1 ? `${year}-01-01` : `${year}-07-01`,
+    end: h1 ? `${year}-06-30` : `${year}-12-31`,
+    next: h1 ? `${year}-07-01` : `${year + 1}-01-01`,
+    prevStart: h1 ? `${year - 1}-07-01` : `${year}-01-01`,
+    closeFrom: h1 ? `${year}-06-01` : `${year}-12-01`,
+    label: h1 ? `JAN - JUIN ${year}` : `JUIL - DEC ${year}`,
+    shortLabel: h1 ? `janv.–juin ${year}` : `juil.–déc. ${year}`,
+    fileLabel: h1 ? `Jan-Juin_${year}` : `Juil-Dec_${year}`,
+  };
 }
+
+const defaultPeriodSelection = () => ({
+  granularity: "half",
+  year: new Date().getFullYear(),
+  half: "H1",
+  month: new Date().getMonth() + 1,
+});
+
+function isInPeriod(value, period) {
+  const iso = isoFromParts(parseIsoParts(value));
+  return !!iso && iso >= period.start && iso <= period.end;
+}
+
+// First non-empty value among the given date fields (read field, then write field).
+function readEntryDate(rec, dateFields) {
+  let d = null;
+  for (const f of dateFields) {
+    if (!f) continue;
+    d = rec.getCellValue(f);
+    if (d == null) d = rec.getCellValueAsString(f);
+    if (d != null && d !== "") break;
+  }
+  return d;
+}
+
+const linksTo = (rec, field, id) => {
+  if (!field || !id) return false;
+  const v = rec.getCellValue(field);
+  return Array.isArray(v) && v.some((l) => l.id === id);
+};
+
+const linkedIds = (rec, field) => {
+  if (!rec || !field) return [];
+  const v = rec.getCellValue(field);
+  return Array.isArray(v) ? v.map((l) => l.id) : [];
+};
+
+// Case- and accent-insensitive search over a list of { name, subtitle }.
+function filterBySearch(items, search) {
+  const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const terms = fold(search).split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return items;
+  return items.filter((c) => {
+    const haystack = fold(`${c.name} ${c.subtitle || ""}`);
+    return terms.every((t) => haystack.includes(t));
+  });
+}
+
+// Card image URL from an attachment field, a lookup of attachments (cell =
+// [{ linkedRecordId, value }], value = one attachment or an array of them) or a
+// text/URL/formula field holding a URL.
+function getImageUrl(rec, field) {
+  if (!rec || !field) return null;
+  const v = rec.getCellValue(field);
+  const items = Array.isArray(v)
+    ? v.flatMap((x) => (x && typeof x === "object" && "linkedRecordId" in x ? x.value : x))
+    : [v];
+  for (const a of items) {
+    if (a && typeof a === "object" && a.url) return a.thumbnails?.large?.url || a.url;
+    if (typeof a === "string" && /^https?:\/\//.test(a.trim())) return a.trim();
+  }
+  return null;
+}
+
+const safeFileName = (s) => String(s).replace(/[^a-zA-Z0-9_-]+/g, "_");
 
 function getInitials(name) {
   if (!name) return "?";
@@ -91,7 +196,29 @@ function getCustomProperties(base) {
 
   const anyField = () => true;
 
+  const artistesTable = findTable("artiste") || tables[0];
+  const projetsTable = findTable("projet") || tables[0];
+
   return [
+    // --- Mode: Canal page (one canal at a time) or Artiste page (all canaux of an artist) ---
+    {
+      key: "mode",
+      label: "Mode de la page",
+      type: "enum",
+      possibleValues: [
+        { value: "canal", label: "Canal (un canal à la fois)" },
+        { value: "artiste", label: "Artiste (tous les canaux d'un artiste)" },
+      ],
+      defaultValue: "canal",
+    },
+
+    // --- Artistes → Projets → Canaux (mode Artiste) ---
+    { key: "artistesTable", label: "Table des Artistes (mode Artiste)", type: "table" },
+    { key: "artistesImageField", label: "Champ image (Artistes, optionnel)", type: "field", table: artistesTable, shouldFieldBeAllowed: anyField },
+    { key: "artistesProjetsLinkField", label: "Lien Projets (Artistes)", type: "field", table: artistesTable, shouldFieldBeAllowed: anyField },
+    { key: "projetsTable", label: "Table des Projets (mode Artiste)", type: "table" },
+    { key: "projetsCanauxLinkField", label: "Lien Canaux (Projets)", type: "field", table: projetsTable, shouldFieldBeAllowed: anyField },
+
     // --- Canaux ---
     { key: "canauxTable", label: "Table des Canaux (projets/albums)", type: "table" },
     { key: "canalImageField", label: "Champ image (Canaux)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
@@ -155,6 +282,7 @@ function getCustomProperties(base) {
     { key: "etatsPaiementField", label: "Champ Paiement (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
     { key: "etatsRevenusLinkField", label: "Lien Revenus (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
     { key: "etatsDepensesLinkField", label: "Lien Dépenses (États de compte)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
+    { key: "etatsArtisteLinkField", label: "Lien Artiste (États de compte, optionnel — rempli en mode Artiste)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
     { key: "soldeOuvertureCompte", label: "No de compte Solde d'ouverture (numero_compte, ex. 4000)", type: "string", defaultValue: "4000" },
     { key: "soldeReporteCompte", label: "No de compte Solde reporté (dépense, numero_compte, ex. 5000)", type: "string", defaultValue: "5000" },
 
@@ -212,52 +340,76 @@ function CanalCard({ name, subtitle, imageUrl, onClick }) {
 
 // --- UI: Period picker ---
 
-function PeriodPicker({ year, half, onChangeYear, onChangeHalf }) {
+function SegmentedButtons({ options, value, onChange }) {
+  return (
+    <div className="flex border border-gray-gray200 dark:border-gray-gray600 rounded overflow-hidden">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          onClick={() => onChange(o.value)}
+          className={`px-3 py-1.5 text-sm ${
+            value === o.value
+              ? "bg-blue-blue text-white"
+              : "bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100"
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SelectWithArrow({ value, onChange, children }) {
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={(e) => onChange(parseInt(e.target.value, 10))}
+        className="appearance-none bg-white dark:bg-gray-gray700 border border-gray-gray200
+                   dark:border-gray-gray600 rounded px-3 py-1.5 pr-8 text-sm
+                   text-gray-gray700 dark:text-gray-gray100"
+      >
+        {children}
+      </select>
+      <svg className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none text-gray-gray500" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M5.5 7.5l4.5 4.5 4.5-4.5z" />
+      </svg>
+    </div>
+  );
+}
+
+// value = { granularity: "half" | "month", year, half: "H1" | "H2", month: 1–12 }
+function PeriodPicker({ value, onChange }) {
   const now = new Date().getFullYear();
   const years = [];
   for (let y = now - 4; y <= now + 1; y++) years.push(y);
+  const set = (patch) => onChange({ ...value, ...patch });
 
   return (
     <div className="flex items-center gap-4 flex-wrap">
+      <SegmentedButtons
+        options={[{ value: "month", label: "Mois" }, { value: "half", label: "Semestre" }]}
+        value={value.granularity}
+        onChange={(granularity) => set({ granularity })}
+      />
       <label className="flex items-center gap-2 text-sm">
         <span className="text-gray-gray600 dark:text-gray-gray300">Année</span>
-        <div className="relative">
-          <select
-            value={year}
-            onChange={(e) => onChangeYear(parseInt(e.target.value, 10))}
-            className="appearance-none bg-white dark:bg-gray-gray700 border border-gray-gray200
-                       dark:border-gray-gray600 rounded px-3 py-1.5 pr-8 text-sm
-                       text-gray-gray700 dark:text-gray-gray100"
-          >
-            {years.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <svg className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none text-gray-gray500" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M5.5 7.5l4.5 4.5 4.5-4.5z" />
-          </svg>
-        </div>
+        <SelectWithArrow value={value.year} onChange={(year) => set({ year })}>
+          {years.map((y) => <option key={y} value={y}>{y}</option>)}
+        </SelectWithArrow>
       </label>
-      <div className="flex border border-gray-gray200 dark:border-gray-gray600 rounded overflow-hidden">
-        <button
-          onClick={() => onChangeHalf("H1")}
-          className={`px-3 py-1.5 text-sm ${
-            half === "H1"
-              ? "bg-blue-blue text-white"
-              : "bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100"
-          }`}
-        >
-          Janvier – Juin
-        </button>
-        <button
-          onClick={() => onChangeHalf("H2")}
-          className={`px-3 py-1.5 text-sm ${
-            half === "H2"
-              ? "bg-blue-blue text-white"
-              : "bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100"
-          }`}
-        >
-          Juillet – Décembre
-        </button>
-      </div>
+      {value.granularity === "month" ? (
+        <SelectWithArrow value={value.month} onChange={(month) => set({ month })}>
+          {MONTHS_FR.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
+        </SelectWithArrow>
+      ) : (
+        <SegmentedButtons
+          options={[{ value: "H1", label: "Janvier – Juin" }, { value: "H2", label: "Juillet – Décembre" }]}
+          value={value.half}
+          onChange={(half) => set({ half })}
+        />
+      )}
     </div>
   );
 }
@@ -641,22 +793,34 @@ function readDateForExport(rec, dateField, dateWriteField) {
   return tryRead(dateField) || tryRead(dateWriteField) || "";
 }
 
-async function exportFromTemplate({
-  templateUrl,
-  canalName, year, half,
-  monthIndices,
-  revenusInputs, revenusChoices, existingRevenusByCell,
-  existingDepenses,
-  depensesDateField, depensesDateWriteField,
-  depensesMontantField, depensesNotesField, depensesFournisseurField, depensesDescriptionField,
-  depensesNoFactureField, depensesModePaiementField, depensesArtisteField,
-  existingRevenus,
-  revenusDateField, revenusDateWriteField,
-  revenusMontantField, revenusCategorieField, revenusNotesField, revenusDescriptionField,
-  revenusNoFactureField, revenusModePaiementField, revenusFournisseurField, revenusArtisteField,
+// First attachment of the canal's template field: { url } or { error } (UI message).
+function getTemplateUrl(canalRec, templateAttachmentField) {
+  if (!templateAttachmentField) return { error: "champ Template Excel non configuré." };
+  if (!canalRec) return { error: "canal introuvable." };
+  const attachments = canalRec.getCellValue(templateAttachmentField);
+  if (!Array.isArray(attachments) || attachments.length === 0) return { error: "aucun template attaché sur ce canal." };
+  if (!attachments[0].url) return { error: "URL du template introuvable." };
+  return { url: attachments[0].url };
+}
+
+// Fill one canal's template for a period. `revenus` / `depenses` are the entries
+// listed in the report (grid and solde entries already left out); the grid comes
+// from `revenusByCell` (saved) + `revenusInputs` (typed, canal page only).
+// Returns the workbook and the totals written in it.
+async function fillCanalReport({
+  templateUrl, canalName, period, cfg,
+  revenusChoices, revenusByCell, revenusInputs = {},
+  revenus: existingRevenus, depenses: existingDepenses,
   ayantsDroits, soldePrecedent,
 }) {
-  const periodLabel = half === "H1" ? `JAN - JUIN ${year}` : `JUIL - DEC ${year}`;
+  const {
+    depensesDateField, depensesDateWriteField,
+    depensesMontantField, depensesNotesField, depensesFournisseurField, depensesDescriptionField,
+    depensesNoFactureField, depensesModePaiementField, depensesArtisteField,
+    revenusDateField, revenusDateWriteField,
+    revenusMontantField, revenusCategorieField, revenusNotesField, revenusDescriptionField,
+    revenusNoFactureField, revenusModePaiementField, revenusFournisseurField, revenusArtisteField,
+  } = cfg;
 
   const res = await fetch(templateUrl);
   if (!res.ok) throw new Error(`Téléchargement template échoué: ${res.status}`);
@@ -672,28 +836,31 @@ async function exportFromTemplate({
   const gridCellValue = (m, choiceId) => {
     const raw = (revenusInputs[m] && revenusInputs[m][choiceId]) || "";
     const typed = parseFloat(String(raw).replace(",", "."));
-    const saved = existingRevenusByCell[m] && existingRevenusByCell[m][choiceId];
+    const saved = revenusByCell[m] && revenusByCell[m][choiceId];
     return (isNaN(typed) ? 0 : typed) + (typeof saved === "number" ? saved : 0);
   };
 
   const tags = {
     nom_spectacle: canalName,
     nom_artiste: canalName,
-    periode: periodLabel,
-    annee: String(year),
+    periode: period.label,
+    annee: String(period.year),
   };
   revenusChoices.forEach((c, j) => {
     tags[`colonne.c${j + 1}`] = c.name;
   });
+  // Templates carry six month rows (half-year); a monthly period fills the first one
+  // and blanks the others (an unknown tag would stay visible).
   let gridTotal = 0;
-  monthIndices.forEach((m, i) => {
-    tags[`m${i + 1}.nom`] = MONTHS_FR[m - 1];
+  for (let i = 0; i < Math.max(6, period.months.length); i++) {
+    const m = period.months[i];
+    tags[`m${i + 1}.nom`] = m ? MONTHS_FR[m - 1] : "";
     revenusChoices.forEach((c, j) => {
-      const v = gridCellValue(m, c.id);
+      const v = m ? gridCellValue(m, c.id) : 0;
       gridTotal += v;
       tags[`m${i + 1}.c${j + 1}`] = v || "";
     });
-  });
+  }
 
   const str = (rec, f) => (f ? rec.getCellValueAsString(f) : "");
   const isoDate = (rec, f, fw) => {
@@ -753,6 +920,10 @@ async function exportFromTemplate({
 
   fillTemplate(ws, { tags, blocks: { depense, revenu, ayant_droit } });
 
+  return { wb, ws, totals: { totalRevenus, totalDepenses, net, soldePrecedent, totalASpliter } };
+}
+
+async function downloadWorkbook(wb, filename) {
   // Force Excel to recalculate the template's formulas when opening
   wb.calcProperties = { ...(wb.calcProperties || {}), fullCalcOnLoad: true };
   normalizeWorkbookForExcel(wb);
@@ -761,15 +932,336 @@ async function exportFromTemplate({
   const blob = new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const safe = (s) => String(s).replace(/[^a-zA-Z0-9_-]+/g, "_");
-  const periodFile = half === "H1" ? `Jan-Juin_${year}` : `Juil-Dec_${year}`;
   a.href = url;
-  a.download = `Rapport_${safe(canalName)}_${periodFile}.xlsx`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+// Excel sheet name: max 31 chars, none of []:*?/\ and unique (case-insensitive).
+function uniqueSheetName(raw, used) {
+  const base = String(raw || "Canal").replace(/[[\]:*?/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 31) || "Canal";
+  let name = base;
+  for (let k = 2; used.has(name.toLowerCase()); k++) {
+    const suffix = ` (${k})`;
+    name = base.slice(0, 31 - suffix.length) + suffix;
+  }
+  used.add(name.toLowerCase());
+  return name;
+}
+
+const CURRENCY_FMT = '#,##0.00 "$";-#,##0.00 "$"';
+
+// Artist report: a "Sommaire" sheet (one row per canal + total), then each canal's
+// filled template on its own sheet. `items` = [{ canalName, statusLabel, fillArgs }].
+async function buildArtistWorkbook({ artistName, period, items }) {
+  const out = new ExcelJS.Workbook();
+  const sommaire = out.addWorksheet("Sommaire");
+  const used = new Set(["sommaire"]);
+  const rows = [];
+  for (const item of items) {
+    const { ws, totals } = await fillCanalReport(item.fillArgs);
+    copyWorksheet(ws, out, uniqueSheetName(item.canalName, used));
+    rows.push({ canal: item.canalName, statut: item.statusLabel, ...totals });
+  }
+
+  sommaire.columns = [
+    { width: 42 }, { width: 22 }, { width: 16 }, { width: 16 },
+    { width: 18 }, { width: 18 }, { width: 16 }, { width: 16 },
+  ];
+  sommaire.getCell("A1").value = `Rapport — ${artistName}`;
+  sommaire.getCell("A1").font = { bold: true, size: 14 };
+  sommaire.getCell("A2").value = `Période : ${period.label}`;
+  const header = ["Canal", "Statut", "Revenus", "Dépenses", "Solde précédent", "Total à partager", "Paiement", "Déficit reporté"];
+  const headerRow = sommaire.getRow(4);
+  header.forEach((h, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = h;
+    cell.font = { bold: true };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEEEEEE" } };
+    cell.border = { bottom: { style: "thin" } };
+    if (i >= 2) cell.alignment = { horizontal: "right" };
+  });
+  rows.forEach((r, k) => {
+    const row = sommaire.getRow(5 + k);
+    row.values = [
+      r.canal, r.statut, r.totalRevenus, r.totalDepenses, r.soldePrecedent,
+      r.totalASpliter, Math.max(r.totalASpliter, 0), Math.min(r.totalASpliter, 0),
+    ];
+    for (let c = 3; c <= 8; c++) row.getCell(c).numFmt = CURRENCY_FMT;
+  });
+  const totalRow = sommaire.getRow(5 + rows.length);
+  totalRow.getCell(1).value = "Total";
+  const last = 4 + rows.length;
+  ["C", "D", "E", "F", "G", "H"].forEach((col, i) => {
+    const values = rows.map((r) => [r.totalRevenus, r.totalDepenses, r.soldePrecedent, r.totalASpliter,
+      Math.max(r.totalASpliter, 0), Math.min(r.totalASpliter, 0)][i]);
+    const cell = totalRow.getCell(3 + i);
+    cell.value = rows.length
+      ? { formula: `SUM(${col}5:${col}${last})`, result: values.reduce((s, v) => s + v, 0) }
+      : 0;
+    cell.numFmt = CURRENCY_FMT;
+  });
+  totalRow.font = { bold: true };
+  totalRow.eachCell((cell) => { cell.border = { top: { style: "thin" } }; });
+
+  return out;
+}
+
+// --- Per-canal period computation (saved Airtable data only) ---
+// Shared by the canal page (which adds its unsaved grid/saisies on top) and the
+// artist page (saved entries only).
+//
+// The canal's États de compte split its timeline: each État covers the days after
+// the previous État up to its own date. For the period:
+//   closed   no État falls inside the period before its last month, and one is dated
+//            from period.closeFrom on: that État covers the whole period
+//   partial  an État is dated inside the period before its last month (e.g. a monthly
+//            État within a half-year): the period can only be closed month by month
+//   open     no État dated on or after the period start
+// Open period: unlinked entries of the period, plus rattrapages (older unlinked
+// entries) when the previous État closed the period right before this one.
+function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, soldeCompteId, soldeReporteCompteId }) {
+  const {
+    revenusCanalLinkField, revenusDateField, revenusDateWriteField, revenusMontantField,
+    revenusCategorieField, revenusEtatLinkField, revenusNotesField,
+    depensesCanalLinkField, depensesDateField, depensesDateWriteField, depensesMontantField,
+    depensesCategorieField, depensesEtatLinkField,
+    ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField,
+    etatsTable, etatsCanalLinkField, etatsDateField, etatsFermetureField,
+  } = cfg;
+
+  const etats = !etatsTable || !etatsCanalLinkField || !etatsDateField || !records.etats ? [] : records.etats
+    .filter((rec) => linksTo(rec, etatsCanalLinkField, canalId))
+    // Raw value is ISO; the string form follows the field's display format (e.g. 30/06/2026).
+    .map((rec) => {
+      const raw = rec.getCellValue(etatsDateField);
+      return { rec, date: isoFromParts(parseIsoParts(raw || rec.getCellValueAsString(etatsDateField))) };
+    })
+    .filter((e) => e.date)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  let previousEtat = null;
+  for (const e of etats) if (e.date < period.start) previousEtat = e;
+  const innerEtats = etats.filter((e) => e.date >= period.start && e.date < period.closeFrom);
+  const currentEtat = innerEtats.length ? null : etats.find((e) => e.date >= period.closeFrom) || null;
+  const status = innerEtats.length ? "partial" : currentEtat ? "closed" : "open";
+  // Closed/partial: entries linked to the État(s) of the period are shown as reported.
+  const reportedEtatIds = new Set(
+    (status === "partial" ? etats.filter((e) => e.date >= period.start && e.date <= period.end) : currentEtat ? [currentEtat] : [])
+      .map((e) => e.rec.id),
+  );
+  // An État dated after the period (e.g. a half-year État seen from one of its months)
+  // also holds other periods' entries: keep the ones dated in this period.
+  const currentEtatInside = !!currentEtat && currentEtat.date <= period.end;
+  const acceptsRattrapages = status === "open" && !!previousEtat && previousEtat.date >= period.prevStart;
+
+  // Unlinked entries dated between the previous État and the period that this period
+  // doesn't pull in: an earlier period is still open, so closing this one would skip them.
+  let orphanCount = 0;
+  const filterEntries = (recs, canalLinkField, etatLinkField, dateFields) => {
+    if (!recs || !canalId || !canalLinkField || !etatLinkField || !dateFields.some(Boolean)) return [];
+    return recs.filter((rec) => {
+      if (!linksTo(rec, canalLinkField, canalId)) return false;
+      const etat = linkedIds(rec, etatLinkField);
+      const d = readEntryDate(rec, dateFields);
+      if (status !== "open") {
+        if (!etat.some((id) => reportedEtatIds.has(id))) return false;
+        return status === "partial" || currentEtatInside || isInPeriod(d, period);
+      }
+      if (etat.length > 0) return false;
+      if (isInPeriod(d, period)) return true;
+      const iso = isoFromParts(parseIsoParts(d));
+      if (!iso || iso >= period.start) return false;
+      if (acceptsRattrapages) return true;
+      if (previousEtat && iso > previousEtat.date) orphanCount += 1;
+      return false;
+    });
+  };
+
+  const revenusDateFields = [revenusDateField, revenusDateWriteField];
+  const existingRevenus = filterEntries(records.revenus, revenusCanalLinkField, revenusEtatLinkField, revenusDateFields);
+  const existingDepenses = filterEntries(records.depenses, depensesCanalLinkField, depensesEtatLinkField, [depensesDateField, depensesDateWriteField]);
+
+  // Map saved revenus onto grid cells: { month: { colId: amount } }. A record matches a
+  // column by its Notes label, falling back to its Compte link. `gridIds` = records
+  // placed in the grid, kept out of the report's "autres revenus" list (else counted twice).
+  const revenusByCell = {};
+  const gridIds = new Set();
+  if (revenusMontantField && revenusCategorieField && revenusChoices.length > 0) {
+    for (const rec of existingRevenus) {
+      const d = readEntryDate(rec, revenusDateFields);
+      const parts = parseIsoParts(d);
+      if (!parts || !isInPeriod(d, period)) continue;
+      const cat = rec.getCellValue(revenusCategorieField);
+      const compteId = Array.isArray(cat) && cat[0] ? cat[0].id : null;
+      const notes = revenusNotesField ? rec.getCellValueAsString(revenusNotesField) : "";
+      let col = revenusChoices.find((c) => c.label === notes && c.compteId === compteId);
+      if (!col) col = revenusChoices.find((c) => c.label === notes);
+      if (!col) col = revenusChoices.find((c) => c.compteId === compteId);
+      if (!col) continue;
+      const amt = Number(rec.getCellValue(revenusMontantField)) || 0;
+      if (!revenusByCell[parts.month]) revenusByCell[parts.month] = {};
+      revenusByCell[parts.month][col.id] = (revenusByCell[parts.month][col.id] || 0) + amt;
+      gridIds.add(rec.id);
+    }
+  }
+
+  // Ayants-droits of the canal, for the PARTAGE section of the Excel report.
+  // `part` is the fraction stored by the percent field (0.5 = 50 %).
+  const ayantsDroits = !ayantsTable || !ayantsCanalLinkField || !ayantsPartField || !records.ayants ? [] : records.ayants
+    .filter((rec) => linksTo(rec, ayantsCanalLinkField, canalId))
+    .map((rec) => ({
+      nom: (ayantsNomField && rec.getCellValueAsString(ayantsNomField)) || rec.name || "",
+      part: Number(rec.getCellValue(ayantsPartField)) || 0,
+    }));
+
+  const sum = (recs, f) => (!f ? 0 : recs.reduce((s, r) => s + (Number(r.getCellValue(f)) || 0), 0));
+  // Revenus on the "Solde d'ouverture" compte (4000) add to Solde précédent;
+  // dépenses on the "Solde reporté" compte (5000) subtract from it.
+  const isSoldeEntry = (rec) => !!soldeCompteId && linksTo(rec, revenusCategorieField, soldeCompteId);
+  const isSoldeReporteEntry = (rec) => !!soldeReporteCompteId && linksTo(rec, depensesCategorieField, soldeReporteCompteId);
+  const soldeEntriesTotal = sum(existingRevenus.filter(isSoldeEntry), revenusMontantField);
+  const soldeReporteEntriesTotal = sum(existingDepenses.filter(isSoldeReporteEntry), depensesMontantField);
+  const soldeFermeturePrecedent = previousEtat && etatsFermetureField
+    ? Number(previousEtat.rec.getCellValue(etatsFermetureField)) || 0
+    : 0;
+  const soldePrecedent = soldeFermeturePrecedent + soldeEntriesTotal - soldeReporteEntriesTotal;
+  const totalRevenus = sum(existingRevenus, revenusMontantField) - soldeEntriesTotal;
+  const totalDepenses = sum(existingDepenses, depensesMontantField) - soldeReporteEntriesTotal;
+
+  return {
+    status, previousEtat, currentEtat, innerEtats, orphanCount,
+    existingRevenus, existingDepenses, revenusByCell, gridIds, ayantsDroits,
+    // Entries listed in the Excel report (grid and solde entries are shown elsewhere).
+    reportRevenus: existingRevenus.filter((r) => !gridIds.has(r.id) && !isSoldeEntry(r)),
+    reportDepenses: existingDepenses.filter((r) => !isSoldeReporteEntry(r)),
+    soldeEntriesTotal, soldeReporteEntriesTotal, soldeFermeturePrecedent, soldePrecedent,
+    totalRevenus, totalDepenses,
+    totalASpliter: totalRevenus - totalDepenses + soldePrecedent,
+  };
+}
+
+// Properties without which computeCanalPeriod silently reads nothing (each Interface
+// page has its own extension settings: a new page starts unconfigured).
+function missingCoreConfig(cfg) {
+  const required = [
+    ["revenusCanalLinkField", "Lien Canal (Revenus)"],
+    ["revenusMontantField", "Champ Montant (Revenus)"],
+    ["revenusEtatLinkField", "Lien État de compte (Revenus)"],
+    ["depensesCanalLinkField", "Lien Canal (Dépenses)"],
+    ["depensesMontantField", "Champ Montant (Dépenses)"],
+    ["depensesEtatLinkField", "Lien État de compte (Dépenses)"],
+  ];
+  const missing = required.filter(([key]) => !cfg[key]).map(([, label]) => label);
+  if (!cfg.revenusDateField && !cfg.revenusDateWriteField) missing.push("Champ Date (Revenus)");
+  if (!cfg.depensesDateField && !cfg.depensesDateWriteField) missing.push("Champ Date (Dépenses)");
+  return missing;
+}
+
+const etatsConfigured = (cfg) => !!(cfg.etatsTable && cfg.etatsCanalLinkField && cfg.etatsDateField
+  && cfg.etatsOuvertureField && cfg.etatsPaiementField && cfg.etatsRevenusLinkField && cfg.etatsDepensesLinkField);
+
+// Why a canal's period can't be closed (null = it can). Unsaved entries are checked by the caller.
+function clotureBlockerFor(cfg, calc) {
+  if (!etatsConfigured(cfg)) return "Configure les champs États de compte dans les propriétés de l'extension.";
+  if (calc.status === "closed") return `Période déjà clôturée (état de compte du ${calc.currentEtat.date}).`;
+  if (calc.status === "partial") {
+    return `Période partiellement clôturée (état de compte du ${calc.innerEtats[0].date}) : clôture mois par mois.`;
+  }
+  if (calc.orphanCount > 0) {
+    const n = calc.orphanCount;
+    return `${n} entrée${n > 1 ? "s" : ""} d'une période antérieure non clôturée : clôture d'abord cette période.`;
+  }
+  return null;
+}
+
+// Fields of the État de compte closing `period` for a canal. Solde fermeture (Airtable
+// formula) = ouverture + période − paiement: paying out the positive total leaves 0, a
+// deficit is left as the closing balance and becomes the next period's solde précédent.
+// `extraRevenuIds` = revenus created just before (Believe/Shopify amounts saved at clôture).
+function buildEtatFields({ cfg, canalId, artisteId, period, calc, totalASpliter, extraRevenuIds = [] }) {
+  const round2 = (v) => Math.round(v * 100) / 100;
+  const fields = {
+    [cfg.etatsCanalLinkField.id]: [{ id: canalId }],
+    [cfg.etatsDateField.id]: period.end,
+    [cfg.etatsPaiementField.id]: round2(Math.max(totalASpliter, 0)),
+    [cfg.etatsRevenusLinkField.id]: [...calc.existingRevenus.map((r) => r.id), ...extraRevenuIds].map((id) => ({ id })),
+    [cfg.etatsDepensesLinkField.id]: calc.existingDepenses.map((r) => ({ id: r.id })),
+  };
+  // Solde d'ouverture may be computed in Airtable (formula/rollup): only set it when writable.
+  if (!cfg.etatsOuvertureField.isComputed) fields[cfg.etatsOuvertureField.id] = round2(calc.soldeFermeturePrecedent);
+  // Solde fermeture is frozen at clôture (the positive total is paid out, a deficit is carried),
+  // so later edits to linked entries don't change the next period's solde précédent.
+  if (cfg.etatsFermetureField && !cfg.etatsFermetureField.isComputed) {
+    fields[cfg.etatsFermetureField.id] = round2(Math.min(totalASpliter, 0));
+  }
+  if (artisteId && cfg.etatsArtisteLinkField && !cfg.etatsArtisteLinkField.isComputed) {
+    fields[cfg.etatsArtisteLinkField.id] = [{ id: artisteId }];
+  }
+  return fields;
+}
+
+// Comptes [{ id, name, code }] of the Comptes table. The interface page's search bar
+// also filters useRecords, so typing e.g. a canal name there empties the Comptes list:
+// every compte seen so far is kept, so a search can only hide comptes from useRecords,
+// never from the dropdowns.
+function useComptes(comptesTable, comptesNumeroField) {
+  const comptesRecords = useRecords(comptesTable);
+  const seenRef = useRef(new Map());
+  return useMemo(() => {
+    const seen = seenRef.current;
+    for (const rec of comptesRecords || []) {
+      const code = getCompteCode(rec, comptesNumeroField);
+      // Skip records whose cell values aren't loaded yet rather than caching a null code.
+      if (code == null) continue;
+      seen.set(rec.id, { id: rec.id, name: rec.name, code });
+    }
+    return Array.from(seen.values());
+  }, [comptesRecords, comptesNumeroField]);
+}
+
+function compteIdByCode(comptes, raw) {
+  const code = parseInt(String(raw || "").trim(), 10);
+  if (isNaN(code)) return null;
+  const c = comptes.find((x) => x.code === code);
+  return c ? c.id : null;
+}
+
+// Grid columns from the JSON config. Supports both {label, compteId} and
+// {compteId, labels: [...]} entries.
+function parseColumnsConfig(revenusColumnsJson, depensesColumnsJson) {
+  const parseOne = (raw) => {
+    if (!raw || typeof raw !== "string") return { cols: [], error: null };
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return { cols: [], error: null };
+      const cols = [];
+      for (const entry of parsed) {
+        if (entry && Array.isArray(entry.labels)) {
+          for (const label of entry.labels) {
+            cols.push({ label, compteId: entry.compteId, group: entry.group || null });
+          }
+        } else if (entry && entry.label) {
+          cols.push({ label: entry.label, compteId: entry.compteId, group: entry.group || null });
+        }
+      }
+      return { cols, error: null };
+    } catch (e) {
+      return { cols: [], error: e.message };
+    }
+  };
+  const r = parseOne(revenusColumnsJson);
+  const d = parseOne(depensesColumnsJson);
+  return { revenus: r.cols, depenses: d.cols, error: r.error || d.error || null };
+}
+
+// Each grid column = { id (input key), name (header), compteId (link write), label (Notes write) }.
+// The label is the id so 2 columns sharing the same compte still get separate cells.
+const toRevenusChoices = (cols) =>
+  cols.map((c) => ({ id: c.label, name: c.label, label: c.label, compteId: c.compteId, group: c.group }));
 
 // Promise cache for Supabase calls: effect re-runs share the in-flight request instead
 // of starting a new one, and a cancelled effect never throws a response away.
@@ -798,6 +1290,134 @@ async function postSupabaseRpc(supabaseUrl, anonKey, clientId, fn, body) {
     throw new Error(`Supabase ${response.status} ${response.statusText}${detail ? " — " + detail.slice(0, 200) : ""}`);
   }
   return response.json();
+}
+
+// --- Supabase sources of the Revenus grid ---
+// Believe royalties (by the ISRCs of the canal's Oeuvres) and Shopify sales (Shopify
+// project_id = Airtable canal record id), each as { month: amount } for the period.
+
+async function fetchBelieveByMonth(cfg, isrcs, period) {
+  const rows = await postSupabaseRpc(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.clientId, "get_royalties_summary", {
+    p_client_id: cfg.clientId,
+    p_isrcs: isrcs,
+    p_from: period.start,
+    p_to: period.end,
+  });
+  const byMonth = {};
+  for (const row of rows || []) {
+    const monthKey = (row.reporting_month || "").slice(0, 7); // YYYY-MM
+    const m = parseInt(monthKey.split("-")[1], 10);
+    if (!m || m < 1 || m > 12) continue;
+    byMonth[m] = (byMonth[m] || 0) + (parseFloat(row.total_net_revenue) || 0);
+  }
+  return byMonth;
+}
+
+async function fetchShopifyByMonth(cfg, canalId, period) {
+  const rows = await postSupabaseRpc(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.clientId, "get_shopify_sales_summary", {
+    p_client_id: cfg.clientId,
+    p_project_ids: [canalId],
+    p_from: period.start,
+    // get_shopify_sales_summary uses order_date < p_to, so p_to is exclusive.
+    p_to: period.next,
+  });
+  const byMonth = {};
+  for (const row of rows || []) {
+    // row.month is the first day of the month (YYYY-MM-DD)
+    const m = parseInt(String(row.month || "").slice(5, 7), 10);
+    if (!m || m < 1 || m > 12) continue;
+    // Sum total_revenue across all product categories for the month.
+    byMonth[m] = (byMonth[m] || 0) + (parseFloat(row.total_revenue) || 0);
+  }
+  return byMonth;
+}
+
+const supabaseConfigured = (cfg) => !!(cfg.supabaseUrl && cfg.supabaseAnonKey && cfg.clientId);
+
+// ISRCs of the canal's linked Oeuvres.
+function canalIsrcs(canalRec, cfg, oeuvresRecords) {
+  const { oeuvresTable, oeuvresLinkField, isrcField } = cfg;
+  if (!canalRec || !oeuvresTable || !oeuvresLinkField || !isrcField || !oeuvresRecords) return [];
+  const ids = new Set(linkedIds(canalRec, oeuvresLinkField));
+  if (ids.size === 0) return [];
+  return oeuvresRecords
+    .filter((rec) => ids.has(rec.id))
+    .map((rec) => rec.getCellValueAsString(isrcField))
+    .filter(Boolean);
+}
+
+// Months of the period that already have a revenu on `compteId` for the canal in
+// Airtable. Supabase amounts are not proposed for those months, so saving again
+// can't create duplicates.
+function monthsWithSavedCompte({ revenusRecords, cfg, canalId, compteId, period }) {
+  const set = new Set();
+  const { revenusCanalLinkField, revenusCategorieField, revenusDateField, revenusDateWriteField } = cfg;
+  if (!compteId || !revenusRecords || !canalId || !revenusCanalLinkField || !revenusCategorieField) return set;
+  for (const rec of revenusRecords) {
+    if (!linksTo(rec, revenusCanalLinkField, canalId) || !linksTo(rec, revenusCategorieField, compteId)) continue;
+    const d = readEntryDate(rec, [revenusDateField, revenusDateWriteField]);
+    if (!isInPeriod(d, period)) continue;
+    set.add(parseIsoParts(d).month);
+  }
+  return set;
+}
+
+// Supabase amounts not saved yet, as Revenus grid inputs { month: { columnLabel: "12.34" } }.
+function pendingGridInputs({ believe, shopify, revenusRecords, cfg, canalId, period, revenusChoices }) {
+  const inputs = {};
+  const add = (byMonth, label) => {
+    const col = revenusChoices.find((c) => c.label === label);
+    if (!byMonth || !col) return;
+    const saved = monthsWithSavedCompte({ revenusRecords, cfg, canalId, compteId: col.compteId, period });
+    for (const m of period.months) {
+      const total = byMonth[m];
+      if (!total || saved.has(m)) continue;
+      inputs[m] = { ...(inputs[m] || {}), [label]: total.toFixed(2) };
+    }
+  };
+  add(believe, cfg.royaltiesColumn);
+  add(shopify, SHOPIFY_COLUMN);
+  return inputs;
+}
+
+const sumInputs = (inputs) => {
+  let total = 0;
+  for (const catMap of Object.values(inputs)) {
+    for (const raw of Object.values(catMap)) {
+      const v = parseFloat(String(raw).replace(",", "."));
+      if (!isNaN(v)) total += v;
+    }
+  }
+  return total;
+};
+
+// Revenu records for Revenus grid inputs: one per filled cell, dated on the 1st of its month.
+function gridInputsToRecords({ inputs, columns, cfg, canalId, year }) {
+  const {
+    revenusDateWriteField: dateField, revenusMontantField: montantField, revenusCategorieField: categorieField,
+    revenusCanalLinkField: canalLinkField, revenusNotesField: notesField,
+  } = cfg;
+  const out = [];
+  if (!dateField || !montantField || !categorieField || !canalLinkField || !canalId) return out;
+  const byLabel = new Map(columns.map((c) => [c.id, c]));
+  for (const [mStr, catMap] of Object.entries(inputs)) {
+    const m = parseInt(mStr, 10);
+    for (const [label, raw] of Object.entries(catMap)) {
+      const v = parseFloat(String(raw).replace(",", "."));
+      if (!raw || isNaN(v) || v === 0) continue;
+      const col = byLabel.get(label);
+      if (!col || !col.compteId) continue;
+      const fields = {
+        [dateField.id]: monthIsoDate(year, m),
+        [montantField.id]: v,
+        [categorieField.id]: [{ id: col.compteId }],
+        [canalLinkField.id]: [{ id: canalId }],
+      };
+      if (notesField) fields[notesField.id] = label;
+      out.push({ fields });
+    }
+  }
+  return out;
 }
 
 // Read a Compte's numero from the configured field, fallback parses from name.
@@ -994,13 +1614,17 @@ function KpiTile({ label, value, accent }) {
 
 // --- Config prompt ---
 
-function ConfigPrompt() {
+function ConfigPrompt({ message }) {
   return (
     <div className="flex items-center justify-center min-h-screen p-8 bg-gray-gray50 dark:bg-gray-gray800">
       <div className="max-w-md text-center">
         <p className="text-gray-gray600 dark:text-gray-gray200">
-          Veuillez configurer les tables et champs dans les propriétés de l&apos;extension
-          (Canaux, Revenus, Dépenses, États de compte).
+          {message || (
+            <>
+              Veuillez configurer les tables et champs dans les propriétés de l&apos;extension
+              (Canaux, Revenus, Dépenses, États de compte).
+            </>
+          )}
         </p>
       </div>
     </div>
@@ -1020,86 +1644,55 @@ function RoyaltyReportApp() {
     return <ConfigPrompt />;
   }
 
+  if (customPropertyValueByKey.mode === "artiste") {
+    const { artistesTable, artistesProjetsLinkField, projetsTable, projetsCanauxLinkField } = customPropertyValueByKey;
+    if (!artistesTable || !artistesProjetsLinkField || !projetsTable || !projetsCanauxLinkField) {
+      return (
+        <ConfigPrompt message="Mode Artiste : configure la table Artistes (lien Projets) et la table Projets (lien Canaux) dans les propriétés de l'extension." />
+      );
+    }
+    return <ArtistApp cfg={customPropertyValueByKey} />;
+  }
+
   return <ReportInner cfg={customPropertyValueByKey} />;
 }
 
-function ReportInner({ cfg }) {
+// Canal page. In Artist mode it is opened on one canal (`fixedCanalId`) and its
+// "← Retour" goes back to the artist (`onBack`).
+function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null, initialPeriod = null }) {
   const {
     canauxTable, canalImageField, canalSubtitleField,
     revenusTable, revenusCanalLinkField, revenusDateField, revenusDateWriteField, revenusMontantField,
-    revenusCategorieField, revenusEtatLinkField, revenusNotesField, revenusDescriptionField,
-    revenusNoFactureField, revenusModePaiementField, revenusFournisseurField, revenusArtisteField,
+    revenusCategorieField, revenusNotesField, revenusDescriptionField,
     depensesTable, depensesCanalLinkField, depensesDateField, depensesDateWriteField, depensesMontantField,
-    depensesCategorieField, depensesEtatLinkField, depensesFournisseurField, depensesNotesField, depensesDescriptionField,
-    depensesNoFactureField, depensesModePaiementField, depensesArtisteField,
+    depensesCategorieField, depensesFournisseurField, depensesNotesField, depensesDescriptionField,
+    depensesNoFactureField,
     revenusColumnsJson, depensesColumnsJson,
     comptesTable, comptesNumeroField,
     templateAttachmentField,
-    oeuvresTable, oeuvresLinkField, isrcField,
-    ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField,
-    etatsTable, etatsCanalLinkField, etatsDateField, etatsOuvertureField, etatsFermetureField,
-    etatsPaiementField, etatsRevenusLinkField, etatsDepensesLinkField, soldeOuvertureCompte, soldeReporteCompte,
+    oeuvresTable,
+    ayantsTable, etatsTable, soldeOuvertureCompte, soldeReporteCompte,
     supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn,
   } = cfg;
 
   const canauxRecords = useRecords(canauxTable);
   const revenusRecords = useRecords(revenusTable);
   const depensesRecords = useRecords(depensesTable);
-  const comptesRecords = useRecords(comptesTable);
-
-  // The interface page's search bar also filters useRecords, so typing e.g. a canal
-  // name there empties the Comptes list. Accumulate every compte seen so far so a
-  // search can only hide comptes from useRecords, never from the dropdown.
-  const comptesSeenRef = useRef(new Map());
-  const comptes = useMemo(() => {
-    const seen = comptesSeenRef.current;
-    for (const rec of comptesRecords || []) {
-      const code = getCompteCode(rec, comptesNumeroField);
-      // Skip records whose cell values aren't loaded yet rather than caching a null code.
-      if (code == null) continue;
-      seen.set(rec.id, { id: rec.id, name: rec.name, code });
-    }
-    return Array.from(seen.values());
-  }, [comptesRecords, comptesNumeroField]);
+  const comptes = useComptes(comptesTable, comptesNumeroField);
   // useRecords crashes on null; fall back to a known table when not yet configured.
   const oeuvresRecords = useRecords(oeuvresTable || canauxTable);
   const ayantsRecords = useRecords(ayantsTable || canauxTable);
   const etatsRecords = useRecords(etatsTable || canauxTable);
 
-  const columnsConfig = useMemo(() => {
-    const parseOne = (raw) => {
-      if (!raw || typeof raw !== "string") return { cols: [], error: null };
-      try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return { cols: [], error: null };
-        // Flatten: support both {label, compteId} and {compteId, labels: [...]}
-        const cols = [];
-        for (const entry of parsed) {
-          if (entry && Array.isArray(entry.labels)) {
-            for (const label of entry.labels) {
-              cols.push({ label, compteId: entry.compteId, group: entry.group || null });
-            }
-          } else if (entry && entry.label) {
-            cols.push({ label: entry.label, compteId: entry.compteId, group: entry.group || null });
-          }
-        }
-        return { cols, error: null };
-      } catch (e) {
-        return { cols: [], error: e.message };
-      }
-    };
-    const r = parseOne(revenusColumnsJson);
-    const d = parseOne(depensesColumnsJson);
-    return {
-      revenus: r.cols,
-      depenses: d.cols,
-      error: r.error || d.error || null,
-    };
-  }, [revenusColumnsJson, depensesColumnsJson]);
+  const columnsConfig = useMemo(
+    () => parseColumnsConfig(revenusColumnsJson, depensesColumnsJson),
+    [revenusColumnsJson, depensesColumnsJson],
+  );
 
-  const [selectedCanalId, setSelectedCanalId] = useState(null);
-  const [year, setYear] = useState(() => new Date().getFullYear());
-  const [half, setHalf] = useState("H1");
+  const [selectedCanalId, setSelectedCanalId] = useState(fixedCanalId);
+  const [periodSel, setPeriodSel] = useState(() => initialPeriod || defaultPeriodSelection());
+  const period = useMemo(() => buildPeriod(periodSel), [periodSel]);
+  const periodKey = period.key;
   const [revenusInputs, setRevenusInputs] = useState({});
   const [saisies, setSaisies] = useState([]); // [{type: "revenu"|"depense", compteId, notes, montant, month}]
   const [saving, setSaving] = useState(false);
@@ -1119,88 +1712,30 @@ function ReportInner({ cfg }) {
     setSavedMsg(null);
     setRoyaltiesError(null);
     setShopifyError(null);
-  }, [selectedCanalId, year, half]);
+  }, [selectedCanalId, periodKey]);
 
-  // Resolve the compteId of the Royalties column (from revenusColumnsJson) for dup-detection
-  const royaltiesCompteId = useMemo(() => {
-    const col = (columnsConfig.revenus || []).find((c) => c.label === royaltiesColumn);
+  // compteId of a grid column (from revenusColumnsJson), for dup-detection.
+  const compteOfColumn = (label) => {
+    const col = (columnsConfig.revenus || []).find((c) => c.label === label);
     return col ? col.compteId : null;
-  }, [columnsConfig, royaltiesColumn]);
+  };
+  // Months of the period already saved on the Believe / Shopify compte: not pre-filled
+  // again, to prevent creating duplicates if the user clicks Save again.
+  const monthsWithExistingRoyalty = useMemo(
+    () => monthsWithSavedCompte({ revenusRecords, cfg, canalId: selectedCanalId, compteId: compteOfColumn(royaltiesColumn), period }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [revenusRecords, cfg, selectedCanalId, columnsConfig, royaltiesColumn, period],
+  );
+  const monthsWithExistingShopify = useMemo(
+    () => monthsWithSavedCompte({ revenusRecords, cfg, canalId: selectedCanalId, compteId: compteOfColumn(SHOPIFY_COLUMN), period }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [revenusRecords, cfg, selectedCanalId, columnsConfig, period],
+  );
 
-  // Months of the current period that already have a Royalties revenu record in Airtable.
-  // We skip pre-filling those months to prevent creating duplicates if the user clicks Save again.
-  const monthsWithExistingRoyalty = useMemo(() => {
-    const set = new Set();
-    if (!royaltiesCompteId || !revenusRecords || !selectedCanalId || !revenusCanalLinkField || !revenusCategorieField) return set;
-    const dateFields = [revenusDateField, revenusDateWriteField].filter(Boolean);
-    for (const rec of revenusRecords) {
-      const links = rec.getCellValue(revenusCanalLinkField);
-      if (!Array.isArray(links) || !links.some((l) => l.id === selectedCanalId)) continue;
-      const cat = rec.getCellValue(revenusCategorieField);
-      if (!Array.isArray(cat) || !cat.some((c) => c.id === royaltiesCompteId)) continue;
-      let d = null;
-      for (const f of dateFields) {
-        d = rec.getCellValue(f);
-        if (d == null) d = rec.getCellValueAsString(f);
-        if (d != null && d !== "") break;
-      }
-      const parts = parseIsoParts(d);
-      if (!parts || parts.year !== year) continue;
-      if (half === "H1" && parts.month > 6) continue;
-      if (half === "H2" && parts.month < 7) continue;
-      set.add(parts.month);
-    }
-    return set;
-  }, [revenusRecords, royaltiesCompteId, selectedCanalId, revenusCanalLinkField, revenusCategorieField, revenusDateField, revenusDateWriteField, year, half]);
-
-  // Resolve the compteId of the Shopify column (from revenusColumnsJson) for dup-detection
-  const shopifyCompteId = useMemo(() => {
-    const col = (columnsConfig.revenus || []).find((c) => c.label === SHOPIFY_COLUMN);
-    return col ? col.compteId : null;
-  }, [columnsConfig]);
-
-  // Months of the current period that already have a Shopify revenu record in Airtable.
-  // We skip pre-filling those months to prevent creating duplicates if the user clicks Save again.
-  const monthsWithExistingShopify = useMemo(() => {
-    const set = new Set();
-    if (!shopifyCompteId || !revenusRecords || !selectedCanalId || !revenusCanalLinkField || !revenusCategorieField) return set;
-    const dateFields = [revenusDateField, revenusDateWriteField].filter(Boolean);
-    for (const rec of revenusRecords) {
-      const links = rec.getCellValue(revenusCanalLinkField);
-      if (!Array.isArray(links) || !links.some((l) => l.id === selectedCanalId)) continue;
-      const cat = rec.getCellValue(revenusCategorieField);
-      if (!Array.isArray(cat) || !cat.some((c) => c.id === shopifyCompteId)) continue;
-      let d = null;
-      for (const f of dateFields) {
-        d = rec.getCellValue(f);
-        if (d == null) d = rec.getCellValueAsString(f);
-        if (d != null && d !== "") break;
-      }
-      const parts = parseIsoParts(d);
-      if (!parts || parts.year !== year) continue;
-      if (half === "H1" && parts.month > 6) continue;
-      if (half === "H2" && parts.month < 7) continue;
-      set.add(parts.month);
-    }
-    return set;
-  }, [revenusRecords, shopifyCompteId, selectedCanalId, revenusCanalLinkField, revenusCategorieField, revenusDateField, revenusDateWriteField, year, half]);
-
-  // Extract ISRCs from the selected canal's linked Oeuvres
-  const isrcList = useMemo(() => {
-    if (!selectedCanalId || !canauxRecords || !oeuvresLinkField || !oeuvresRecords || !isrcField) return [];
-    const canalRec = canauxRecords.find((r) => r.id === selectedCanalId);
-    if (!canalRec) return [];
-    const links = canalRec.getCellValue(oeuvresLinkField);
-    if (!Array.isArray(links) || links.length === 0) return [];
-    const linkedIds = new Set(links.map((l) => l.id));
-    const out = [];
-    for (const rec of oeuvresRecords) {
-      if (!linkedIds.has(rec.id)) continue;
-      const isrc = rec.getCellValueAsString(isrcField);
-      if (isrc) out.push(isrc);
-    }
-    return out;
-  }, [selectedCanalId, canauxRecords, oeuvresLinkField, oeuvresRecords, isrcField]);
+  const isrcList = useMemo(
+    () => canalIsrcs((canauxRecords || []).find((r) => r.id === selectedCanalId), cfg, oeuvresTable ? oeuvresRecords : null),
+    [selectedCanalId, canauxRecords, cfg, oeuvresTable, oeuvresRecords],
+  );
 
   // Stable value keys for the fetch effects' deps (see the royalties effect).
   const isrcKey = isrcList.join(",");
@@ -1213,20 +1748,10 @@ function ReportInner({ cfg }) {
     if (!supabaseUrl || !supabaseAnonKey || !clientId || !royaltiesColumn || isrcList.length === 0 || !selectedCanalId) {
       return;
     }
-    const dateFrom = half === "H1" ? `${year}-01-01` : `${year}-07-01`;
-    const dateTo = half === "H1" ? `${year}-06-30` : `${year}-12-31`;
-    const cacheKey = `${selectedCanalId}_${year}_${half}_${isrcList.join(",")}_${royaltiesRefreshKey}`;
+    const cacheKey = `${selectedCanalId}_${periodKey}_${isrcList.join(",")}_${royaltiesRefreshKey}`;
     let didCancel = false;
 
-    const applyData = (rows) => {
-      const byMonth = {};
-      for (const row of rows || []) {
-        const monthKey = (row.reporting_month || "").slice(0, 7); // YYYY-MM
-        const m = parseInt(monthKey.split("-")[1], 10);
-        if (!m || m < 1 || m > 12) continue;
-        const rev = parseFloat(row.total_net_revenue) || 0;
-        byMonth[m] = (byMonth[m] || 0) + rev;
-      }
+    const applyData = (byMonth) => {
       setRevenusInputs((prev) => {
         const next = { ...prev };
         for (const m of monthIndices) {
@@ -1243,14 +1768,7 @@ function ReportInner({ cfg }) {
 
     setRoyaltiesLoading(true);
     setRoyaltiesError(null);
-    cachedFetch(royaltiesCacheRef.current, cacheKey, () =>
-      postSupabaseRpc(supabaseUrl, supabaseAnonKey, clientId, "get_royalties_summary", {
-        p_client_id: clientId,
-        p_isrcs: isrcList,
-        p_from: dateFrom,
-        p_to: dateTo,
-      }),
-    )
+    cachedFetch(royaltiesCacheRef.current, cacheKey, () => fetchBelieveByMonth(cfg, isrcList, period))
       .then((data) => { if (!didCancel) applyData(data); })
       .catch((err) => { if (!didCancel) setRoyaltiesError(err.message || String(err)); })
       .finally(() => { if (!didCancel) setRoyaltiesLoading(false); });
@@ -1261,9 +1779,9 @@ function ReportInner({ cfg }) {
     };
     // Deps are value keys, not the Set/array themselves: those are rebuilt on every
     // render (useRecords returns a new array), which used to cancel the request in a loop.
-    // monthIndices derived from half; safe to omit
+    // period / monthIndices derive from periodKey; safe to omit
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCanalId, year, half, isrcKey, supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn, royaltiesRefreshKey, existingRoyaltyMonthsKey]);
+  }, [selectedCanalId, periodKey, isrcKey, supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn, royaltiesRefreshKey, existingRoyaltyMonthsKey]);
 
   // Fetch Shopify sales from Supabase for the selected period and pre-fill the Shopify column.
   // The Shopify project_id is the Airtable canal record id.
@@ -1272,21 +1790,10 @@ function ReportInner({ cfg }) {
     if (!supabaseUrl || !supabaseAnonKey || !clientId || !selectedCanalId) {
       return;
     }
-    const dateFrom = half === "H1" ? `${year}-01-01` : `${year}-07-01`;
-    // get_shopify_sales_summary uses order_date < p_to, so p_to is exclusive.
-    const dateTo = half === "H1" ? `${year}-07-01` : `${year + 1}-01-01`;
-    const cacheKey = `${selectedCanalId}_${year}_${half}_${shopifyRefreshKey}`;
+    const cacheKey = `${selectedCanalId}_${periodKey}_${shopifyRefreshKey}`;
     let didCancel = false;
 
-    const applyData = (rows) => {
-      const byMonth = {};
-      for (const row of rows || []) {
-        // row.month is the first day of the month (YYYY-MM-DD)
-        const m = parseInt(String(row.month || "").slice(5, 7), 10);
-        if (!m || m < 1 || m > 12) continue;
-        // Sum total_revenue across all product categories for the month.
-        byMonth[m] = (byMonth[m] || 0) + (parseFloat(row.total_revenue) || 0);
-      }
+    const applyData = (byMonth) => {
       setRevenusInputs((prev) => {
         const next = { ...prev };
         for (const m of monthIndices) {
@@ -1303,14 +1810,7 @@ function ReportInner({ cfg }) {
 
     setShopifyLoading(true);
     setShopifyError(null);
-    cachedFetch(shopifyCacheRef.current, cacheKey, () =>
-      postSupabaseRpc(supabaseUrl, supabaseAnonKey, clientId, "get_shopify_sales_summary", {
-        p_client_id: clientId,
-        p_project_ids: [selectedCanalId],
-        p_from: dateFrom,
-        p_to: dateTo,
-      }),
-    )
+    cachedFetch(shopifyCacheRef.current, cacheKey, () => fetchShopifyByMonth(cfg, selectedCanalId, period))
       .then((data) => { if (!didCancel) applyData(data); })
       .catch((err) => { if (!didCancel) setShopifyError(err.message || String(err)); })
       .finally(() => { if (!didCancel) setShopifyLoading(false); });
@@ -1320,20 +1820,14 @@ function ReportInner({ cfg }) {
       setShopifyLoading(false);
     };
     // See the royalties effect for why the deps are value keys.
-    // monthIndices derived from half; safe to omit
+    // period / monthIndices derive from periodKey; safe to omit
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCanalId, year, half, supabaseUrl, supabaseAnonKey, clientId, shopifyRefreshKey, existingShopifyMonthsKey]);
+  }, [selectedCanalId, periodKey, supabaseUrl, supabaseAnonKey, clientId, shopifyRefreshKey, existingShopifyMonthsKey]);
 
   const canaux = useMemo(() => {
     if (!canauxRecords) return [];
     return canauxRecords.map((rec) => {
-      let imageUrl = null;
-      if (canalImageField) {
-        const att = rec.getCellValue(canalImageField);
-        if (Array.isArray(att) && att.length > 0) {
-          imageUrl = att[0].thumbnails?.large?.url || att[0].url;
-        }
-      }
+      const imageUrl = getImageUrl(rec, canalImageField);
       const subtitle = canalSubtitleField ? rec.getCellValueAsString(canalSubtitleField) : "";
       return { id: rec.id, name: rec.name, subtitle, imageUrl };
     });
@@ -1347,204 +1841,45 @@ function ReportInner({ cfg }) {
   // In-app canal search (replaces the interface page's search bar, which also
   // filters the Comptes/Revenus/Dépenses tables). Case- and accent-insensitive.
   const [canalSearch, setCanalSearch] = useState("");
-  const filteredCanaux = useMemo(() => {
-    const fold = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-    const terms = fold(canalSearch).split(/\s+/).filter(Boolean);
-    if (terms.length === 0) return canaux;
-    return canaux.filter((c) => {
-      const haystack = fold(`${c.name} ${c.subtitle}`);
-      return terms.every((t) => haystack.includes(t));
-    });
-  }, [canaux, canalSearch]);
+  const filteredCanaux = useMemo(() => filterBySearch(canaux, canalSearch), [canaux, canalSearch]);
 
-  const monthIndices = half === "H1" ? [1, 2, 3, 4, 5, 6] : [7, 8, 9, 10, 11, 12];
+  const monthIndices = period.months;
+  const periodStart = period.start;
 
-  // --- Solde précédent / clôture ---
-  // Solde précédent = Solde fermeture of the canal's last État de compte before this period
-  //                 + entries on the "Solde d'ouverture" compte (manual opening balance, saved or not).
-  // The period is closed by creating an État de compte for it (see handleCloture).
-  const periodStart = half === "H1" ? `${year}-01-01` : `${year}-07-01`;
-  const periodEnd = half === "H1" ? `${year}-06-30` : `${year}-12-31`;
+  const revenusChoices = useMemo(() => toRevenusChoices(columnsConfig.revenus), [columnsConfig]);
+  const soldeCompteId = useMemo(() => compteIdByCode(comptes, soldeOuvertureCompte), [comptes, soldeOuvertureCompte]);
+  const soldeReporteCompteId = useMemo(() => compteIdByCode(comptes, soldeReporteCompte), [comptes, soldeReporteCompte]);
 
-  const { previousEtat, currentEtat } = useMemo(() => {
-    const out = { previousEtat: null, currentEtat: null };
-    if (!etatsTable || !etatsCanalLinkField || !etatsDateField || !etatsRecords || !selectedCanalId) return out;
-    const dated = etatsRecords
-      .filter((rec) => {
-        const links = rec.getCellValue(etatsCanalLinkField);
-        return Array.isArray(links) && links.some((l) => l.id === selectedCanalId);
-      })
-      .map((rec) => {
-        // Raw value is ISO; the string form follows the field's display format (e.g. 30/06/2026).
-        const raw = rec.getCellValue(etatsDateField);
-        return { rec, date: String(typeof raw === "string" ? raw : rec.getCellValueAsString(etatsDateField) || "").slice(0, 10) };
-      })
-      .filter((e) => e.date)
-      .sort((a, b) => a.date.localeCompare(b.date));
-    for (const e of dated) {
-      if (e.date < periodStart) out.previousEtat = e;
-      else if (e.date <= periodEnd) out.currentEtat = e;
-    }
-    return out;
-  }, [etatsRecords, etatsTable, etatsCanalLinkField, etatsDateField, selectedCanalId, periodStart, periodEnd]);
-
-  // Rattrapages: entries dated before the period and never linked to an État are pulled into
-  // the first open period (the one right after the canal's last État), then linked to its État.
-  const prevPeriodStart = half === "H1" ? `${year - 1}-07-01` : `${year}-01-01`;
-  const acceptsRattrapages = !currentEtat && !!previousEtat && previousEtat.date >= prevPeriodStart;
-
-  // Closed period (État exists): the entries linked to that État, whatever their date.
-  // Open period: unlinked entries of the period, plus rattrapages when applicable.
-  const filterEntries = (records, canalLinkField, etatLinkField, dateField, dateWriteField) => {
-    const dateFields = [dateField, dateWriteField].filter(Boolean);
-    if (!records || !selectedCanalId || !canalLinkField || !etatLinkField || dateFields.length === 0) return [];
-    return records.filter((rec) => {
-      const links = rec.getCellValue(canalLinkField);
-      if (!Array.isArray(links) || !links.some((l) => l.id === selectedCanalId)) return false;
-      const etat = rec.getCellValue(etatLinkField);
-      const linked = Array.isArray(etat) && etat.length > 0;
-      if (currentEtat) return linked && etat.some((e) => e.id === currentEtat.rec.id);
-      if (linked) return false;
-      // Try each available date field, take the first non-empty
-      let d = null;
-      for (const f of dateFields) {
-        d = rec.getCellValue(f);
-        if (d == null) d = rec.getCellValueAsString(f);
-        if (d != null && d !== "") break;
-      }
-      if (isInPeriod(d, year, half)) return true;
-      return acceptsRattrapages && isoFromParts(parseIsoParts(d)) < periodStart;
-    });
-  };
-
-  const existingRevenus = useMemo(
-    () => filterEntries(revenusRecords, revenusCanalLinkField, revenusEtatLinkField, revenusDateField, revenusDateWriteField),
-    [revenusRecords, selectedCanalId, year, half, currentEtat, acceptsRattrapages, revenusCanalLinkField, revenusEtatLinkField, revenusDateField, revenusDateWriteField],
+  // Saved data of the canal for the period (états, entries, grid, soldes): see computeCanalPeriod.
+  const calc = useMemo(
+    () => computeCanalPeriod({
+      canalId: selectedCanalId,
+      period,
+      cfg,
+      records: { revenus: revenusRecords, depenses: depensesRecords, etats: etatsTable ? etatsRecords : null, ayants: ayantsTable ? ayantsRecords : null },
+      revenusChoices,
+      soldeCompteId,
+      soldeReporteCompteId,
+    }),
+    [selectedCanalId, period, cfg, revenusRecords, depensesRecords, etatsTable, etatsRecords, ayantsTable, ayantsRecords, revenusChoices, soldeCompteId, soldeReporteCompteId],
   );
-  const existingDepenses = useMemo(
-    () => filterEntries(depensesRecords, depensesCanalLinkField, depensesEtatLinkField, depensesDateField, depensesDateWriteField),
-    [depensesRecords, selectedCanalId, year, half, currentEtat, acceptsRattrapages, depensesCanalLinkField, depensesEtatLinkField, depensesDateField, depensesDateWriteField],
-  );
+  const { currentEtat, existingRevenus, existingDepenses, ayantsDroits } = calc;
+  const existingRevenusByCell = calc.revenusByCell;
 
-  // Each grid column = { id (used as input key), name (column header), compteId (for link write), label (Notes write) }
-  // We use the label as the unique id so 2 columns sharing the same compte still get separate cells.
-  const revenusChoices = useMemo(
-    () => columnsConfig.revenus.map((c) => ({ id: c.label, name: c.label, label: c.label, compteId: c.compteId, group: c.group })),
-    [columnsConfig],
-  );
-
-  // Map existing (already-saved) revenus records onto grid cells: { month: { colId: amount } }.
-  // A record matches a column by its Notes label, falling back to its Compte link.
-  // This lets the grid display saved values without re-including them in the records to create.
-  // `gridIds` = records placed in the grid, so the export can keep them out of the
-  // "Droits synchro / autres" list (they'd be counted twice otherwise).
-  const { byCell: existingRevenusByCell, gridIds: revenusInGridIds } = useMemo(() => {
-    const map = {};
-    const gridIds = new Set();
-    if (!revenusMontantField || !revenusCategorieField || revenusChoices.length === 0) return { byCell: map, gridIds };
-    const dateFields = [revenusDateField, revenusDateWriteField].filter(Boolean);
-    for (const rec of existingRevenus) {
-      let d = null;
-      for (const f of dateFields) {
-        d = rec.getCellValue(f);
-        if (d == null) d = rec.getCellValueAsString(f);
-        if (d != null && d !== "") break;
-      }
-      const parts = parseIsoParts(d);
-      if (!parts || !isInPeriod(d, year, half)) continue;
-      const cat = rec.getCellValue(revenusCategorieField);
-      const compteId = Array.isArray(cat) && cat[0] ? cat[0].id : null;
-      const notes = revenusNotesField ? rec.getCellValueAsString(revenusNotesField) : "";
-      let col = revenusChoices.find((c) => c.label === notes && c.compteId === compteId);
-      if (!col) col = revenusChoices.find((c) => c.label === notes);
-      if (!col) col = revenusChoices.find((c) => c.compteId === compteId);
-      if (!col) continue;
-      const amt = Number(rec.getCellValue(revenusMontantField)) || 0;
-      if (!map[parts.month]) map[parts.month] = {};
-      map[parts.month][col.id] = (map[parts.month][col.id] || 0) + amt;
-      gridIds.add(rec.id);
-    }
-    return { byCell: map, gridIds };
-  }, [existingRevenus, year, half, revenusChoices, revenusMontantField, revenusCategorieField, revenusNotesField, revenusDateField, revenusDateWriteField]);
-
-  // Ayants-droits of the selected canal, for the PARTAGE section of the Excel report.
-  // `part` is the fraction stored by the percent field (0.5 = 50 %).
-  const ayantsDroits = useMemo(() => {
-    if (!ayantsTable || !ayantsCanalLinkField || !ayantsPartField || !ayantsRecords || !selectedCanalId) return [];
-    return ayantsRecords
-      .filter((rec) => {
-        const links = rec.getCellValue(ayantsCanalLinkField);
-        return Array.isArray(links) && links.some((l) => l.id === selectedCanalId);
-      })
-      .map((rec) => ({
-        nom: (ayantsNomField && rec.getCellValueAsString(ayantsNomField)) || rec.name || "",
-        part: Number(rec.getCellValue(ayantsPartField)) || 0,
-      }));
-  }, [ayantsRecords, ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField, selectedCanalId]);
-
-  const soldeFermeturePrecedent = previousEtat && etatsFermetureField
-    ? Number(previousEtat.rec.getCellValue(etatsFermetureField)) || 0
-    : 0;
-
-  const compteIdByCode = (raw) => {
-    const code = parseInt(String(raw || "").trim(), 10);
-    if (isNaN(code)) return null;
-    const c = comptes.find((x) => x.code === code);
-    return c ? c.id : null;
-  };
-  const soldeCompteId = useMemo(() => compteIdByCode(soldeOuvertureCompte), [comptes, soldeOuvertureCompte]);
-  const soldeReporteCompteId = useMemo(() => compteIdByCode(soldeReporteCompte), [comptes, soldeReporteCompte]);
-
-  const hasCompte = (rec, field, compteId) => {
-    if (!compteId || !field) return false;
-    const cat = rec.getCellValue(field);
-    return Array.isArray(cat) && cat.some((c) => c.id === compteId);
-  };
   const sumSaisies = (pred) => saisies
     .filter(pred)
     .reduce((s, r) => {
       const v = parseFloat(String(r.montant || "").replace(",", "."));
       return s + (isNaN(v) ? 0 : v);
     }, 0);
-  const sumMontant = (recs, field) => !field ? 0 : recs.reduce((s, r) => s + (Number(r.getCellValue(field)) || 0), 0);
 
-  // Revenus on the "Solde d'ouverture" compte (4000) add to Solde précédent.
-  const isSoldeEntry = (rec) => hasCompte(rec, revenusCategorieField, soldeCompteId);
-  const soldeEntriesTotal = sumMontant(existingRevenus.filter(isSoldeEntry), revenusMontantField);
+  // Unsaved saisies on the solde comptes count in Solde précédent too (see computeCanalPeriod).
   const soldeSaisiesTotal = sumSaisies((r) => r.type !== "depense" && soldeCompteId && r.compteId === soldeCompteId);
-  // Dépenses on the "Solde reporté" compte (5000) subtract from Solde précédent.
-  const isSoldeReporteEntry = (rec) => hasCompte(rec, depensesCategorieField, soldeReporteCompteId);
-  const soldeReporteEntriesTotal = sumMontant(existingDepenses.filter(isSoldeReporteEntry), depensesMontantField);
   const soldeReporteSaisiesTotal = sumSaisies((r) => r.type === "depense" && soldeReporteCompteId && r.compteId === soldeReporteCompteId);
-  const soldePrecedent = soldeFermeturePrecedent + soldeEntriesTotal + soldeSaisiesTotal
-    - soldeReporteEntriesTotal - soldeReporteSaisiesTotal;
+  const soldePrecedent = calc.soldePrecedent + soldeSaisiesTotal - soldeReporteSaisiesTotal;
 
   const handleRevenusChange = (m, choiceId, val) => {
     setRevenusInputs((prev) => ({ ...prev, [m]: { ...(prev[m] || {}), [choiceId]: val } }));
-  };
-
-  const collectRecords = (inputs, columns, dateField, montantField, categorieField, canalLinkField, notesField, notesPrefix) => {
-    const out = [];
-    if (!dateField || !montantField || !categorieField || !canalLinkField || !selectedCanalId) return out;
-    const byLabel = new Map(columns.map((c) => [c.id, c]));
-    for (const [mStr, catMap] of Object.entries(inputs)) {
-      const m = parseInt(mStr, 10);
-      for (const [label, raw] of Object.entries(catMap)) {
-        const v = parseFloat(String(raw).replace(",", "."));
-        if (!raw || isNaN(v) || v === 0) continue;
-        const col = byLabel.get(label);
-        if (!col || !col.compteId) continue;
-        const fields = {
-          [dateField.id]: monthIsoDate(year, m),
-          [montantField.id]: v,
-          [categorieField.id]: [{ id: col.compteId }],
-          [canalLinkField.id]: [{ id: selectedCanalId }],
-        };
-        if (notesField) fields[notesField.id] = notesPrefix ? `${notesPrefix}${label}` : label;
-        out.push({ fields });
-      }
-    }
-    return out;
   };
 
   // Build a record payload from a saisie row, for the target type's set of fields.
@@ -1553,7 +1888,7 @@ function ReportInner({ cfg }) {
     if (!r.compteId || !r.month || isNaN(v) || v === 0) return null;
     if (!dateField || !montantField || !categorieField || !canalLinkField || !selectedCanalId) return null;
     const fields = {
-      [dateField.id]: monthIsoDate(year, r.month),
+      [dateField.id]: monthIsoDate(period.year, r.month),
       [montantField.id]: v,
       [categorieField.id]: [{ id: r.compteId }],
       [canalLinkField.id]: [{ id: selectedCanalId }],
@@ -1564,9 +1899,8 @@ function ReportInner({ cfg }) {
 
   // Each section saves independently: the Revenus grid and the Saisies lines.
   const gridRevenusToCreate = useMemo(
-    () => collectRecords(revenusInputs, revenusChoices, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [revenusInputs, revenusChoices, year, selectedCanalId, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField],
+    () => gridInputsToRecords({ inputs: revenusInputs, columns: revenusChoices, cfg, canalId: selectedCanalId, year: period.year }),
+    [revenusInputs, revenusChoices, cfg, selectedCanalId, period.year],
   );
 
   const saisiesRevenusToCreate = useMemo(() => {
@@ -1575,7 +1909,7 @@ function ReportInner({ cfg }) {
       .map((r) => buildSaisieRecord(r, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField))
       .filter(Boolean);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saisies, year, selectedCanalId, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField]);
+  }, [saisies, period, selectedCanalId, revenusDateWriteField, revenusMontantField, revenusCategorieField, revenusCanalLinkField, revenusNotesField]);
 
   const saisiesDepensesToCreate = useMemo(() => {
     return saisies
@@ -1583,11 +1917,11 @@ function ReportInner({ cfg }) {
       .map((r) => buildSaisieRecord(r, depensesDateWriteField, depensesMontantField, depensesCategorieField, depensesCanalLinkField, depensesNotesField))
       .filter(Boolean);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saisies, year, selectedCanalId, depensesDateWriteField, depensesMontantField, depensesCategorieField, depensesCanalLinkField, depensesNotesField]);
+  }, [saisies, period, selectedCanalId, depensesDateWriteField, depensesMontantField, depensesCategorieField, depensesCanalLinkField, depensesNotesField]);
 
   // Save status per section: { scope: "grid" | "saisies", text }
   const [saveMsg, setSaveMsg] = useState(null);
-  useEffect(() => setSaveMsg(null), [selectedCanalId, year, half]);
+  useEffect(() => setSaveMsg(null), [selectedCanalId, periodKey]);
 
   const saveRecords = async (scope, revenusToCreate, depensesToCreate, onDone) => {
     const count = revenusToCreate.length + depensesToCreate.length;
@@ -1614,44 +1948,28 @@ function ReportInner({ cfg }) {
   // Returns true once the file is downloaded (the clôture relies on it).
   const handleExport = async () => {
     if (!selectedCanal) return false;
-    if (!templateAttachmentField) {
-      setSavedMsg("Erreur : champ Template Excel non configuré.");
-      return false;
-    }
     const canalRec = (canauxRecords || []).find((r) => r.id === selectedCanalId);
-    if (!canalRec) {
-      setSavedMsg("Erreur : canal introuvable.");
-      return false;
-    }
-    const attachments = canalRec.getCellValue(templateAttachmentField);
-    if (!Array.isArray(attachments) || attachments.length === 0) {
-      setSavedMsg("Erreur : aucun template attaché sur ce canal.");
-      return false;
-    }
-    const templateUrl = attachments[0].url;
-    if (!templateUrl) {
-      setSavedMsg("Erreur : URL du template introuvable.");
+    const template = getTemplateUrl(canalRec, templateAttachmentField);
+    if (template.error) {
+      setSavedMsg(`Erreur : ${template.error}`);
       return false;
     }
     setSavedMsg("Génération du rapport…");
     try {
-      await exportFromTemplate({
-        templateUrl,
+      const { wb } = await fillCanalReport({
+        templateUrl: template.url,
         canalName: selectedCanal.name,
-        year, half,
-        monthIndices,
-        revenusInputs, revenusChoices, existingRevenusByCell,
-        existingDepenses: existingDepenses.filter((r) => !isSoldeReporteEntry(r)),
-        depensesDateField, depensesDateWriteField,
-        depensesMontantField, depensesNotesField, depensesFournisseurField, depensesDescriptionField,
-        depensesNoFactureField, depensesModePaiementField, depensesArtisteField,
-        existingRevenus: existingRevenus.filter((r) => !revenusInGridIds.has(r.id) && !isSoldeEntry(r)),
-        soldePrecedent,
-        revenusDateField, revenusDateWriteField,
-        revenusMontantField, revenusCategorieField, revenusNotesField, revenusDescriptionField,
-        revenusNoFactureField, revenusModePaiementField, revenusFournisseurField, revenusArtisteField,
+        period,
+        cfg,
+        revenusChoices,
+        revenusByCell: existingRevenusByCell,
+        revenusInputs,
+        revenus: calc.reportRevenus,
+        depenses: calc.reportDepenses,
         ayantsDroits,
+        soldePrecedent,
       });
+      await downloadWorkbook(wb, `Rapport_${safeFileName(selectedCanal.name)}_${period.fileLabel}.xlsx`);
       setSavedMsg("Rapport téléchargé.");
       return true;
     } catch (err) {
@@ -1662,17 +1980,6 @@ function ReportInner({ cfg }) {
   };
 
   // --- KPIs ---
-
-  const sumInputs = (inputs) => {
-    let total = 0;
-    for (const catMap of Object.values(inputs)) {
-      for (const raw of Object.values(catMap)) {
-        const v = parseFloat(String(raw).replace(",", "."));
-        if (!isNaN(v)) total += v;
-      }
-    }
-    return total;
-  };
 
   const saisiesTotals = useMemo(() => {
     const acc = { revenu: 0, depense: 0 };
@@ -1686,33 +1993,21 @@ function ReportInner({ cfg }) {
   }, [saisies]);
 
   // Dépenses of the period: the solde reporté entries count in Solde précédent instead.
-  const totalDepenses = sumMontant(existingDepenses, depensesMontantField)
-    - soldeReporteEntriesTotal + saisiesTotals.depense - soldeReporteSaisiesTotal;
+  const totalDepenses = calc.totalDepenses + saisiesTotals.depense - soldeReporteSaisiesTotal;
 
   // Revenus of the period: the opening-balance entries count in Solde précédent instead.
-  const totalRevenus = (revenusMontantField
-    ? existingRevenus.reduce((s, r) => s + (Number(r.getCellValue(revenusMontantField)) || 0), 0)
-    : 0) - soldeEntriesTotal + sumInputs(revenusInputs) + saisiesTotals.revenu - soldeSaisiesTotal;
+  const totalRevenus = calc.totalRevenus + sumInputs(revenusInputs) + saisiesTotals.revenu - soldeSaisiesTotal;
   const totalASpliter = totalRevenus - totalDepenses + soldePrecedent;
 
   // --- Clôture ---
   // Closing a period = downloading its report, then creating an État de compte linked to the
-  // canal with every entry of the period. Solde fermeture (Airtable formula) = ouverture +
-  // période − paiement: paying out the positive total leaves 0, a deficit is left as the
-  // closing balance and becomes the next period's solde précédent.
+  // canal with every entry of the period (see buildEtatFields).
   const [clotureStep, setClotureStep] = useState(null); // null | "confirm" | "running"
-  useEffect(() => setClotureStep(null), [selectedCanalId, year, half]);
+  useEffect(() => setClotureStep(null), [selectedCanalId, periodKey]);
 
   const unsavedCount = gridRevenusToCreate.length + saisiesRevenusToCreate.length + saisiesDepensesToCreate.length;
-  const clotureConfigured = etatsTable && etatsCanalLinkField && etatsDateField && etatsOuvertureField
-    && etatsPaiementField && etatsRevenusLinkField && etatsDepensesLinkField;
-  const clotureBlocker = !clotureConfigured
-    ? "Configure les champs États de compte dans les propriétés de l'extension."
-    : currentEtat
-    ? `Période déjà clôturée (état de compte du ${currentEtat.date}).`
-    : unsavedCount > 0
-    ? "Sauvegarde d'abord les entrées en cours."
-    : null;
+  const clotureBlocker = clotureBlockerFor(cfg, calc)
+    || (unsavedCount > 0 ? "Sauvegarde d'abord les entrées en cours." : null);
 
   const handleCloture = async () => {
     if (clotureBlocker || saving) return;
@@ -1721,20 +2016,9 @@ function ReportInner({ cfg }) {
       // Report first: once closed, the period's entries are linked to the État and leave this screen.
       const ok = await handleExport();
       if (!ok) return;
-      const round2 = (v) => Math.round(v * 100) / 100;
-      const fields = {
-        [etatsCanalLinkField.id]: [{ id: selectedCanalId }],
-        [etatsDateField.id]: periodEnd,
-        [etatsPaiementField.id]: round2(Math.max(totalASpliter, 0)),
-        [etatsRevenusLinkField.id]: existingRevenus.map((r) => ({ id: r.id })),
-        [etatsDepensesLinkField.id]: existingDepenses.map((r) => ({ id: r.id })),
-      };
-      // Solde d'ouverture may be computed in Airtable (formula/rollup): only set it when writable.
-      if (!etatsOuvertureField.isComputed) fields[etatsOuvertureField.id] = round2(soldeFermeturePrecedent);
-      // Solde fermeture is frozen at clôture (the positive total is paid out, a deficit is carried),
-      // so later edits to linked entries don't change the next period's solde précédent.
-      if (etatsFermetureField && !etatsFermetureField.isComputed) fields[etatsFermetureField.id] = round2(Math.min(totalASpliter, 0));
-      await etatsTable.createRecordAsync(fields);
+      await etatsTable.createRecordAsync(
+        buildEtatFields({ cfg, canalId: selectedCanalId, artisteId, period, calc, totalASpliter }),
+      );
       setSavedMsg(
         totalASpliter < 0
           ? `Période clôturée. Déficit reporté : ${fmtCurrency(totalASpliter)}.`
@@ -1820,7 +2104,7 @@ function ReportInner({ cfg }) {
     <div className="min-h-screen bg-gray-gray50 dark:bg-gray-gray800 p-4 sm:p-6 pb-20">
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         <button
-          onClick={() => setSelectedCanalId(null)}
+          onClick={() => (onBack ? onBack(periodSel) : setSelectedCanalId(null))}
           className="text-sm text-blue-blue hover:underline"
         >
           ← Retour
@@ -1832,7 +2116,7 @@ function ReportInner({ cfg }) {
 
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <PeriodPicker year={year} half={half} onChangeYear={setYear} onChangeHalf={setHalf} />
+          <PeriodPicker value={periodSel} onChange={setPeriodSel} />
           <div className="flex items-center gap-2 text-sm">
             {royaltiesLoading && (
               <span className="flex items-center gap-2 text-gray-gray500">
@@ -1887,7 +2171,7 @@ function ReportInner({ cfg }) {
         <KpiTile label="Total Revenus" value={totalRevenus} accent="green" />
         <KpiTile label="Total Dépenses" value={totalDepenses} accent="red" />
         <KpiTile label="Solde précédent" value={soldePrecedent} />
-        <KpiTile label={totalASpliter < 0 ? "Déficit reporté" : "Total à splitter"} value={totalASpliter} accent={totalASpliter < 0 ? "red" : "blue"} />
+        <KpiTile label={totalASpliter < 0 ? "Déficit reporté" : "Total à partager"} value={totalASpliter} accent={totalASpliter < 0 ? "red" : "blue"} />
       </div>
 
       <div className="relative bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
@@ -1975,6 +2259,8 @@ function ReportInner({ cfg }) {
         <h3 className="text-base font-semibold text-gray-gray700 dark:text-gray-gray100 mb-2">
           {currentEtat
             ? `Rapportées dans l'état de compte du ${currentEtat.date}`
+            : calc.status === "partial"
+            ? "Rapportées dans les états de compte de la période"
             : "Existantes sur la période (non encore rapportées)"}
         </h3>
         <ExistingEntriesList
@@ -2004,7 +2290,7 @@ function ReportInner({ cfg }) {
         {clotureStep === "confirm" ? (
           <>
             <span className="text-sm text-gray-gray600 dark:text-gray-gray200">
-              Télécharger le rapport et clôturer {half === "H1" ? "janv.–juin" : "juil.–déc."} {year} ?
+              Télécharger le rapport et clôturer {period.shortLabel} ?
             </span>
             <button
               onClick={() => setClotureStep(null)}
@@ -2034,6 +2320,671 @@ function ReportInner({ cfg }) {
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+// --- Artist page (mode "artiste") ---
+// Lists the artists, then the canaux of one artist (Artistes → Projets → Canaux) for a
+// period: tick canaux to download one grouped report and/or close their period.
+// Works on saved entries only: Believe/Shopify amounts are saved from the canal page.
+
+function statusLabel(calc) {
+  if (calc.status === "closed") return `Clôturée (${calc.currentEtat.date})`;
+  if (calc.status === "partial") return "Partiellement clôturée";
+  return "Ouverte";
+}
+
+function StatusBadge({ calc }) {
+  const cls = calc.status === "closed"
+    ? "bg-gray-gray100 text-gray-gray600 dark:bg-gray-gray600 dark:text-gray-gray200"
+    : calc.status === "partial"
+    ? "bg-orange-orangeLight2 text-orange-orangeDark1"
+    : "bg-green-greenLight2 text-green-greenDark1";
+  return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${cls}`}>{statusLabel(calc)}</span>;
+}
+
+function ArtistApp({ cfg }) {
+  const {
+    artistesTable, artistesImageField, artistesProjetsLinkField, projetsTable, projetsCanauxLinkField,
+    canauxTable, revenusTable, depensesTable, ayantsTable, etatsTable, comptesTable, comptesNumeroField,
+    templateAttachmentField, revenusColumnsJson, depensesColumnsJson, soldeOuvertureCompte, soldeReporteCompte,
+    oeuvresTable, supabaseUrl, supabaseAnonKey, clientId,
+  } = cfg;
+
+  const artistesRecords = useRecords(artistesTable);
+  const projetsRecords = useRecords(projetsTable);
+  const canauxRecords = useRecords(canauxTable);
+  const revenusRecords = useRecords(revenusTable);
+  const depensesRecords = useRecords(depensesTable);
+  // useRecords crashes on null; fall back to a known table when not yet configured.
+  const ayantsRecords = useRecords(ayantsTable || canauxTable);
+  const etatsRecords = useRecords(etatsTable || canauxTable);
+  const oeuvresRecords = useRecords(oeuvresTable || canauxTable);
+  const comptes = useComptes(comptesTable, comptesNumeroField);
+
+  const [selectedArtistId, setSelectedArtistId] = useState(null);
+  const [openCanalId, setOpenCanalId] = useState(null);
+  const [periodSel, setPeriodSel] = useState(defaultPeriodSelection);
+  const period = useMemo(() => buildPeriod(periodSel), [periodSel]);
+  const [search, setSearch] = useState("");
+  const [canalSearch, setCanalSearch] = useState("");
+  const [checked, setChecked] = useState(() => new Set());
+  const [step, setStep] = useState(null); // null | "export" | "confirm" | "cloture"
+  const [msg, setMsg] = useState(null);
+  // Believe/Shopify per canal and period: { [supaEntryKey]: { believe, shopify } | { error } };
+  // absent = loading. Keyed by period too, so a period change never reuses the previous one's amounts.
+  const [supa, setSupa] = useState({});
+  const [supaRefreshKey, setSupaRefreshKey] = useState(0);
+  const supaCacheRef = useRef(new Map());
+
+  const columnsConfig = useMemo(
+    () => parseColumnsConfig(revenusColumnsJson, depensesColumnsJson),
+    [revenusColumnsJson, depensesColumnsJson],
+  );
+  const revenusChoices = useMemo(() => toRevenusChoices(columnsConfig.revenus), [columnsConfig]);
+  const soldeCompteId = useMemo(() => compteIdByCode(comptes, soldeOuvertureCompte), [comptes, soldeOuvertureCompte]);
+  const soldeReporteCompteId = useMemo(() => compteIdByCode(comptes, soldeReporteCompte), [comptes, soldeReporteCompte]);
+  const missingConfig = missingCoreConfig(cfg);
+  // Without the Ayants-droits settings every canal would read as having none: no warning then.
+  const ayantsConfigured = !!(ayantsTable && cfg.ayantsCanalLinkField && cfg.ayantsPartField);
+
+  // Projets of each artist with their canal ids (Artistes → Projets → Canaux), sorted by
+  // name. A canal linked to several projets of the artist is listed under the first one.
+  const projetsByArtist = useMemo(() => {
+    const projetsById = new Map((projetsRecords || []).map((r) => [r.id, r]));
+    const out = new Map();
+    for (const rec of artistesRecords || []) {
+      const seen = new Set();
+      const groups = linkedIds(rec, artistesProjetsLinkField)
+        .map((pid) => projetsById.get(pid))
+        .filter(Boolean)
+        .sort((a, b) => (a.name || "").localeCompare(b.name || "", "fr"))
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          canalIds: linkedIds(p, projetsCanauxLinkField).filter((cid) => !seen.has(cid) && seen.add(cid)),
+        }))
+        .filter((g) => g.canalIds.length > 0);
+      out.set(rec.id, groups);
+    }
+    return out;
+  }, [artistesRecords, projetsRecords, artistesProjetsLinkField, projetsCanauxLinkField]);
+
+  // Only artists with at least one canal: the Artistes table also holds e.g. touring acts.
+  const artists = useMemo(() => (artistesRecords || [])
+    .map((rec) => {
+      const imageUrl = getImageUrl(rec, artistesImageField);
+      const n = (projetsByArtist.get(rec.id) || []).reduce((s, g) => s + g.canalIds.length, 0);
+      return { id: rec.id, name: rec.name, subtitle: `${n} ${n > 1 ? "canaux" : "canal"}`, imageUrl, canalCount: n };
+    })
+    .filter((a) => a.canalCount > 0)
+    .sort((a, b) => (a.name || "").localeCompare(b.name || "", "fr")),
+  [artistesRecords, artistesImageField, projetsByArtist]);
+  const filteredArtists = useMemo(() => filterBySearch(artists, search), [artists, search]);
+  const selectedArtist = artists.find((a) => a.id === selectedArtistId) || null;
+
+  // The artist's canaux with their period computation, grouped by projet (projets and
+  // canaux sorted by name). A canal the extension doesn't receive (page search bar, page
+  // data filters, permissions) can't be read: it is only counted.
+  const { rows: baseRows, hiddenCount } = useMemo(() => {
+    if (!selectedArtistId) return { rows: [], hiddenCount: 0 };
+    const canauxById = new Map((canauxRecords || []).map((r) => [r.id, r]));
+    const groups = projetsByArtist.get(selectedArtistId) || [];
+    const records = {
+      revenus: revenusRecords,
+      depenses: depensesRecords,
+      etats: etatsTable ? etatsRecords : null,
+      ayants: ayantsTable ? ayantsRecords : null,
+    };
+    let total = 0;
+    const out = groups.flatMap((g) => {
+      total += g.canalIds.length;
+      return g.canalIds
+        .map((id) => canauxById.get(id))
+        .filter(Boolean)
+        .map((rec) => ({
+          id: rec.id,
+          name: rec.name,
+          // `subtitle` = projet name, so the canal search also matches projets.
+          subtitle: g.name,
+          projetId: g.id,
+          isrcs: canalIsrcs(rec, cfg, oeuvresTable ? oeuvresRecords : null),
+          template: getTemplateUrl(rec, templateAttachmentField),
+          calc: computeCanalPeriod({ canalId: rec.id, period, cfg, records, revenusChoices, soldeCompteId, soldeReporteCompteId }),
+        }))
+        .sort((a, b) => (a.name || "").localeCompare(b.name || "", "fr"));
+    });
+    return { rows: out, hiddenCount: total - out.length };
+  }, [selectedArtistId, projetsByArtist, canauxRecords, revenusRecords, depensesRecords, etatsTable, etatsRecords,
+    ayantsTable, ayantsRecords, oeuvresTable, oeuvresRecords, templateAttachmentField, period, cfg, revenusChoices,
+    soldeCompteId, soldeReporteCompteId]);
+
+  // Believe/Shopify amounts (Supabase) of the open canaux, as on the canal page. Months
+  // already saved in Airtable are left out (see pendingGridInputs).
+  const supaOn = supabaseConfigured(cfg);
+  const supaTargets = baseRows.filter((r) => r.calc.status === "open");
+  const supaEntryKey = (canalId) => `${canalId}_${period.key}_${supaRefreshKey}`;
+  const supaKey = supaTargets.map((r) => `${r.id}:${r.isrcs.join(",")}`).join("|");
+  useEffect(() => {
+    setSupa({});
+    if (!supaOn || supaTargets.length === 0) return;
+    let didCancel = false;
+    for (const r of supaTargets) {
+      const cacheKey = `${r.id}_${period.key}_${r.isrcs.join(",")}_${supaRefreshKey}`;
+      cachedFetch(supaCacheRef.current, cacheKey, () => Promise.all([
+        r.isrcs.length > 0 && cfg.royaltiesColumn ? fetchBelieveByMonth(cfg, r.isrcs, period) : null,
+        fetchShopifyByMonth(cfg, r.id, period),
+      ]).then(([believe, shopify]) => ({ believe, shopify })))
+        .then((data) => { if (!didCancel) setSupa((prev) => ({ ...prev, [supaEntryKey(r.id)]: data })); })
+        .catch((err) => { if (!didCancel) setSupa((prev) => ({ ...prev, [supaEntryKey(r.id)]: { error: err.message || String(err) } })); });
+    }
+    return () => { didCancel = true; };
+    // Deps are value keys: baseRows is rebuilt on every records change (see the canal page's effects).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supaKey, period.key, supaOn, supabaseUrl, supabaseAnonKey, clientId, supaRefreshKey]);
+  const supaLoading = supaOn && supaTargets.some((r) => !(supaEntryKey(r.id) in supa));
+
+  // Rows with the unsaved Believe/Shopify amounts added to their totals.
+  const rows = useMemo(() => baseRows.map((r) => {
+    const data = r.calc.status === "open" ? supa[supaEntryKey(r.id)] : null;
+    const pending = data && !data.error
+      ? pendingGridInputs({ ...data, revenusRecords, cfg, canalId: r.id, period, revenusChoices })
+      : {};
+    const pendingTotal = sumInputs(pending);
+    return {
+      ...r,
+      supaError: data && data.error ? data.error : null,
+      pending,
+      pendingTotal,
+      totalRevenus: r.calc.totalRevenus + pendingTotal,
+      totalDepenses: r.calc.totalDepenses,
+      soldePrecedent: r.calc.soldePrecedent,
+      totalASpliter: r.calc.totalASpliter + pendingTotal,
+    };
+    // supaEntryKey derives from period and supaRefreshKey.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [baseRows, supa, revenusRecords, cfg, period, revenusChoices, supaRefreshKey]);
+
+  // On a new artist or period, tick the open canaux that have an Excel template and
+  // something for the period (not all at 0 $). Done once Believe/Shopify are loaded,
+  // since they count too.
+  const resetKey = `${selectedArtistId}_${period.key}`;
+  const lastResetRef = useRef(null);
+  const lastCheckRef = useRef(null);
+  useEffect(() => {
+    if (lastResetRef.current === resetKey) return;
+    lastResetRef.current = resetKey;
+    setChecked(new Set());
+    setCanalSearch("");
+    setStep(null);
+    setMsg(null);
+  }, [resetKey]);
+  useEffect(() => {
+    if (lastCheckRef.current === resetKey || supaLoading) return;
+    lastCheckRef.current = resetKey;
+    const hasAmounts = (r) => r.totalRevenus !== 0 || r.totalDepenses !== 0 || r.totalASpliter !== 0;
+    setChecked(new Set(rows.filter((r) => r.calc.status === "open" && !r.template.error && hasAmounts(r)).map((r) => r.id)));
+  }, [resetKey, rows, supaLoading]);
+
+  const selectedRows = rows.filter((r) => checked.has(r.id));
+  const toggle = (id) => setChecked((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+  // Check/uncheck several canaux at once (all shown, or one projet).
+  const setMany = (ids, on) => setChecked((prev) => {
+    const next = new Set(prev);
+    for (const id of ids) {
+      if (on) next.add(id);
+      else next.delete(id);
+    }
+    return next;
+  });
+  // The search only hides rows: canaux checked and then hidden stay in the report.
+  const visibleRows = useMemo(() => filterBySearch(rows, canalSearch), [rows, canalSearch]);
+  const visibleGroups = useMemo(() => {
+    const out = [];
+    for (const r of visibleRows) {
+      const last = out[out.length - 1];
+      if (last && last.id === r.projetId) last.rows.push(r);
+      else out.push({ id: r.projetId, name: r.subtitle, rows: [r] });
+    }
+    return out;
+  }, [visibleRows]);
+  const allChecked = visibleRows.length > 0 && visibleRows.every((r) => checked.has(r.id));
+
+  const missingTemplate = selectedRows.filter((r) => r.template.error);
+  const reportBlocker = selectedRows.length === 0
+    ? "Coche au moins un canal."
+    : supaLoading
+    ? "Chargement Believe/Shopify…"
+    : missingTemplate.length > 0
+    ? `Pas de template Excel : ${missingTemplate.map((r) => r.name).join(", ")}.`
+    : null;
+  const rowClotureBlocker = (r) => clotureBlockerFor(cfg, r.calc)
+    || (r.supaError ? `Erreur Believe/Shopify : ${r.supaError}` : null)
+    || (r.pendingTotal !== 0 && !cfg.revenusDateWriteField
+      ? "Configure le Champ Date (Revenus) — écriture pour sauvegarder les montants Believe/Shopify."
+      : null);
+  const clotureProblems = selectedRows
+    .map((r) => ({ r, reason: rowClotureBlocker(r) }))
+    .filter((p) => p.reason);
+  const clotureBlocker = reportBlocker
+    || (supaLoading ? "Chargement Believe/Shopify…" : null)
+    || (clotureProblems.length > 0 ? clotureProblems.map((p) => `${p.r.name} — ${p.reason}`).join(" ") : null);
+
+  const exportReport = async () => {
+    setMsg("Génération du rapport…");
+    try {
+      const wb = await buildArtistWorkbook({
+        artistName: selectedArtist.name,
+        period,
+        items: selectedRows.map((r) => ({
+          canalName: r.name,
+          statusLabel: statusLabel(r.calc),
+          fillArgs: {
+            templateUrl: r.template.url,
+            canalName: r.name,
+            period,
+            cfg,
+            revenusChoices,
+            revenusByCell: r.calc.revenusByCell,
+            revenusInputs: r.pending,
+            revenus: r.calc.reportRevenus,
+            depenses: r.calc.reportDepenses,
+            ayantsDroits: r.calc.ayantsDroits,
+            soldePrecedent: r.calc.soldePrecedent,
+          },
+        })),
+      });
+      await downloadWorkbook(wb, `Rapport_${safeFileName(selectedArtist.name)}_${period.fileLabel}.xlsx`);
+      setMsg("Rapport téléchargé.");
+      return true;
+    } catch (err) {
+      console.error("Artist export failed:", err);
+      setMsg(`Erreur export : ${err.message || err}`);
+      return false;
+    }
+  };
+
+  const handleExport = async () => {
+    if (reportBlocker || step) return;
+    setStep("export");
+    try {
+      await exportReport();
+    } finally {
+      setStep(null);
+    }
+  };
+
+  // Report first (nothing is closed if it fails), then for each ticked canal: save its
+  // Believe/Shopify amounts as Revenus, and create its État de compte linking them.
+  const handleCloture = async () => {
+    if (clotureBlocker) return;
+    setStep("cloture");
+    let created = 0;
+    try {
+      const ok = await exportReport();
+      if (!ok) return;
+      for (const r of selectedRows) {
+        const toCreate = gridInputsToRecords({ inputs: r.pending, columns: revenusChoices, cfg, canalId: r.id, year: period.year });
+        const newIds = [];
+        for (let i = 0; i < toCreate.length; i += 50) {
+          newIds.push(...(await revenusTable.createRecordsAsync(toCreate.slice(i, i + 50))));
+        }
+        await etatsTable.createRecordAsync(buildEtatFields({
+          cfg, canalId: r.id, artisteId: selectedArtistId, period, calc: r.calc,
+          totalASpliter: r.totalASpliter, extraRevenuIds: newIds,
+        }));
+        created += 1;
+      }
+      // The saved months are no longer pending: refetch on the next look.
+      supaCacheRef.current.clear();
+      const paiements = selectedRows.reduce((s, r) => s + Math.max(r.totalASpliter, 0), 0);
+      const deficits = selectedRows.filter((r) => r.totalASpliter < 0).length;
+      setMsg(
+        `Période clôturée pour ${created} ${created > 1 ? "canaux" : "canal"}. Paiements à verser : ${fmtCurrency(paiements)}`
+        + (deficits ? ` — ${deficits} déficit${deficits > 1 ? "s" : ""} reporté${deficits > 1 ? "s" : ""}.` : "."),
+      );
+    } catch (err) {
+      console.error("Artist clôture failed:", err);
+      setMsg(`Erreur clôture${created ? ` (${created} état${created > 1 ? "s" : ""} déjà créé${created > 1 ? "s" : ""})` : ""} : ${err.message || err}`);
+    } finally {
+      setStep(null);
+    }
+  };
+
+  if (openCanalId) {
+    return (
+      <ReportInner
+        key={openCanalId}
+        cfg={cfg}
+        fixedCanalId={openCanalId}
+        artisteId={selectedArtistId}
+        initialPeriod={periodSel}
+        onBack={(sel) => {
+          setOpenCanalId(null);
+          if (sel) setPeriodSel(sel);
+        }}
+      />
+    );
+  }
+
+  if (!selectedArtist) {
+    return (
+      <div className="min-h-screen bg-gray-gray50 dark:bg-gray-gray800 p-4 sm:p-6">
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          <h1 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100">
+            Rapports artiste — Sélectionne un artiste
+          </h1>
+          <div className="relative w-full sm:w-80">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher un artiste…"
+              autoFocus
+              className="w-full bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 pl-3 pr-8 py-2 rounded border border-gray-gray200 dark:border-gray-gray600 focus:border-blue-blue focus:outline-none"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                title="Effacer"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-gray400 hover:text-gray-gray700 dark:hover:text-gray-gray100"
+              >
+                ×
+              </button>
+            )}
+          </div>
+        </div>
+        {artists.length === 0 ? (
+          <div className="text-gray-gray500">Aucun artiste lié à un canal (Artistes → Projets → Canaux).</div>
+        ) : filteredArtists.length === 0 ? (
+          <div className="text-gray-gray500">Aucun artiste ne correspond à « {search} ».</div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {filteredArtists.map((a) => (
+              <CanalCard key={a.id} {...a} onClick={() => setSelectedArtistId(a.id)} />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const sumOf = (key) => selectedRows.reduce((s, r) => s + r[key], 0);
+  const busy = !!step && step !== "confirm";
+
+  return (
+    <div className="min-h-screen bg-gray-gray50 dark:bg-gray-gray800 p-4 sm:p-6 pb-20">
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <button onClick={() => setSelectedArtistId(null)} className="text-sm text-blue-blue hover:underline">
+          ← Retour
+        </button>
+        <h1 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100">
+          {selectedArtist.name}
+        </h1>
+      </div>
+
+      <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <PeriodPicker value={periodSel} onChange={setPeriodSel} />
+          {supaOn && (
+            <div className="flex items-center gap-2 text-sm">
+              {supaLoading && (
+                <span className="flex items-center gap-2 text-gray-gray500">
+                  <span className="inline-block w-3 h-3 border-2 border-blue-blue border-t-transparent rounded-full animate-spin"></span>
+                  Chargement Believe/Shopify…
+                </span>
+              )}
+              <button
+                onClick={() => {
+                  supaCacheRef.current.clear();
+                  setSupaRefreshKey((k) => k + 1);
+                }}
+                title="Rafraîchir les données Believe et Shopify (Supabase)"
+                className="px-2 py-1 rounded text-sm bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray200 hover:bg-gray-gray200"
+              >
+                ↺ Believe / Shopify
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {columnsConfig.error && (
+        <div className="bg-red-redLight2 text-red-redDark1 rounded-lg p-3 mb-4 text-sm">
+          Erreur dans la Configuration des colonnes (JSON) : {columnsConfig.error}
+        </div>
+      )}
+      {missingConfig.length > 0 && (
+        <div className="bg-red-redLight2 text-red-redDark1 rounded-lg p-3 mb-4 text-sm">
+          Propriétés de l&apos;extension non configurées sur cette page (les montants restent à 0) :{" "}
+          {missingConfig.join(", ")}.
+        </div>
+      )}
+
+      {/* Totals of the ticked canaux; pinned while scrolling like the canal page's KPIs. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800">
+        <KpiTile label="Total Revenus" value={sumOf("totalRevenus")} accent="green" />
+        <KpiTile label="Total Dépenses" value={sumOf("totalDepenses")} accent="red" />
+        <KpiTile label="Solde précédent" value={sumOf("soldePrecedent")} />
+        <KpiTile
+          label={sumOf("totalASpliter") < 0 ? "Déficit reporté" : "Total à partager"}
+          value={sumOf("totalASpliter")}
+          accent={sumOf("totalASpliter") < 0 ? "red" : "blue"}
+        />
+      </div>
+      <div className="-mt-2 mb-4 text-xs text-gray-gray500">
+        Totaux des {selectedRows.length} {selectedRows.length > 1 ? "canaux cochés" : "canal coché"}
+        {supaLoading ? " — chargement Believe/Shopify…" : ""}
+      </div>
+
+      <div className="relative bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
+        <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+          <h2 className="text-lg font-semibold text-gray-gray700 dark:text-gray-gray100">
+            Canaux — {period.shortLabel}
+          </h2>
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="relative flex-1 sm:w-72">
+              <input
+                type="text"
+                value={canalSearch}
+                onChange={(e) => setCanalSearch(e.target.value)}
+                placeholder="Rechercher un canal ou un projet…"
+                className="w-full bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 pl-3 pr-8 py-1.5 text-sm rounded border border-gray-gray200 dark:border-gray-gray600 focus:border-blue-blue focus:outline-none"
+              />
+              {canalSearch && (
+                <button
+                  onClick={() => setCanalSearch("")}
+                  title="Effacer"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-gray400 hover:text-gray-gray700 dark:hover:text-gray-gray100"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            <HelpBadge title="Comment ça marche">
+              <p><strong>1. Cocher</strong><br />
+                Coche les canaux à inclure. Les canaux dont la période est ouverte sont cochés par défaut.</p>
+              <p><strong>2. Générer le rapport</strong><br />
+                Télécharge un seul fichier Excel : un onglet Sommaire, puis l&apos;état de compte de chaque canal coché
+                (rempli avec le template du canal).</p>
+              <p><strong>3. Fermer la période</strong><br />
+                Télécharge le rapport, puis crée un état de compte par canal coché, comme le bouton « Clôturer la
+                période » d&apos;un canal. Seules les périodes ouvertes peuvent être fermées.</p>
+              <p><strong>Believe et Shopify</strong><br />
+                Les montants Believe et Shopify des mois pas encore sauvegardés sont lus dans Supabase et comptés dans
+                les totaux et le rapport. La fermeture de la période les enregistre comme
+                Revenus, puis les lie à l&apos;état de compte.</p>
+              <p><strong>Recherche</strong><br />
+                La recherche filtre l&apos;affichage par canal ou par projet. Un canal coché puis masqué par la
+                recherche reste inclus dans le rapport et la fermeture.</p>
+            </HelpBadge>
+          </div>
+        </div>
+        {rows.length === 0 ? (
+          <div className="text-sm text-gray-gray500 italic">Aucun canal visible pour cet artiste.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead className="bg-gray-gray50 dark:bg-gray-gray800">
+                <tr>
+                  <th className="p-2 w-8 text-left">
+                    <input
+                      type="checkbox"
+                      checked={allChecked}
+                      onChange={() => setMany(visibleRows.map((r) => r.id), !allChecked)}
+                      title={canalSearch ? "Cocher les canaux affichés" : "Tout cocher"}
+                    />
+                  </th>
+                  <th className="p-2 text-left">Canal</th>
+                  <th className="p-2 text-left">Statut</th>
+                  <th className="p-2 text-right">Revenus</th>
+                  <th className="p-2 text-right">Dépenses</th>
+                  <th className="p-2 text-right whitespace-nowrap">Solde précédent</th>
+                  <th className="p-2 text-right whitespace-nowrap">Total à partager</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleGroups.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-3 text-center text-gray-gray500 italic">
+                      Aucun canal ne correspond à « {canalSearch} ».
+                    </td>
+                  </tr>
+                )}
+                {visibleGroups.map((g) => {
+                  const groupChecked = g.rows.every((r) => checked.has(r.id));
+                  const groupTotal = g.rows.reduce((s, r) => s + r.totalASpliter, 0);
+                  return (
+                    <Fragment key={g.id}>
+                      <tr className="border-t border-gray-gray200 dark:border-gray-gray600 bg-gray-gray100 dark:bg-gray-gray800">
+                        <td className="p-2">
+                          <input
+                            type="checkbox"
+                            checked={groupChecked}
+                            onChange={() => setMany(g.rows.map((r) => r.id), !groupChecked)}
+                            title="Cocher les canaux du projet"
+                          />
+                        </td>
+                        <td className="p-2 font-semibold text-gray-gray700 dark:text-gray-gray100" colSpan={5}>
+                          {g.name} <span className="text-gray-gray500 font-normal">({g.rows.length})</span>
+                        </td>
+                        <td className="p-2 text-right whitespace-nowrap font-semibold text-gray-gray700 dark:text-gray-gray100">
+                          {fmtCurrency(groupTotal)}
+                        </td>
+                      </tr>
+                      {g.rows.map((r) => {
+                        const empty = r.calc.existingRevenus.length === 0 && r.calc.existingDepenses.length === 0 && r.pendingTotal === 0;
+                        const reason = r.calc.status === "open" ? rowClotureBlocker(r) : null;
+                        return (
+                          <tr key={r.id} className="border-t border-gray-gray100 dark:border-gray-gray600 hover:bg-gray-gray50 dark:hover:bg-gray-gray800">
+                            <td className="p-2 align-top">
+                              <input type="checkbox" checked={checked.has(r.id)} onChange={() => toggle(r.id)} />
+                            </td>
+                            <td className="p-2 align-top">
+                              <button
+                                onClick={() => setOpenCanalId(r.id)}
+                                title="Ouvrir la page du canal"
+                                className="pl-4 text-left font-medium text-blue-blue hover:underline"
+                              >
+                                {r.name}
+                              </button>
+                              {r.template.error && <div className="text-xs text-red-redDark1">Pas de template Excel</div>}
+                              {ayantsConfigured && r.calc.ayantsDroits.length === 0 && (
+                                <div className="text-xs text-orange-orangeDark1">Aucun ayant droit</div>
+                              )}
+                              {empty && <div className="text-xs text-gray-gray500">Aucune entrée sauvegardée</div>}
+                              {reason && <div className="text-xs text-orange-orangeDark1">{reason}</div>}
+                            </td>
+                            <td className="p-2 align-top"><StatusBadge calc={r.calc} /></td>
+                            <td className="p-2 align-top text-right whitespace-nowrap text-green-greenDark1">{fmtCurrency(r.totalRevenus)}</td>
+                            <td className="p-2 align-top text-right whitespace-nowrap text-red-redDark1">{fmtCurrency(r.totalDepenses)}</td>
+                            <td className="p-2 align-top text-right whitespace-nowrap">{fmtCurrency(r.soldePrecedent)}</td>
+                            <td className={`p-2 align-top text-right whitespace-nowrap font-semibold ${r.totalASpliter < 0 ? "text-red-redDark1" : "text-blue-blueDark1"}`}>
+                              {fmtCurrency(r.totalASpliter)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
+                  );
+                })}
+                <tr className="border-t border-gray-gray200 dark:border-gray-gray600 bg-gray-gray50 dark:bg-gray-gray800 font-semibold">
+                  <td className="p-2"></td>
+                  <td className="p-2" colSpan={2}>Total des canaux cochés ({selectedRows.length})</td>
+                  <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(sumOf("totalRevenus"))}</td>
+                  <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(sumOf("totalDepenses"))}</td>
+                  <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(sumOf("soldePrecedent"))}</td>
+                  <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(sumOf("totalASpliter"))}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+        {hiddenCount > 0 && (
+          <div className="mt-2 text-xs text-gray-gray500">
+            {hiddenCount} {hiddenCount > 1 ? "canaux" : "canal"} lié{hiddenCount > 1 ? "s" : ""} à cet artiste non visible{hiddenCount > 1 ? "s" : ""} par l&apos;extension.
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-end gap-3 sticky bottom-0 bg-gray-gray50 dark:bg-gray-gray800 py-3 flex-wrap">
+        {msg && <span className="text-sm text-gray-gray600 dark:text-gray-gray200">{msg}</span>}
+        <button
+          onClick={handleExport}
+          disabled={!!reportBlocker || busy}
+          title={reportBlocker || ""}
+          className={`px-4 py-2 rounded text-sm font-medium border ${
+            reportBlocker || busy
+              ? "bg-gray-gray200 text-gray-gray500 border-gray-gray200 cursor-not-allowed"
+              : "bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 border-gray-gray200 dark:border-gray-gray600 hover:bg-gray-gray50 dark:hover:bg-gray-gray800"
+          }`}
+        >
+          {step === "export" ? "Génération…" : `Générer le rapport (${selectedRows.length})`}
+        </button>
+        {step === "confirm" ? (
+          <>
+            <span className="text-sm text-gray-gray600 dark:text-gray-gray200">
+              Télécharger le rapport et clôturer {period.shortLabel} pour {selectedRows.length} {selectedRows.length > 1 ? "canaux" : "canal"} ?
+            </span>
+            <button
+              onClick={() => setStep(null)}
+              className="px-3 py-2 rounded text-sm font-medium text-gray-gray600 dark:text-gray-gray200 hover:bg-gray-gray100 dark:hover:bg-gray-gray700"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={handleCloture}
+              className="px-4 py-2 rounded text-sm font-medium bg-blue-blue text-white hover:bg-blue-blueDark1"
+            >
+              Confirmer
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => setStep("confirm")}
+            disabled={!!clotureBlocker || busy}
+            title={clotureBlocker || ""}
+            className={`px-4 py-2 rounded text-sm font-medium ${
+              clotureBlocker || busy
+                ? "bg-gray-gray200 text-gray-gray500 cursor-not-allowed"
+                : "bg-blue-blue text-white hover:bg-blue-blueDark1"
+            }`}
+          >
+            {step === "cloture" ? "Clôture…" : `Fermer la période (${selectedRows.length})`}
+          </button>
+        )}
+      </div>
+      {selectedRows.length > 0 && clotureBlocker && !reportBlocker && (
+        <div className="text-right text-xs text-orange-orangeDark1">
+          Fermeture impossible : {clotureProblems.map((p) => p.r.name).join(", ")} (voir le statut et le détail de chaque canal).
+        </div>
+      )}
     </div>
   );
 }

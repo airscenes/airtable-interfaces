@@ -68,6 +68,40 @@ export function normalizeWorkbookForExcel(wb) {
   });
 }
 
+// Copy a (filled) worksheet into another workbook: ExcelJS has no cross-workbook
+// copy. The sheet model carries values, styles, merges, column widths, print setup
+// and views; images live in the source workbook's media, so they are registered
+// again in the target. Formulas pointing to other sheets of the source template
+// would dangle: templates are expected to be self-contained on one sheet.
+export function copyWorksheet(src, dstWb, name) {
+  const dst = dstWb.addWorksheet(name);
+  const model = src.model;
+  dst.model = {
+    ...model,
+    name: dst.name,
+    // The getter names them `merges`, the setter reads `mergeCells`.
+    mergeCells: model.merges || [],
+    media: [],
+    tables: [],
+    // Only the first sheet may be selected, otherwise Excel opens with grouped tabs.
+    views: (model.views || []).map((v) => ({ ...v, tabSelected: false })),
+  };
+  // Merging drops the secondary cells' styles (e.g. the right border of a merged
+  // header): put every cell's style back.
+  for (const row of model.rows) {
+    for (const cell of row.cells) {
+      if (cell.style) dst.getCell(cell.address).style = JSON.parse(JSON.stringify(cell.style));
+    }
+  }
+  for (const image of src.getImages()) {
+    const medium = src.workbook.getImage(Number(image.imageId));
+    if (!medium) continue;
+    const id = dstWb.addImage({ buffer: medium.buffer, base64: medium.base64, extension: medium.extension });
+    dst.addImage(id, image.model.range);
+  }
+  return dst;
+}
+
 // Google Sheets can save a merged row as several overlapping multi-row ranges
 // (H22:K42 + H23:K43) while showing two clean one-row merges. ExcelJS refuses
 // to even load such a file ("Cannot merge already merged cells"), so before
