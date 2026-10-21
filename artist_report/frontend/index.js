@@ -223,6 +223,8 @@ function getCustomProperties(base) {
     { key: "canauxTable", label: "Table des Canaux (projets/albums)", type: "table" },
     { key: "canalImageField", label: "Champ image (Canaux)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
     { key: "canalSubtitleField", label: "Champ sous-titre carte (Canaux)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
+    { key: "canauxFilterField", label: "Champ filtre (Canaux, single select, optionnel)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
+    { key: "canauxFilterDefault", label: "Filtre Canaux — valeurs cochées par défaut (optionnel, ex. Actif,En cours)", type: "string", defaultValue: "" },
     { key: "oeuvresLinkField", label: "Champ lien Oeuvres (Canaux)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
 
     // --- Oeuvres (pour récupérer les ISRCs) ---
@@ -285,6 +287,7 @@ function getCustomProperties(base) {
     { key: "etatsArtisteLinkField", label: "Lien Artiste (États de compte, optionnel — rempli en mode Artiste)", type: "field", table: etatsTable, shouldFieldBeAllowed: anyField },
     { key: "soldeOuvertureCompte", label: "No de compte Solde d'ouverture (numero_compte, ex. 4000)", type: "string", defaultValue: "4000" },
     { key: "soldeReporteCompte", label: "No de compte Solde reporté (dépense, numero_compte, ex. 5000)", type: "string", defaultValue: "5000" },
+    { key: "paiementsComptes", label: "Comptes de paiement (Dépenses, optionnel, ex. 52xx ou 5200-5299) — paiements du solde, datés par la facture", type: "string", defaultValue: "" },
 
     // --- Colonnes des grilles (mapping label → record Compte) ---
     {
@@ -596,6 +599,158 @@ function HelpBadge({ title, children }) {
   );
 }
 
+// --- UI: Single-select filter (dropdown of checkboxes with colored pills) ---
+
+const SELECT_COLORS = {
+  blueBright:   { bg: "#2d7ff9", text: "#fff" },
+  blueLight1:   { bg: "#9cc7ff", text: "#333" },
+  blueLight2:   { bg: "#cfdfff", text: "#333" },
+  cyanBright:   { bg: "#18bfff", text: "#fff" },
+  cyanLight1:   { bg: "#77d1f3", text: "#333" },
+  cyanLight2:   { bg: "#d0f0fd", text: "#333" },
+  tealBright:   { bg: "#20d9d2", text: "#fff" },
+  tealLight1:   { bg: "#72ddc3", text: "#333" },
+  tealLight2:   { bg: "#c2f5e9", text: "#333" },
+  greenBright:  { bg: "#20c933", text: "#fff" },
+  greenLight1:  { bg: "#93e088", text: "#333" },
+  greenLight2:  { bg: "#d1f7c4", text: "#333" },
+  yellowBright: { bg: "#fcb400", text: "#333" },
+  yellowLight1: { bg: "#ffd66e", text: "#333" },
+  yellowLight2: { bg: "#ffeab6", text: "#333" },
+  orangeBright: { bg: "#ff6f2c", text: "#fff" },
+  orangeLight1: { bg: "#ffaa57", text: "#333" },
+  orangeLight2: { bg: "#fee2d5", text: "#333" },
+  redBright:    { bg: "#f82b60", text: "#fff" },
+  redLight1:    { bg: "#ff9eb7", text: "#333" },
+  redLight2:    { bg: "#ffdce5", text: "#333" },
+  pinkBright:   { bg: "#ff08c2", text: "#fff" },
+  pinkLight1:   { bg: "#f99de2", text: "#333" },
+  pinkLight2:   { bg: "#ffdaf6", text: "#333" },
+  purpleBright: { bg: "#8b46ff", text: "#fff" },
+  purpleLight1: { bg: "#cdb0ff", text: "#333" },
+  purpleLight2: { bg: "#ede2fe", text: "#333" },
+  grayBright:   { bg: "#666666", text: "#fff" },
+  gray:         { bg: "#aaaaaa", text: "#fff" },
+};
+
+// Option names of a single/multiple select cell, or of a lookup of one.
+function selectNames(rec, field) {
+  const v = rec.getCellValue(field);
+  const items = Array.isArray(v)
+    ? v.flatMap((x) => (x && typeof x === "object" && "linkedRecordId" in x ? x.value : x))
+    : [v];
+  return items
+    .map((x) => (x && typeof x === "object" ? x.name : x))
+    .filter((x) => x != null && x !== "")
+    .map(String);
+}
+
+// Filter of records on a select field. `defaultRaw` = comma-separated names checked at
+// start; nothing checked = no filter. Without a field every record matches.
+function useChoiceFilter(field, defaultRaw, records) {
+  const [selected, setSelected] = useState(
+    () => new Set(String(defaultRaw || "").split(",").map((s) => s.trim()).filter(Boolean)),
+  );
+  // Choices in the field's order with their colors; for other field types, the values found.
+  const choices = useMemo(() => {
+    if (!field) return [];
+    let opts = null;
+    try {
+      opts = field.config.options?.choices || field.config.options?.result?.options?.choices || null;
+    } catch { /* field config unavailable */ }
+    if (opts) return opts.map((c) => ({ name: c.name, color: c.color || null }));
+    const names = new Set();
+    for (const rec of records || []) for (const n of selectNames(rec, field)) names.add(n);
+    return [...names].sort((a, b) => a.localeCompare(b, "fr")).map((name) => ({ name, color: null }));
+  }, [field, records]);
+  const matches = useMemo(
+    () => (rec) => !field || selected.size === 0 || selectNames(rec, field).some((n) => selected.has(n)),
+    [field, selected],
+  );
+  return { field, choices, selected, setSelected, matches };
+}
+
+function SelectPill({ name, color }) {
+  const c = SELECT_COLORS[color];
+  return (
+    <span
+      className={`inline-block px-2 py-0.5 rounded-full text-xs whitespace-nowrap ${c ? "" : "bg-gray-gray100 text-gray-gray700 dark:bg-gray-gray600 dark:text-gray-gray100"}`}
+      style={c ? { backgroundColor: c.bg, color: c.text } : undefined}
+    >
+      {name}
+    </span>
+  );
+}
+
+function ChoiceFilter({ filter, small = false }) {
+  const { field, choices, selected, setSelected } = filter;
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  if (!field) return null;
+  const toggle = (name) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    return next;
+  });
+  const label = selected.size === 0
+    ? `${field.name} : tous`
+    : selected.size === 1
+    ? `${field.name} : ${[...selected][0]}`
+    : `${field.name} : ${selected.size}`;
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className={`flex items-center gap-2 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 pl-3 pr-2 rounded border focus:outline-none whitespace-nowrap ${
+          small ? "py-1.5 text-sm" : "py-2"
+        } ${selected.size > 0 ? "border-blue-blue" : "border-gray-gray200 dark:border-gray-gray600"}`}
+      >
+        <span className="max-w-[12rem] truncate">{label}</span>
+        <svg width="10" height="6" viewBox="0 0 10 6" className="text-gray-gray400" aria-hidden="true">
+          <path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          className="absolute left-0 top-full mt-1 z-20 min-w-[12rem] max-h-80 overflow-auto py-1 rounded-lg shadow-lg
+                     bg-white dark:bg-gray-gray700 border border-gray-gray200 dark:border-gray-gray600 text-sm"
+        >
+          {choices.length === 0 && <div className="px-3 py-2 text-gray-gray500">Aucune option.</div>}
+          {choices.map((c) => (
+            <label
+              key={c.name}
+              className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-gray-gray50 dark:hover:bg-gray-gray600"
+            >
+              <input type="checkbox" checked={selected.has(c.name)} onChange={() => toggle(c.name)} />
+              <SelectPill name={c.name} color={c.color} />
+            </label>
+          ))}
+          {selected.size > 0 && (
+            <button
+              onClick={() => setSelected(new Set())}
+              className="w-full text-left px-3 py-1.5 mt-1 border-t border-gray-gray100 dark:border-gray-gray600 text-blue-blue hover:bg-gray-gray50 dark:hover:bg-gray-gray600"
+            >
+              Tout afficher
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Display string of a link/lookup cell. getCellValueAsString CSV-quotes names
 // containing commas ("5633 | Publicité Web (Facebook, etc.)"), so join names directly.
 function getLinkNames(rec, field) {
@@ -770,16 +925,19 @@ function ExistingEntriesList({ title, table, entries, dateField, montantField, c
 // Tags available to the template:
 //   Scalars  ${nom_spectacle} ${nom_artiste} ${periode} ${annee}
 //            ${total_revenus} ${total_depenses} ${net} (revenus − dépenses of the period)
-//            ${solde_precedent} ${total_a_spliter} (net + solde précédent) ${deficit_reporte} (≤ 0)
+//            ${total_a_spliter} (= net: only the period is split) ${solde_precedent}
+//            ${total_paiements} (52xx payments dated in the period)
+//            ${solde_fermeture} (solde précédent + net − paiements) ${deficit_reporte} (min(solde_fermeture, 0))
 //            ${colonne.c1}…${colonne.cN}  Revenus grid column labels (revenusColumnsJson order)
 //            ${m1.nom}…${m6.nom}          month names of the half-year
 //            ${m1.c1}…${m6.cN}            grid amount for month i × column j, as shown on screen
 //   One-row blocks (the row is repeated per record)
 //            ${depense.no_facture|date|mode_paiement|fournisseur|poste|artiste|montant|description}
 //            ${revenu.no_facture|date|mode_paiement|fournisseur|poste|artiste|montant|description}
+//            ${paiement.no_facture|date|mode_paiement|fournisseur|poste|artiste|montant|description}
 //            ${revenu.libelle|categorie}  saved revenus not in the grid (poste = notes, else categorie)
 //            ${ayant_droit.nom|part|montant}  part = fraction (format the cell as %),
-//                                             montant = max(total_a_spliter, 0) × part
+//                                             montant = max(net, 0) × part
 
 function readDateForExport(rec, dateField, dateWriteField) {
   const tryRead = (f) => {
@@ -803,14 +961,14 @@ function getTemplateUrl(canalRec, templateAttachmentField) {
   return { url: attachments[0].url };
 }
 
-// Fill one canal's template for a period. `revenus` / `depenses` are the entries
-// listed in the report (grid and solde entries already left out); the grid comes
+// Fill one canal's template for a period. `revenus` / `depenses` / `paiements` are the
+// entries listed in the report (grid and solde entries already left out); the grid comes
 // from `revenusByCell` (saved) + `revenusInputs` (typed, canal page only).
 // Returns the workbook and the totals written in it.
 async function fillCanalReport({
   templateUrl, canalName, period, cfg,
   revenusChoices, revenusByCell, revenusInputs = {},
-  revenus: existingRevenus, depenses: existingDepenses,
+  revenus: existingRevenus, depenses: existingDepenses, paiements: existingPaiements = [],
   ayantsDroits, soldePrecedent,
 }) {
   const {
@@ -869,18 +1027,18 @@ async function fillCanalReport({
   };
   const byDate = (a, b) => a.date.localeCompare(b.date);
 
-  const depense = existingDepenses
-    .map((rec) => ({
-      no_facture: str(rec, depensesNoFactureField),
-      date: isoDate(rec, depensesDateField, depensesDateWriteField),
-      mode_paiement: str(rec, depensesModePaiementField),
-      fournisseur: str(rec, depensesFournisseurField),
-      poste: str(rec, depensesNotesField),
-      artiste: str(rec, depensesArtisteField),
-      montant: Number(rec.getCellValue(depensesMontantField)) || 0,
-      description: str(rec, depensesDescriptionField),
-    }))
-    .sort(byDate);
+  const depenseRow = (rec) => ({
+    no_facture: str(rec, depensesNoFactureField),
+    date: isoDate(rec, depensesDateField, depensesDateWriteField),
+    mode_paiement: str(rec, depensesModePaiementField),
+    fournisseur: str(rec, depensesFournisseurField),
+    poste: str(rec, depensesNotesField),
+    artiste: str(rec, depensesArtisteField),
+    montant: Number(rec.getCellValue(depensesMontantField)) || 0,
+    description: str(rec, depensesDescriptionField),
+  });
+  const depense = existingDepenses.map(depenseRow).sort(byDate);
+  const paiement = existingPaiements.map(depenseRow).sort(byDate);
 
   const revenu = existingRevenus
     .map((rec) => {
@@ -906,21 +1064,25 @@ async function fillCanalReport({
 
   const totalDepenses = depense.reduce((s, d) => s + d.montant, 0);
   const totalRevenus = gridTotal + revenu.reduce((s, r) => s + r.montant, 0);
+  const totalPaiements = paiement.reduce((s, p) => s + p.montant, 0);
   const net = totalRevenus - totalDepenses;
+  // Only the period's net is split; the solde is global and carried until paid (52xx).
+  const soldeFermeture = soldePrecedent + net - totalPaiements;
   tags.total_revenus = totalRevenus;
   tags.total_depenses = totalDepenses;
   tags.net = net;
-  // Report: a negative total is not split, it is carried to the next period.
-  const totalASpliter = net + soldePrecedent;
+  tags.total_a_spliter = net;
   tags.solde_precedent = soldePrecedent;
-  tags.total_a_spliter = totalASpliter;
-  tags.deficit_reporte = Math.min(totalASpliter, 0);
+  tags.total_paiements = totalPaiements;
+  tags.solde_fermeture = soldeFermeture;
+  tags.deficit_reporte = Math.min(soldeFermeture, 0);
 
-  const ayant_droit = ayantsDroits.map((a) => ({ nom: a.nom, part: a.part, montant: Math.max(totalASpliter, 0) * a.part }));
+  // A period at a loss is not split: the loss stays in the solde.
+  const ayant_droit = ayantsDroits.map((a) => ({ nom: a.nom, part: a.part, montant: Math.max(net, 0) * a.part }));
 
-  fillTemplate(ws, { tags, blocks: { depense, revenu, ayant_droit } });
+  fillTemplate(ws, { tags, blocks: { depense, revenu, paiement, ayant_droit } });
 
-  return { wb, ws, totals: { totalRevenus, totalDepenses, net, soldePrecedent, totalASpliter } };
+  return { wb, ws, totals: { totalRevenus, totalDepenses, net, soldePrecedent, totalPaiements, soldeFermeture } };
 }
 
 async function downloadWorkbook(wb, filename) {
@@ -974,7 +1136,7 @@ async function buildArtistWorkbook({ artistName, period, items }) {
   sommaire.getCell("A1").value = `Rapport — ${artistName}`;
   sommaire.getCell("A1").font = { bold: true, size: 14 };
   sommaire.getCell("A2").value = `Période : ${period.label}`;
-  const header = ["Canal", "Statut", "Revenus", "Dépenses", "Solde précédent", "Total à partager", "Paiement", "Déficit reporté"];
+  const header = ["Canal", "Statut", "Revenus", "Dépenses", "Net (à partager)", "Solde précédent", "Paiements", "Solde fermeture"];
   const headerRow = sommaire.getRow(4);
   header.forEach((h, i) => {
     const cell = headerRow.getCell(i + 1);
@@ -987,8 +1149,8 @@ async function buildArtistWorkbook({ artistName, period, items }) {
   rows.forEach((r, k) => {
     const row = sommaire.getRow(5 + k);
     row.values = [
-      r.canal, r.statut, r.totalRevenus, r.totalDepenses, r.soldePrecedent,
-      r.totalASpliter, Math.max(r.totalASpliter, 0), Math.min(r.totalASpliter, 0),
+      r.canal, r.statut, r.totalRevenus, r.totalDepenses, r.net,
+      r.soldePrecedent, r.totalPaiements, r.soldeFermeture,
     ];
     for (let c = 3; c <= 8; c++) row.getCell(c).numFmt = CURRENCY_FMT;
   });
@@ -996,8 +1158,8 @@ async function buildArtistWorkbook({ artistName, period, items }) {
   totalRow.getCell(1).value = "Total";
   const last = 4 + rows.length;
   ["C", "D", "E", "F", "G", "H"].forEach((col, i) => {
-    const values = rows.map((r) => [r.totalRevenus, r.totalDepenses, r.soldePrecedent, r.totalASpliter,
-      Math.max(r.totalASpliter, 0), Math.min(r.totalASpliter, 0)][i]);
+    const values = rows.map((r) => [r.totalRevenus, r.totalDepenses, r.net, r.soldePrecedent,
+      r.totalPaiements, r.soldeFermeture][i]);
     const cell = totalRow.getCell(3 + i);
     cell.value = rows.length
       ? { formula: `SUM(${col}5:${col}${last})`, result: values.reduce((s, v) => s + v, 0) }
@@ -1023,7 +1185,7 @@ async function buildArtistWorkbook({ artistName, period, items }) {
 //   open     no État dated on or after the period start
 // Open period: unlinked entries of the period, plus rattrapages (older unlinked
 // entries) when the previous État closed the period right before this one.
-function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, soldeCompteId, soldeReporteCompteId }) {
+function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, soldeCompteId, soldeReporteCompteId, paiementCompteIds }) {
   const {
     revenusCanalLinkField, revenusDateField, revenusDateWriteField, revenusMontantField,
     revenusCategorieField, revenusEtatLinkField, revenusNotesField,
@@ -1083,7 +1245,14 @@ function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, sol
 
   const revenusDateFields = [revenusDateField, revenusDateWriteField];
   const existingRevenus = filterEntries(records.revenus, revenusCanalLinkField, revenusEtatLinkField, revenusDateFields);
-  const existingDepenses = filterEntries(records.depenses, depensesCanalLinkField, depensesEtatLinkField, [depensesDateField, depensesDateWriteField]);
+  // Dépenses on the paiement comptes (e.g. 52xx) are payments of the canal's balance,
+  // placed in a period by their invoice date like any entry: they lower the solde de
+  // fermeture but aren't dépenses of the period (not in the net that is split).
+  const isPaiement = (rec) => !!paiementCompteIds?.size
+    && linkedIds(rec, depensesCategorieField).some((id) => paiementCompteIds.has(id));
+  const allDepenses = filterEntries(records.depenses, depensesCanalLinkField, depensesEtatLinkField, [depensesDateField, depensesDateWriteField]);
+  const existingDepenses = allDepenses.filter((rec) => !isPaiement(rec));
+  const existingPaiements = allDepenses.filter(isPaiement);
 
   // Map saved revenus onto grid cells: { month: { colId: amount } }. A record matches a
   // column by its Notes label, falling back to its Compte link. `gridIds` = records
@@ -1131,16 +1300,20 @@ function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, sol
   const soldePrecedent = soldeFermeturePrecedent + soldeEntriesTotal - soldeReporteEntriesTotal;
   const totalRevenus = sum(existingRevenus, revenusMontantField) - soldeEntriesTotal;
   const totalDepenses = sum(existingDepenses, depensesMontantField) - soldeReporteEntriesTotal;
+  const totalPaiements = sum(existingPaiements, depensesMontantField);
 
   return {
     status, previousEtat, currentEtat, innerEtats, orphanCount,
-    existingRevenus, existingDepenses, revenusByCell, gridIds, ayantsDroits,
+    existingRevenus, existingDepenses, existingPaiements, revenusByCell, gridIds, ayantsDroits,
     // Entries listed in the Excel report (grid and solde entries are shown elsewhere).
     reportRevenus: existingRevenus.filter((r) => !gridIds.has(r.id) && !isSoldeEntry(r)),
     reportDepenses: existingDepenses.filter((r) => !isSoldeReporteEntry(r)),
     soldeEntriesTotal, soldeReporteEntriesTotal, soldeFermeturePrecedent, soldePrecedent,
-    totalRevenus, totalDepenses,
-    totalASpliter: totalRevenus - totalDepenses + soldePrecedent,
+    totalRevenus, totalDepenses, totalPaiements,
+    // Net of the period: what the ayants-droits split. The solde is global: it carries
+    // over (positive or not) until 52xx payments bring it down.
+    net: totalRevenus - totalDepenses,
+    soldeFermeture: totalRevenus - totalDepenses + soldePrecedent - totalPaiements,
   };
 }
 
@@ -1178,25 +1351,25 @@ function clotureBlockerFor(cfg, calc) {
   return null;
 }
 
-// Fields of the État de compte closing `period` for a canal. Solde fermeture (Airtable
-// formula) = ouverture + période − paiement: paying out the positive total leaves 0, a
-// deficit is left as the closing balance and becomes the next period's solde précédent.
+// Fields of the État de compte closing `period` for a canal. Paiement = the 52xx payments
+// dated in the period (usually 0: a balance is paid after its clôture). Solde fermeture =
+// solde précédent + net − paiements, carried as the next period's solde précédent.
 // `extraRevenuIds` = revenus created just before (Believe/Shopify amounts saved at clôture).
-function buildEtatFields({ cfg, canalId, artisteId, period, calc, totalASpliter, extraRevenuIds = [] }) {
+function buildEtatFields({ cfg, canalId, artisteId, period, calc, soldeFermeture, extraRevenuIds = [] }) {
   const round2 = (v) => Math.round(v * 100) / 100;
   const fields = {
     [cfg.etatsCanalLinkField.id]: [{ id: canalId }],
     [cfg.etatsDateField.id]: period.end,
-    [cfg.etatsPaiementField.id]: round2(Math.max(totalASpliter, 0)),
+    [cfg.etatsPaiementField.id]: round2(calc.totalPaiements),
     [cfg.etatsRevenusLinkField.id]: [...calc.existingRevenus.map((r) => r.id), ...extraRevenuIds].map((id) => ({ id })),
-    [cfg.etatsDepensesLinkField.id]: calc.existingDepenses.map((r) => ({ id: r.id })),
+    [cfg.etatsDepensesLinkField.id]: [...calc.existingDepenses, ...calc.existingPaiements].map((r) => ({ id: r.id })),
   };
   // Solde d'ouverture may be computed in Airtable (formula/rollup): only set it when writable.
   if (!cfg.etatsOuvertureField.isComputed) fields[cfg.etatsOuvertureField.id] = round2(calc.soldeFermeturePrecedent);
-  // Solde fermeture is frozen at clôture (the positive total is paid out, a deficit is carried),
-  // so later edits to linked entries don't change the next period's solde précédent.
+  // Solde fermeture is frozen at clôture, so later edits to linked entries don't change
+  // the next period's solde précédent.
   if (cfg.etatsFermetureField && !cfg.etatsFermetureField.isComputed) {
-    fields[cfg.etatsFermetureField.id] = round2(Math.min(totalASpliter, 0));
+    fields[cfg.etatsFermetureField.id] = round2(soldeFermeture);
   }
   if (artisteId && cfg.etatsArtisteLinkField && !cfg.etatsArtisteLinkField.isComputed) {
     fields[cfg.etatsArtisteLinkField.id] = [{ id: artisteId }];
@@ -1228,6 +1401,25 @@ function compteIdByCode(comptes, raw) {
   if (isNaN(code)) return null;
   const c = comptes.find((x) => x.code === code);
   return c ? c.id : null;
+}
+
+// Ids of the comptes whose code matches a compact list: "52xx" (x = any digit),
+// "5200-5299" (inclusive range) or "5310", separated by commas or spaces.
+function compteIdsByPattern(comptes, raw) {
+  const tests = String(raw || "")
+    .toLowerCase()
+    .split(/[,;\s]+/)
+    .filter(Boolean)
+    .map((p) => {
+      const range = p.match(/^(\d+)-(\d+)$/);
+      if (range) return (code) => code >= Number(range[1]) && code <= Number(range[2]);
+      if (!/^[\dx]+$/.test(p)) return null;
+      const re = new RegExp(`^${p.replace(/x/g, "\\d")}$`);
+      return (code) => re.test(String(code));
+    })
+    .filter(Boolean);
+  if (tests.length === 0) return new Set();
+  return new Set(comptes.filter((c) => tests.some((t) => t(c.code))).map((c) => c.id));
 }
 
 // Grid columns from the JSON config. Supports both {label, compteId} and
@@ -1671,7 +1863,8 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     comptesTable, comptesNumeroField,
     templateAttachmentField,
     oeuvresTable,
-    ayantsTable, etatsTable, soldeOuvertureCompte, soldeReporteCompte,
+    ayantsTable, etatsTable, soldeOuvertureCompte, soldeReporteCompte, paiementsComptes,
+    canauxFilterField, canauxFilterDefault,
     supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn,
   } = cfg;
 
@@ -1841,7 +2034,11 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
   // In-app canal search (replaces the interface page's search bar, which also
   // filters the Comptes/Revenus/Dépenses tables). Case- and accent-insensitive.
   const [canalSearch, setCanalSearch] = useState("");
-  const filteredCanaux = useMemo(() => filterBySearch(canaux, canalSearch), [canaux, canalSearch]);
+  const canalFilter = useChoiceFilter(canauxFilterField, canauxFilterDefault, canauxRecords);
+  const filteredCanaux = useMemo(() => {
+    const ok = new Set((canauxRecords || []).filter(canalFilter.matches).map((r) => r.id));
+    return filterBySearch(canaux.filter((c) => ok.has(c.id)), canalSearch);
+  }, [canaux, canauxRecords, canalFilter.matches, canalSearch]);
 
   const monthIndices = period.months;
   const periodStart = period.start;
@@ -1849,6 +2046,13 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
   const revenusChoices = useMemo(() => toRevenusChoices(columnsConfig.revenus), [columnsConfig]);
   const soldeCompteId = useMemo(() => compteIdByCode(comptes, soldeOuvertureCompte), [comptes, soldeOuvertureCompte]);
   const soldeReporteCompteId = useMemo(() => compteIdByCode(comptes, soldeReporteCompte), [comptes, soldeReporteCompte]);
+  const paiementCompteIds = useMemo(() => compteIdsByPattern(comptes, paiementsComptes), [comptes, paiementsComptes]);
+  // Payments (52xx) are entered as invoices in Airtable: a saisie on one would show as a
+  // dépense until saved.
+  const saisieComptes = useMemo(
+    () => comptes.filter((c) => !paiementCompteIds.has(c.id)),
+    [comptes, paiementCompteIds],
+  );
 
   // Saved data of the canal for the period (états, entries, grid, soldes): see computeCanalPeriod.
   const calc = useMemo(
@@ -1860,8 +2064,9 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
       revenusChoices,
       soldeCompteId,
       soldeReporteCompteId,
+      paiementCompteIds,
     }),
-    [selectedCanalId, period, cfg, revenusRecords, depensesRecords, etatsTable, etatsRecords, ayantsTable, ayantsRecords, revenusChoices, soldeCompteId, soldeReporteCompteId],
+    [selectedCanalId, period, cfg, revenusRecords, depensesRecords, etatsTable, etatsRecords, ayantsTable, ayantsRecords, revenusChoices, soldeCompteId, soldeReporteCompteId, paiementCompteIds],
   );
   const { currentEtat, existingRevenus, existingDepenses, ayantsDroits } = calc;
   const existingRevenusByCell = calc.revenusByCell;
@@ -1966,6 +2171,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
         revenusInputs,
         revenus: calc.reportRevenus,
         depenses: calc.reportDepenses,
+        paiements: calc.existingPaiements,
         ayantsDroits,
         soldePrecedent,
       });
@@ -1997,7 +2203,8 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
 
   // Revenus of the period: the opening-balance entries count in Solde précédent instead.
   const totalRevenus = calc.totalRevenus + sumInputs(revenusInputs) + saisiesTotals.revenu - soldeSaisiesTotal;
-  const totalASpliter = totalRevenus - totalDepenses + soldePrecedent;
+  const totalPaiements = calc.totalPaiements;
+  const soldeFermeture = totalRevenus - totalDepenses + soldePrecedent - totalPaiements;
 
   // --- Clôture ---
   // Closing a period = downloading its report, then creating an État de compte linked to the
@@ -2017,13 +2224,9 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
       const ok = await handleExport();
       if (!ok) return;
       await etatsTable.createRecordAsync(
-        buildEtatFields({ cfg, canalId: selectedCanalId, artisteId, period, calc, totalASpliter }),
+        buildEtatFields({ cfg, canalId: selectedCanalId, artisteId, period, calc, soldeFermeture }),
       );
-      setSavedMsg(
-        totalASpliter < 0
-          ? `Période clôturée. Déficit reporté : ${fmtCurrency(totalASpliter)}.`
-          : `Période clôturée. Paiement à verser : ${fmtCurrency(totalASpliter)}.`,
-      );
+      setSavedMsg(`Période clôturée. Solde reporté : ${fmtCurrency(soldeFermeture)}.`);
     } catch (err) {
       console.error("Clôture failed:", err);
       setSavedMsg(`Erreur clôture : ${err.message || err}`);
@@ -2065,30 +2268,35 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
           <h1 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100">
             Rapports — Sélectionne un enregistrement
           </h1>
-          <div className="relative w-full sm:w-80">
-            <input
-              type="text"
-              value={canalSearch}
-              onChange={(e) => setCanalSearch(e.target.value)}
-              placeholder="Rechercher un canal…"
-              autoFocus
-              className="w-full bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 pl-3 pr-8 py-2 rounded border border-gray-gray200 dark:border-gray-gray600 focus:border-blue-blue focus:outline-none"
-            />
-            {canalSearch && (
-              <button
-                onClick={() => setCanalSearch("")}
-                title="Effacer"
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-gray400 hover:text-gray-gray700 dark:hover:text-gray-gray100"
-              >
-                ×
-              </button>
-            )}
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <ChoiceFilter filter={canalFilter} />
+            <div className="relative flex-1 sm:w-80">
+              <input
+                type="text"
+                value={canalSearch}
+                onChange={(e) => setCanalSearch(e.target.value)}
+                placeholder="Rechercher un canal…"
+                autoFocus
+                className="w-full bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 pl-3 pr-8 py-2 rounded border border-gray-gray200 dark:border-gray-gray600 focus:border-blue-blue focus:outline-none"
+              />
+              {canalSearch && (
+                <button
+                  onClick={() => setCanalSearch("")}
+                  title="Effacer"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-gray400 hover:text-gray-gray700 dark:hover:text-gray-gray100"
+                >
+                  ×
+                </button>
+              )}
+            </div>
           </div>
         </div>
         {canaux.length === 0 ? (
           <div className="text-gray-gray500">Aucun canal disponible dans la table sélectionnée.</div>
         ) : filteredCanaux.length === 0 ? (
-          <div className="text-gray-gray500">Aucun canal ne correspond à « {canalSearch} ».</div>
+          <div className="text-gray-gray500">
+            {canalSearch ? `Aucun canal ne correspond à « ${canalSearch} ».` : "Aucun canal ne correspond au filtre."}
+          </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {filteredCanaux.map((c) => (
@@ -2167,11 +2375,12 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
       )}
 
       {/* KPIs stay pinned while scrolling (sm+ only: stacked on mobile they'd eat the screen). */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800">
         <KpiTile label="Total Revenus" value={totalRevenus} accent="green" />
         <KpiTile label="Total Dépenses" value={totalDepenses} accent="red" />
         <KpiTile label="Solde précédent" value={soldePrecedent} />
-        <KpiTile label={totalASpliter < 0 ? "Déficit reporté" : "Total à partager"} value={totalASpliter} accent={totalASpliter < 0 ? "red" : "blue"} />
+        <KpiTile label="Paiements" value={totalPaiements} />
+        <KpiTile label="Solde fermeture" value={soldeFermeture} accent={soldeFermeture < 0 ? "red" : "blue"} />
       </div>
 
       <div className="relative bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
@@ -2195,7 +2404,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
           title="Saisies"
           rows={saisies}
           onChange={setSaisies}
-          comptes={comptes}
+          comptes={saisieComptes}
           monthIndices={monthIndices}
         />
         {renderSaveBar("saisies", saisiesRevenusToCreate.length + saisiesDepensesToCreate.length, () =>
@@ -2277,6 +2486,31 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
         />
       </div>
 
+      {paiementCompteIds.size > 0 && (
+        <>
+          <h2 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100 mt-2 mb-3">
+            Paiements
+          </h2>
+          <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-6">
+            <h3 className="text-base font-semibold text-gray-gray700 dark:text-gray-gray100 mb-2">
+              Paiements du solde datés dans la période
+            </h3>
+            <ExistingEntriesList
+              title="Paiements"
+              table={depensesTable}
+              entries={calc.existingPaiements}
+              dateField={depensesDateField}
+              montantField={depensesMontantField}
+              categorieField={depensesCategorieField}
+              noFactureField={depensesNoFactureField}
+              fournisseurField={depensesFournisseurField}
+              descriptionField={depensesDescriptionField}
+              periodStart={periodStart}
+            />
+          </div>
+        </>
+      )}
+
       <div className="flex items-center justify-end gap-3 sticky bottom-0 bg-gray-gray50 dark:bg-gray-gray800 py-3">
         {savedMsg && (
           <span className="text-sm text-gray-gray600 dark:text-gray-gray200">{savedMsg}</span>
@@ -2349,6 +2583,7 @@ function ArtistApp({ cfg }) {
     artistesTable, artistesImageField, artistesProjetsLinkField, projetsTable, projetsCanauxLinkField,
     canauxTable, revenusTable, depensesTable, ayantsTable, etatsTable, comptesTable, comptesNumeroField,
     templateAttachmentField, revenusColumnsJson, depensesColumnsJson, soldeOuvertureCompte, soldeReporteCompte,
+    paiementsComptes, canauxFilterField, canauxFilterDefault,
     oeuvresTable, supabaseUrl, supabaseAnonKey, clientId,
   } = cfg;
 
@@ -2385,6 +2620,9 @@ function ArtistApp({ cfg }) {
   const revenusChoices = useMemo(() => toRevenusChoices(columnsConfig.revenus), [columnsConfig]);
   const soldeCompteId = useMemo(() => compteIdByCode(comptes, soldeOuvertureCompte), [comptes, soldeOuvertureCompte]);
   const soldeReporteCompteId = useMemo(() => compteIdByCode(comptes, soldeReporteCompte), [comptes, soldeReporteCompte]);
+  const paiementCompteIds = useMemo(() => compteIdsByPattern(comptes, paiementsComptes), [comptes, paiementsComptes]);
+  const canalFilter = useChoiceFilter(canauxFilterField, canauxFilterDefault, canauxRecords);
+  const canalMatches = canalFilter.matches;
   const missingConfig = missingCoreConfig(cfg);
   // Without the Ayants-droits settings every canal would read as having none: no warning then.
   const ayantsConfigured = !!(ayantsTable && cfg.ayantsCanalLinkField && cfg.ayantsPartField);
@@ -2437,12 +2675,12 @@ function ArtistApp({ cfg }) {
       etats: etatsTable ? etatsRecords : null,
       ayants: ayantsTable ? ayantsRecords : null,
     };
-    let total = 0;
+    let hidden = 0;
     const out = groups.flatMap((g) => {
-      total += g.canalIds.length;
-      return g.canalIds
-        .map((id) => canauxById.get(id))
-        .filter(Boolean)
+      const recs = g.canalIds.map((id) => canauxById.get(id));
+      hidden += recs.filter((rec) => !rec).length;
+      return recs
+        .filter((rec) => rec && canalMatches(rec))
         .map((rec) => ({
           id: rec.id,
           name: rec.name,
@@ -2451,14 +2689,14 @@ function ArtistApp({ cfg }) {
           projetId: g.id,
           isrcs: canalIsrcs(rec, cfg, oeuvresTable ? oeuvresRecords : null),
           template: getTemplateUrl(rec, templateAttachmentField),
-          calc: computeCanalPeriod({ canalId: rec.id, period, cfg, records, revenusChoices, soldeCompteId, soldeReporteCompteId }),
+          calc: computeCanalPeriod({ canalId: rec.id, period, cfg, records, revenusChoices, soldeCompteId, soldeReporteCompteId, paiementCompteIds }),
         }))
         .sort((a, b) => (a.name || "").localeCompare(b.name || "", "fr"));
     });
-    return { rows: out, hiddenCount: total - out.length };
+    return { rows: out, hiddenCount: hidden };
   }, [selectedArtistId, projetsByArtist, canauxRecords, revenusRecords, depensesRecords, etatsTable, etatsRecords,
     ayantsTable, ayantsRecords, oeuvresTable, oeuvresRecords, templateAttachmentField, period, cfg, revenusChoices,
-    soldeCompteId, soldeReporteCompteId]);
+    soldeCompteId, soldeReporteCompteId, paiementCompteIds, canalMatches]);
 
   // Believe/Shopify amounts (Supabase) of the open canaux, as on the canal page. Months
   // already saved in Airtable are left out (see pendingGridInputs).
@@ -2499,8 +2737,10 @@ function ArtistApp({ cfg }) {
       pendingTotal,
       totalRevenus: r.calc.totalRevenus + pendingTotal,
       totalDepenses: r.calc.totalDepenses,
+      net: r.calc.net + pendingTotal,
       soldePrecedent: r.calc.soldePrecedent,
-      totalASpliter: r.calc.totalASpliter + pendingTotal,
+      totalPaiements: r.calc.totalPaiements,
+      soldeFermeture: r.calc.soldeFermeture + pendingTotal,
     };
     // supaEntryKey derives from period and supaRefreshKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2523,7 +2763,7 @@ function ArtistApp({ cfg }) {
   useEffect(() => {
     if (lastCheckRef.current === resetKey || supaLoading) return;
     lastCheckRef.current = resetKey;
-    const hasAmounts = (r) => r.totalRevenus !== 0 || r.totalDepenses !== 0 || r.totalASpliter !== 0;
+    const hasAmounts = (r) => r.totalRevenus !== 0 || r.totalDepenses !== 0 || r.totalPaiements !== 0 || r.soldeFermeture !== 0;
     setChecked(new Set(rows.filter((r) => r.calc.status === "open" && !r.template.error && hasAmounts(r)).map((r) => r.id)));
   }, [resetKey, rows, supaLoading]);
 
@@ -2595,6 +2835,7 @@ function ArtistApp({ cfg }) {
             revenusInputs: r.pending,
             revenus: r.calc.reportRevenus,
             depenses: r.calc.reportDepenses,
+            paiements: r.calc.existingPaiements,
             ayantsDroits: r.calc.ayantsDroits,
             soldePrecedent: r.calc.soldePrecedent,
           },
@@ -2637,18 +2878,14 @@ function ArtistApp({ cfg }) {
         }
         await etatsTable.createRecordAsync(buildEtatFields({
           cfg, canalId: r.id, artisteId: selectedArtistId, period, calc: r.calc,
-          totalASpliter: r.totalASpliter, extraRevenuIds: newIds,
+          soldeFermeture: r.soldeFermeture, extraRevenuIds: newIds,
         }));
         created += 1;
       }
       // The saved months are no longer pending: refetch on the next look.
       supaCacheRef.current.clear();
-      const paiements = selectedRows.reduce((s, r) => s + Math.max(r.totalASpliter, 0), 0);
-      const deficits = selectedRows.filter((r) => r.totalASpliter < 0).length;
-      setMsg(
-        `Période clôturée pour ${created} ${created > 1 ? "canaux" : "canal"}. Paiements à verser : ${fmtCurrency(paiements)}`
-        + (deficits ? ` — ${deficits} déficit${deficits > 1 ? "s" : ""} reporté${deficits > 1 ? "s" : ""}.` : "."),
-      );
+      const soldes = selectedRows.reduce((s, r) => s + r.soldeFermeture, 0);
+      setMsg(`Période clôturée pour ${created} ${created > 1 ? "canaux" : "canal"}. Soldes reportés : ${fmtCurrency(soldes)}.`);
     } catch (err) {
       console.error("Artist clôture failed:", err);
       setMsg(`Erreur clôture${created ? ` (${created} état${created > 1 ? "s" : ""} déjà créé${created > 1 ? "s" : ""})` : ""} : ${err.message || err}`);
@@ -2768,14 +3005,15 @@ function ArtistApp({ cfg }) {
       )}
 
       {/* Totals of the ticked canaux; pinned while scrolling like the canal page's KPIs. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800">
         <KpiTile label="Total Revenus" value={sumOf("totalRevenus")} accent="green" />
         <KpiTile label="Total Dépenses" value={sumOf("totalDepenses")} accent="red" />
         <KpiTile label="Solde précédent" value={sumOf("soldePrecedent")} />
+        <KpiTile label="Paiements" value={sumOf("totalPaiements")} />
         <KpiTile
-          label={sumOf("totalASpliter") < 0 ? "Déficit reporté" : "Total à partager"}
-          value={sumOf("totalASpliter")}
-          accent={sumOf("totalASpliter") < 0 ? "red" : "blue"}
+          label="Solde fermeture"
+          value={sumOf("soldeFermeture")}
+          accent={sumOf("soldeFermeture") < 0 ? "red" : "blue"}
         />
       </div>
       <div className="-mt-2 mb-4 text-xs text-gray-gray500">
@@ -2789,6 +3027,7 @@ function ArtistApp({ cfg }) {
             Canaux — {period.shortLabel}
           </h2>
           <div className="flex items-center gap-3 w-full sm:w-auto">
+            <ChoiceFilter filter={canalFilter} small />
             <div className="relative flex-1 sm:w-72">
               <input
                 type="text"
@@ -2846,20 +3085,21 @@ function ArtistApp({ cfg }) {
                   <th className="p-2 text-right">Revenus</th>
                   <th className="p-2 text-right">Dépenses</th>
                   <th className="p-2 text-right whitespace-nowrap">Solde précédent</th>
-                  <th className="p-2 text-right whitespace-nowrap">Total à partager</th>
+                  <th className="p-2 text-right">Paiements</th>
+                  <th className="p-2 text-right whitespace-nowrap">Solde fermeture</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleGroups.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-3 text-center text-gray-gray500 italic">
-                      Aucun canal ne correspond à « {canalSearch} ».
+                    <td colSpan={8} className="p-3 text-center text-gray-gray500 italic">
+                      {canalSearch ? `Aucun canal ne correspond à « ${canalSearch} ».` : "Aucun canal ne correspond au filtre."}
                     </td>
                   </tr>
                 )}
                 {visibleGroups.map((g) => {
                   const groupChecked = g.rows.every((r) => checked.has(r.id));
-                  const groupTotal = g.rows.reduce((s, r) => s + r.totalASpliter, 0);
+                  const groupTotal = g.rows.reduce((s, r) => s + r.soldeFermeture, 0);
                   return (
                     <Fragment key={g.id}>
                       <tr className="border-t border-gray-gray200 dark:border-gray-gray600 bg-gray-gray100 dark:bg-gray-gray800">
@@ -2871,7 +3111,7 @@ function ArtistApp({ cfg }) {
                             title="Cocher les canaux du projet"
                           />
                         </td>
-                        <td className="p-2 font-semibold text-gray-gray700 dark:text-gray-gray100" colSpan={5}>
+                        <td className="p-2 font-semibold text-gray-gray700 dark:text-gray-gray100" colSpan={6}>
                           {g.name} <span className="text-gray-gray500 font-normal">({g.rows.length})</span>
                         </td>
                         <td className="p-2 text-right whitespace-nowrap font-semibold text-gray-gray700 dark:text-gray-gray100">
@@ -2879,7 +3119,8 @@ function ArtistApp({ cfg }) {
                         </td>
                       </tr>
                       {g.rows.map((r) => {
-                        const empty = r.calc.existingRevenus.length === 0 && r.calc.existingDepenses.length === 0 && r.pendingTotal === 0;
+                        const empty = r.calc.existingRevenus.length === 0 && r.calc.existingDepenses.length === 0
+                          && r.calc.existingPaiements.length === 0 && r.pendingTotal === 0;
                         const reason = r.calc.status === "open" ? rowClotureBlocker(r) : null;
                         return (
                           <tr key={r.id} className="border-t border-gray-gray100 dark:border-gray-gray600 hover:bg-gray-gray50 dark:hover:bg-gray-gray800">
@@ -2905,8 +3146,9 @@ function ArtistApp({ cfg }) {
                             <td className="p-2 align-top text-right whitespace-nowrap text-green-greenDark1">{fmtCurrency(r.totalRevenus)}</td>
                             <td className="p-2 align-top text-right whitespace-nowrap text-red-redDark1">{fmtCurrency(r.totalDepenses)}</td>
                             <td className="p-2 align-top text-right whitespace-nowrap">{fmtCurrency(r.soldePrecedent)}</td>
-                            <td className={`p-2 align-top text-right whitespace-nowrap font-semibold ${r.totalASpliter < 0 ? "text-red-redDark1" : "text-blue-blueDark1"}`}>
-                              {fmtCurrency(r.totalASpliter)}
+                            <td className="p-2 align-top text-right whitespace-nowrap">{fmtCurrency(r.totalPaiements)}</td>
+                            <td className={`p-2 align-top text-right whitespace-nowrap font-semibold ${r.soldeFermeture < 0 ? "text-red-redDark1" : "text-blue-blueDark1"}`}>
+                              {fmtCurrency(r.soldeFermeture)}
                             </td>
                           </tr>
                         );
@@ -2920,7 +3162,8 @@ function ArtistApp({ cfg }) {
                   <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(sumOf("totalRevenus"))}</td>
                   <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(sumOf("totalDepenses"))}</td>
                   <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(sumOf("soldePrecedent"))}</td>
-                  <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(sumOf("totalASpliter"))}</td>
+                  <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(sumOf("totalPaiements"))}</td>
+                  <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(sumOf("soldeFermeture"))}</td>
                 </tr>
               </tbody>
             </table>
