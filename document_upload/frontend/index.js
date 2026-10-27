@@ -9,8 +9,8 @@ import './style.css';
 const FEATURES = [
     {
         key: 'royalties',
-        label: 'Royalties Believe (CSV mensuel)',
-        description: 'Upload du rapport mensuel Believe vers Supabase. Import automatique dans royalty_reports.',
+        label: 'Royalties (Believe, Bandcamp, Propagande)',
+        description: 'Upload d\'un rapport de redevances vers Supabase. Import automatique dans royalty_reports.',
         Component: RoyaltiesUpload,
     },
 ];

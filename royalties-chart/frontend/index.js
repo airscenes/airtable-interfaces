@@ -54,6 +54,23 @@ function isrcVariants(raw) {
   return [...new Set([trimmed, normalizeIsrc(trimmed)])].filter(Boolean);
 }
 
+// Catalog numbers are sent raw (the server normalizes them), but rows come back
+// with the normalized catalog_key, so the same rule is applied here to map a
+// row back to its Airtable value: "CIE2-4761" and "CIE24761" -> "CIE24761".
+function normalizeCatalog(raw) {
+  return (raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+// A lookup or multi-value cell renders as "A, B": one catalog per entry.
+function splitCatalogs(raw) {
+  return (raw || "").split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
+}
+
+// Sources requested from get_royalties_summary (without p_sources it returns
+// Believe only), and their display labels.
+const SOURCES = ["believe", "bandcamp", "propagande"];
+const SOURCE_LABELS = { believe: "Believe", bandcamp: "Bandcamp", propagande: "Propagande" };
+
 // Chart color palette for tracks
 const TRACK_COLORS = [
   "#4a90d9", "#6aa84f", "#e06666", "#f6b26b", "#8e7cc3",
@@ -67,7 +84,10 @@ const TRACK_COLORS = [
 function getCustomProperties(base) {
   const tables = base.tables;
   const spectaclesTable =
-    tables.find((t) => t.name.toLowerCase().includes("spectacle")) || tables[0];
+    tables.find((t) => t.name.toLowerCase().includes("spectacle")) ||
+    tables.find((t) => t.name.toLowerCase().includes("canal")) ||
+    tables.find((t) => t.name.toLowerCase().includes("canaux")) ||
+    tables[0];
   const oeuvresTable =
     tables.find((t) => t.name.toLowerCase().includes("oeuvre")) ||
     tables.find((t) => t.name.toLowerCase().includes("piste")) ||
@@ -85,6 +105,12 @@ function getCustomProperties(base) {
     field.config.type === FieldType.AUTO_NUMBER ||
     field.config.type === FieldType.DATE ||
     field.config.type === FieldType.DATE_TIME;
+
+  const isCatalogField = (field) =>
+    isTextField(field) ||
+    field.config.type === FieldType.MULTILINE_TEXT ||
+    field.config.type === FieldType.NUMBER ||
+    field.config.type === FieldType.MULTIPLE_LOOKUP_VALUES;
 
   const isAnyField = () => true;
 
@@ -107,6 +133,14 @@ function getCustomProperties(base) {
       type: "field",
       table: spectaclesTable,
       shouldFieldBeAllowed: isAnyField,
+    },
+    {
+      key: "catalogField",
+      label: "Champ numero de catalogue (dans Spectacles)",
+      type: "field",
+      table: spectaclesTable,
+      shouldFieldBeAllowed: isCatalogField,
+      defaultValue: spectaclesTable.fields.find((f) => f.name === "numero_canal"),
     },
     {
       key: "oeuvresTable",
@@ -322,6 +356,7 @@ function DetailPage({
   oeuvresRecords,
   isrcField,
   trackTitleField,
+  catalogField,
   supabaseUrl,
   supabaseAnonKey,
   clientId,
@@ -333,7 +368,7 @@ function DetailPage({
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
-  const [viewBy, setViewBy] = useState("platform");
+  const [viewBy, setViewBy] = useState("source");
   const cacheRef = useRef(new Map());
 
   // Extract ISRCs from oeuvres records
@@ -356,14 +391,24 @@ function DetailPage({
     return map;
   }, [tracks]);
 
+  // Catalog numbers of the spectacle: sales without an ISRC (Propagande, most
+  // Bandcamp albums) are matched on these.
+  const catalogValue = catalogField ? spectacle.record.getCellValueAsString(catalogField) : "";
+  const catalogList = useMemo(() => [...new Set(splitCatalogs(catalogValue))], [catalogValue]);
+  const catalogToLabel = useMemo(() => {
+    const map = {};
+    catalogList.forEach((c) => { map[normalizeCatalog(c)] = spectacle.name; });
+    return map;
+  }, [catalogList, spectacle.name]);
+
   // Fetch royalties from Supabase RPC
   useEffect(() => {
-    if (!supabaseUrl || !supabaseAnonKey || !clientId || isrcList.length === 0) {
+    if (!supabaseUrl || !supabaseAnonKey || !clientId || (isrcList.length === 0 && catalogList.length === 0)) {
       setRoyaltiesData(null);
       return;
     }
 
-    const cacheKey = `${isrcList.join(",")}_${dateFrom}_${dateTo}_${refreshKey}`;
+    const cacheKey = `${isrcList.join(",")}_${catalogList.join(",")}_${dateFrom}_${dateTo}_${refreshKey}`;
     let didCancel = false;
 
     const fetchRoyalties = async () => {
@@ -384,6 +429,8 @@ function DetailPage({
           p_isrcs: isrcList,
           p_from: dateFrom || "2020-01-01",
           p_to: dateTo || "2030-12-31",
+          p_catalogs: catalogList.length > 0 ? catalogList : null,
+          p_sources: SOURCES,
         };
 
         const response = await fetch(
@@ -421,7 +468,7 @@ function DetailPage({
 
     fetchRoyalties();
     return () => { didCancel = true; };
-  }, [supabaseUrl, supabaseAnonKey, clientId, isrcList, dateFrom, dateTo, refreshKey]);
+  }, [supabaseUrl, supabaseAnonKey, clientId, isrcList, catalogList, dateFrom, dateTo, refreshKey]);
 
   // Monthly totals for the chart
   const chartData = useMemo(() => {
@@ -444,16 +491,19 @@ function DetailPage({
       const rev = parseFloat(row.total_net_revenue) || 0;
       let key;
       if (viewBy === "track") {
-        key = isrcToLabel[row.isrc] || row.track_title || row.isrc || "(inconnu)";
+        // Rows matched by catalog have isrc = null and catalog_key set
+        key = row.isrc
+          ? isrcToLabel[row.isrc] || row.track_title || row.isrc
+          : row.release_title || catalogToLabel[row.catalog_key] || row.catalog_key || "(inconnu)";
       } else {
-        key = row[viewBy] || "(autre)";
+        key = SOURCE_LABELS[row.source] || row.source || "(autre)";
       }
       totals[key] = (totals[key] || 0) + rev;
     });
     return Object.entries(totals)
       .map(([key, revenue]) => ({ key, label: key, revenue }))
       .sort((a, b) => b.revenue - a.revenue);
-  }, [royaltiesData, viewBy, isrcToLabel]);
+  }, [royaltiesData, viewBy, isrcToLabel, catalogToLabel]);
 
   // KPIs
   const totalRevenue = useMemo(() => {
@@ -540,7 +590,9 @@ function DetailPage({
       return (
         <div className={placeholderClass}>
           <p className="text-sm text-gray-gray500 dark:text-gray-gray400">
-            {isrcList.length === 0 ? "Aucun ISRC dans les oeuvres liees." : "Aucune donnee de royalties."}
+            {isrcList.length === 0 && catalogList.length === 0
+              ? "Aucun ISRC dans les oeuvres liees ni numero de catalogue."
+              : "Aucune donnee de royalties."}
           </p>
         </div>
       );
@@ -646,10 +698,10 @@ function DetailPage({
       <div className="w-full">
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Voir par:</span>
+          {/* get_royalties_summary returns no platform / country / sales type
+              columns, so only source and track can be ranked. */}
           {[
-            { key: "platform", label: "Plateforme" },
-            { key: "country_region", label: "Pays" },
-            { key: "sales_type", label: "Type de vente" },
+            { key: "source", label: "Source" },
             { key: "track", label: "Piste" },
           ].map((opt) => (
             <button
@@ -663,12 +715,7 @@ function DetailPage({
         </div>
         <RankingList
           items={rankedItems}
-          title={
-            viewBy === "platform" ? "Plateformes"
-            : viewBy === "country_region" ? "Pays / regions"
-            : viewBy === "sales_type" ? "Types de vente"
-            : "Pistes"
-          }
+          title={viewBy === "source" ? "Sources" : "Pistes"}
         />
       </div>
     </div>
@@ -687,6 +734,7 @@ function RoyaltiesApp() {
   const oeuvresLinkField = customPropertyValueByKey.oeuvresLinkField;
   const isrcField = customPropertyValueByKey.isrcField;
   const trackTitleField = customPropertyValueByKey.trackTitleField;
+  const catalogField = customPropertyValueByKey.catalogField;
   const supabaseUrl = customPropertyValueByKey.supabaseUrl;
   const supabaseAnonKey = customPropertyValueByKey.supabaseAnonKey;
   const clientId = customPropertyValueByKey.clientId;
@@ -746,6 +794,7 @@ function RoyaltiesApp() {
         oeuvresRecords={linkedOeuvres}
         isrcField={isrcField}
         trackTitleField={trackTitleField}
+        catalogField={catalogField}
         supabaseUrl={supabaseUrl}
         supabaseAnonKey={supabaseAnonKey}
         clientId={clientId}

@@ -6,9 +6,30 @@ import {
 } from '../lib/supabase.js';
 
 const MAX_BYTES = 50 * 1024 * 1024;
-const FILENAME_RE = /^[\w. -]+\.csv$/i;
+// \p{L} accepts accented letters (e.g. "..._7ième-Ciel.csv"), which \w does not.
+const FILENAME_RE = /^[\p{L}\p{N}_. -]+\.(csv|xls)$/iu;
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 180000;
+
+// Report types accepted by request-upload-url. Propagande files carry no date,
+// so the month is picked at upload time and sent as `period`.
+const REPORT_TYPES = [
+    {key: 'believe', label: 'Believe', ext: 'csv'},
+    {key: 'bandcamp', label: 'Bandcamp', ext: 'csv'},
+    {key: 'propagande', label: 'Propagande', ext: 'xls', needsPeriod: true},
+];
+const REPORT_TYPE_BY_KEY = Object.fromEntries(REPORT_TYPES.map((t) => [t.key, t]));
+
+const CONTENT_TYPES = {
+    csv: 'text/csv',
+    xls: 'application/vnd.ms-excel',
+};
+
+const MONTHS_FR = [
+    'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+    'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre',
+];
+const PERIOD_MONTHS_BACK = 36;
 
 const STATUS_LABELS = {
     pending: 'En cours d\'import...',
@@ -33,6 +54,32 @@ function formatDateTime(iso) {
     const [datePart, timePart = ''] = iso.split('T');
     const hm = timePart.slice(0, 5);
     return hm ? `${datePart} ${hm}` : datePart;
+}
+
+function fileExtension(name) {
+    const dot = name.lastIndexOf('.');
+    return dot === -1 ? '' : name.slice(dot + 1).toLowerCase();
+}
+
+// "2026-08" or "2026-08-01" -> "août 2026". Split instead of new Date() to
+// avoid the UTC -> local day shift.
+function formatPeriod(iso) {
+    if (!iso) return '';
+    const [year, month] = iso.split('-');
+    const name = MONTHS_FR[parseInt(month, 10) - 1];
+    return name ? `${name} ${year}` : iso;
+}
+
+// Upload month choices, most recent first: the current month and the
+// PERIOD_MONTHS_BACK months before it, as YYYY-MM.
+function periodOptions() {
+    const now = new Date();
+    const options = [];
+    for (let i = 0; i <= PERIOD_MONTHS_BACK; i++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        options.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    return options;
 }
 
 async function pollAuditStatus({supabaseUrl, apiKey, clientId, auditId}) {
@@ -68,7 +115,11 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
     const [historyLoading, setHistoryLoading] = useState(false);
     const [historyError, setHistoryError] = useState(null);
     const [dragOver, setDragOver] = useState(false);
+    const [reportType, setReportType] = useState('believe');
+    const [periods] = useState(periodOptions);
+    const [period, setPeriod] = useState(() => periods[1]); // previous month
     const fileInputRef = useRef(null);
+    const typeDef = REPORT_TYPE_BY_KEY[reportType];
 
     const refreshHistory = useCallback(async () => {
         if (!supabaseUrl || !apiKey || !clientId) return;
@@ -81,7 +132,7 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
                 clientId,
                 table: 'royalty_upload_audit',
                 query:
-                    'select=id,filename,status,rows_imported,error_message,uploaded_at,imported_at' +
+                    'select=id,filename,report_type,period,status,rows_imported,error_message,uploaded_at,imported_at' +
                     '&order=uploaded_at.desc&limit=50',
             });
             setHistory(rows);
@@ -120,13 +171,17 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
         }
     };
 
-    const validateFile = (f) => {
+    const validateFile = (f, type = typeDef) => {
         if (!f) return 'Aucun fichier sélectionné.';
-        if (!FILENAME_RE.test(f.name)) {
-            return 'Nom de fichier invalide. Utilisez uniquement des lettres, chiffres, espaces, points, tirets, et l\'extension .csv.';
+        const ext = fileExtension(f.name);
+        if (!CONTENT_TYPES[ext]) {
+            return 'Seuls les fichiers .csv et .xls sont acceptés.';
         }
-        if (!f.name.toLowerCase().endsWith('.csv')) {
-            return 'Seuls les fichiers .csv sont acceptés.';
+        if (!FILENAME_RE.test(f.name)) {
+            return 'Nom de fichier invalide. Utilisez uniquement des lettres (accentuées ou non), chiffres, espaces, points, tirets et soulignés.';
+        }
+        if (ext !== type.ext) {
+            return `Un rapport ${type.label} doit être un fichier .${type.ext} (fichier reçu : .${ext}).`;
         }
         if (f.size > MAX_BYTES) {
             return `Fichier trop volumineux (${formatBytes(f.size)}). Maximum : 50 MB.`;
@@ -147,6 +202,16 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
             return;
         }
         setFile(f);
+    };
+
+    // The file already picked is kept and re-checked against the new type, so
+    // switching back to the right type clears the error.
+    const onChangeReportType = (key) => {
+        setReportType(key);
+        setResultMessage(null);
+        setErrorMessage(null);
+        setPhase('idle');
+        if (file) setValidationError(validateFile(file, REPORT_TYPE_BY_KEY[key]));
     };
 
     const onDrop = (e) => {
@@ -171,7 +236,12 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
                 clientId,
                 uploadSecret,
                 name: 'request-upload-url',
-                body: {client_id: clientId, filename: file.name},
+                body: {
+                    client_id: clientId,
+                    filename: file.name,
+                    report_type: reportType,
+                    ...(typeDef.needsPeriod ? {period} : {}),
+                },
             });
         } catch (err) {
             setPhase('error');
@@ -189,7 +259,7 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
             await uploadToSignedUrl({
                 signedUrl: signed.signed_url,
                 file,
-                contentType: 'text/csv',
+                contentType: CONTENT_TYPES[fileExtension(file.name)],
                 onProgress: (p) => setProgress(p),
             });
         } catch (err) {
@@ -223,10 +293,67 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
         refreshHistory();
     };
 
-    const canUpload = file && !validationError && (phase === 'idle' || phase === 'done' || phase === 'error');
+    const canUpload = file && !validationError && (!typeDef.needsPeriod || period) &&
+        (phase === 'idle' || phase === 'done' || phase === 'error');
+    const busy = phase === 'uploading' || phase === 'importing';
+    const selectClass =
+        'w-full appearance-none bg-white dark:bg-gray-gray700 border border-gray-gray200 dark:border-gray-gray600 rounded-md px-3 py-2 pr-8 text-sm text-gray-gray700 dark:text-gray-gray200 focus:outline-none focus:border-blue-blue disabled:opacity-70';
+    const selectArrow = (
+        <svg
+            className="absolute right-2 top-2.5 w-4 h-4 text-gray-gray400 pointer-events-none"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+        >
+            <path d="M6 9l6 6 6-6" />
+        </svg>
+    );
 
     return (
         <div className="space-y-5">
+            {/* Report type + period */}
+            <div className="flex gap-3">
+                <div className="flex-1">
+                    <label className="block text-xs font-semibold text-gray-gray500 dark:text-gray-gray400 mb-1">
+                        Type de rapport
+                    </label>
+                    <div className="relative">
+                        <select
+                            value={reportType}
+                            onChange={(e) => onChangeReportType(e.target.value)}
+                            disabled={busy}
+                            className={selectClass}
+                        >
+                            {REPORT_TYPES.map((t) => (
+                                <option key={t.key} value={t.key}>{t.label}</option>
+                            ))}
+                        </select>
+                        {selectArrow}
+                    </div>
+                </div>
+                {typeDef.needsPeriod && (
+                    <div className="flex-1">
+                        <label className="block text-xs font-semibold text-gray-gray500 dark:text-gray-gray400 mb-1">
+                            Mois du rapport
+                        </label>
+                        <div className="relative">
+                            <select
+                                value={period}
+                                onChange={(e) => setPeriod(e.target.value)}
+                                disabled={busy}
+                                className={selectClass}
+                            >
+                                {periods.map((p) => (
+                                    <option key={p} value={p}>{p} ({formatPeriod(p)})</option>
+                                ))}
+                            </select>
+                            {selectArrow}
+                        </div>
+                    </div>
+                )}
+            </div>
+
             {/* Drop zone */}
             <div
                 onDragOver={(e) => {
@@ -245,7 +372,7 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
                 <input
                     ref={fileInputRef}
                     type="file"
-                    accept=".csv,text/csv"
+                    accept={`.${typeDef.ext},${CONTENT_TYPES[typeDef.ext]}`}
                     style={{display: 'none'}}
                     onChange={(e) => onPickFile(e.target.files?.[0])}
                 />
@@ -260,10 +387,10 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
                 ) : (
                     <div>
                         <p className="text-sm font-semibold text-gray-gray600 dark:text-gray-gray300">
-                            Glissez un fichier CSV ici, ou cliquez pour sélectionner
+                            Glissez un fichier {typeDef.ext.toUpperCase()} ici, ou cliquez pour sélectionner
                         </p>
                         <p className="text-xs text-gray-gray400 mt-2">
-                            Rapport Believe Royalties · CSV uniquement · 50 MB max
+                            Rapport {typeDef.label} · .{typeDef.ext} uniquement · 50 MB max
                         </p>
                     </div>
                 )}
@@ -375,7 +502,16 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
                                     </span>
                                 </div>
                                 <div className="flex items-center justify-between gap-2 mt-1 text-gray-gray400">
-                                    <span>{formatDateTime(row.uploaded_at)}</span>
+                                    <span>
+                                        {formatDateTime(row.uploaded_at)}
+                                        {row.report_type && (
+                                            <>
+                                                {' · '}
+                                                {REPORT_TYPE_BY_KEY[row.report_type]?.label || row.report_type}
+                                                {row.period && ` · ${formatPeriod(row.period)}`}
+                                            </>
+                                        )}
+                                    </span>
                                     {row.status === 'imported' && row.rows_imported != null && (
                                         <span>{row.rows_imported.toLocaleString('fr-FR')} lignes</span>
                                     )}

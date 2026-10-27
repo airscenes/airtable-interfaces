@@ -226,6 +226,7 @@ function getCustomProperties(base) {
     { key: "canauxFilterField", label: "Champ filtre (Canaux, single select, optionnel)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
     { key: "canauxFilterDefault", label: "Filtre Canaux — valeurs cochées par défaut (optionnel, ex. Actif,En cours)", type: "string", defaultValue: "" },
     { key: "oeuvresLinkField", label: "Champ lien Oeuvres (Canaux)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
+    { key: "catalogField", label: "Champ numéro de catalogue (Canaux) — ventes Bandcamp/Propagande sans ISRC", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField, defaultValue: canauxTable.fields.find((f) => f.name === "numero_canal") },
 
     // --- Oeuvres (pour récupérer les ISRCs) ---
     { key: "oeuvresTable", label: "Table des Oeuvres", type: "table" },
@@ -308,6 +309,8 @@ function getCustomProperties(base) {
     { key: "supabaseAnonKey", label: "Supabase Anon Key", type: "string", defaultValue: "" },
     { key: "clientId", label: "Client UUID (Believe)", type: "string", defaultValue: "" },
     { key: "royaltiesColumn", label: "Label colonne Believe (dans JSON Revenus)", type: "string", defaultValue: "Believe" },
+    { key: "bandcampColumn", label: "Label colonne Bandcamp (dans JSON Revenus)", type: "string", defaultValue: "Bandcamp" },
+    { key: "propagandeColumn", label: "Label colonne Propagande (dans JSON Revenus)", type: "string", defaultValue: "Propagande" },
   ];
 }
 
@@ -1538,6 +1541,32 @@ async function fetchBelieveByMonth(cfg, isrcs, period) {
   return byMonth;
 }
 
+// Bandcamp / Propagande royalties, matched by ISRC then by catalog number for sales
+// without one (all of Propagande, most Bandcamp albums). Kept apart from the Believe
+// call above so Believe amounts are unchanged. Returns { bandcamp, propagande }, each
+// { month: amount }.
+const CATALOG_SOURCES = ["bandcamp", "propagande"];
+
+async function fetchCatalogSourcesByMonth(cfg, isrcs, catalogs, period) {
+  const rows = await postSupabaseRpc(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.clientId, "get_royalties_summary", {
+    p_client_id: cfg.clientId,
+    p_isrcs: isrcs,
+    p_from: period.start,
+    p_to: period.end,
+    p_catalogs: catalogs.length > 0 ? catalogs : null,
+    p_sources: CATALOG_SOURCES,
+  });
+  const out = { bandcamp: {}, propagande: {} };
+  for (const row of rows || []) {
+    const byMonth = out[row.source];
+    if (!byMonth) continue;
+    const m = parseInt((row.reporting_month || "").slice(5, 7), 10);
+    if (!m || m < 1 || m > 12) continue;
+    byMonth[m] = (byMonth[m] || 0) + (parseFloat(row.total_net_revenue) || 0);
+  }
+  return out;
+}
+
 async function fetchShopifyByMonth(cfg, canalId, period) {
   const rows = await postSupabaseRpc(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.clientId, "get_shopify_sales_summary", {
     p_client_id: cfg.clientId,
@@ -1571,6 +1600,14 @@ function canalIsrcs(canalRec, cfg, oeuvresRecords) {
     .filter(Boolean);
 }
 
+// Catalog numbers of the canal, sent raw (the server normalizes them). A lookup or
+// multi-value cell renders as "A, B": one catalog per entry.
+function canalCatalogs(canalRec, cfg) {
+  if (!canalRec || !cfg.catalogField) return [];
+  const raw = canalRec.getCellValueAsString(cfg.catalogField) || "";
+  return [...new Set(raw.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean))];
+}
+
 // Months of the period that already have a revenu on `compteId` for the canal in
 // Airtable. Supabase amounts are not proposed for those months, so saving again
 // can't create duplicates.
@@ -1588,7 +1625,7 @@ function monthsWithSavedCompte({ revenusRecords, cfg, canalId, compteId, period 
 }
 
 // Supabase amounts not saved yet, as Revenus grid inputs { month: { columnLabel: "12.34" } }.
-function pendingGridInputs({ believe, shopify, revenusRecords, cfg, canalId, period, revenusChoices }) {
+function pendingGridInputs({ believe, shopify, bandcamp, propagande, revenusRecords, cfg, canalId, period, revenusChoices }) {
   const inputs = {};
   const add = (byMonth, label) => {
     const col = revenusChoices.find((c) => c.label === label);
@@ -1602,6 +1639,8 @@ function pendingGridInputs({ believe, shopify, revenusRecords, cfg, canalId, per
   };
   add(believe, cfg.royaltiesColumn);
   add(shopify, SHOPIFY_COLUMN);
+  add(bandcamp, cfg.bandcampColumn);
+  add(propagande, cfg.propagandeColumn);
   return inputs;
 }
 
@@ -1898,7 +1937,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     oeuvresTable,
     ayantsTable, etatsTable, soldeOuvertureCompte, soldeReporteCompte, paiementsComptes,
     canauxFilterField, canauxFilterDefault,
-    supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn,
+    supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn, bandcampColumn, propagandeColumn,
   } = cfg;
 
   const canauxRecords = useRecords(canauxTable);
@@ -1931,6 +1970,10 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
   const [shopifyError, setShopifyError] = useState(null);
   const [shopifyRefreshKey, setShopifyRefreshKey] = useState(0);
   const shopifyCacheRef = useRef(new Map());
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState(null);
+  const [catalogRefreshKey, setCatalogRefreshKey] = useState(0);
+  const catalogCacheRef = useRef(new Map());
 
   useEffect(() => {
     setRevenusInputs({});
@@ -1938,6 +1981,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     setSavedMsg(null);
     setRoyaltiesError(null);
     setShopifyError(null);
+    setCatalogError(null);
   }, [selectedCanalId, periodKey]);
 
   // compteId of a grid column (from revenusColumnsJson), for dup-detection.
@@ -1957,16 +2001,33 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [revenusRecords, cfg, selectedCanalId, columnsConfig, period],
   );
+  const monthsWithExistingBandcamp = useMemo(
+    () => monthsWithSavedCompte({ revenusRecords, cfg, canalId: selectedCanalId, compteId: compteOfColumn(bandcampColumn), period }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [revenusRecords, cfg, selectedCanalId, columnsConfig, bandcampColumn, period],
+  );
+  const monthsWithExistingPropagande = useMemo(
+    () => monthsWithSavedCompte({ revenusRecords, cfg, canalId: selectedCanalId, compteId: compteOfColumn(propagandeColumn), period }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [revenusRecords, cfg, selectedCanalId, columnsConfig, propagandeColumn, period],
+  );
 
   const isrcList = useMemo(
     () => canalIsrcs((canauxRecords || []).find((r) => r.id === selectedCanalId), cfg, oeuvresTable ? oeuvresRecords : null),
     [selectedCanalId, canauxRecords, cfg, oeuvresTable, oeuvresRecords],
   );
+  const catalogList = useMemo(
+    () => canalCatalogs((canauxRecords || []).find((r) => r.id === selectedCanalId), cfg),
+    [selectedCanalId, canauxRecords, cfg],
+  );
 
   // Stable value keys for the fetch effects' deps (see the royalties effect).
   const isrcKey = isrcList.join(",");
+  const catalogKey = catalogList.join(",");
   const existingRoyaltyMonthsKey = [...monthsWithExistingRoyalty].sort((a, b) => a - b).join(",");
   const existingShopifyMonthsKey = [...monthsWithExistingShopify].sort((a, b) => a - b).join(",");
+  const existingBandcampMonthsKey = [...monthsWithExistingBandcamp].sort((a, b) => a - b).join(",");
+  const existingPropagandeMonthsKey = [...monthsWithExistingPropagande].sort((a, b) => a - b).join(",");
 
   // Fetch royalties from Supabase for the selected period and pre-fill the Royalties column
   useEffect(() => {
@@ -2049,6 +2110,55 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     // period / monthIndices derive from periodKey; safe to omit
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCanalId, periodKey, supabaseUrl, supabaseAnonKey, clientId, shopifyRefreshKey, existingShopifyMonthsKey]);
+
+  // Fetch Bandcamp / Propagande royalties and pre-fill their columns. A column is
+  // filled only when its label is in revenusColumnsJson (the defaults "Bandcamp" /
+  // "Propagande" may not exist for every client).
+  useEffect(() => {
+    if (saving) return; // don't mutate revenusInputs while a save is in flight
+    const targets = [
+      { label: bandcampColumn, source: "bandcamp", existing: monthsWithExistingBandcamp },
+      { label: propagandeColumn, source: "propagande", existing: monthsWithExistingPropagande },
+    ].filter((t) => t.label && compteOfColumn(t.label));
+    if (!supabaseUrl || !supabaseAnonKey || !clientId || !selectedCanalId || targets.length === 0
+      || (isrcList.length === 0 && catalogList.length === 0)) {
+      return;
+    }
+    const cacheKey = `${selectedCanalId}_${periodKey}_${isrcKey}_${catalogKey}_${catalogRefreshKey}`;
+    let didCancel = false;
+
+    const applyData = (bySource) => {
+      setRevenusInputs((prev) => {
+        const next = { ...prev };
+        for (const t of targets) {
+          const byMonth = bySource[t.source] || {};
+          for (const m of monthIndices) {
+            if (t.existing.has(m)) continue;
+            const total = byMonth[m];
+            if (total == null || total === 0) continue;
+            next[m] = { ...(next[m] || {}), [t.label]: String(total.toFixed(2)) };
+          }
+        }
+        return next;
+      });
+    };
+
+    setCatalogLoading(true);
+    setCatalogError(null);
+    cachedFetch(catalogCacheRef.current, cacheKey, () => fetchCatalogSourcesByMonth(cfg, isrcList, catalogList, period))
+      .then((data) => { if (!didCancel) applyData(data); })
+      .catch((err) => { if (!didCancel) setCatalogError(err.message || String(err)); })
+      .finally(() => { if (!didCancel) setCatalogLoading(false); });
+
+    return () => {
+      didCancel = true;
+      setCatalogLoading(false);
+    };
+    // See the royalties effect for why the deps are value keys.
+    // period / monthIndices derive from periodKey; safe to omit
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCanalId, periodKey, isrcKey, catalogKey, supabaseUrl, supabaseAnonKey, clientId, bandcampColumn, propagandeColumn,
+    columnsConfig, catalogRefreshKey, existingBandcampMonthsKey, existingPropagandeMonthsKey]);
 
   const canaux = useMemo(() => {
     if (!canauxRecords) return [];
@@ -2377,6 +2487,15 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
             {shopifyError && (
               <span className="text-red-redDark1">Erreur Shopify : {shopifyError}</span>
             )}
+            {catalogLoading && (
+              <span className="flex items-center gap-2 text-gray-gray500">
+                <span className="inline-block w-3 h-3 border-2 border-blue-blue border-t-transparent rounded-full animate-spin"></span>
+                Chargement Bandcamp/Propagande…
+              </span>
+            )}
+            {catalogError && (
+              <span className="text-red-redDark1">Erreur Bandcamp/Propagande : {catalogError}</span>
+            )}
             <button
               onClick={() => {
                 royaltiesCacheRef.current.clear();
@@ -2396,6 +2515,16 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
               className="px-2 py-1 rounded text-sm bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray200 hover:bg-gray-gray200"
             >
               ↺ Shopify
+            </button>
+            <button
+              onClick={() => {
+                catalogCacheRef.current.clear();
+                setCatalogRefreshKey((k) => k + 1);
+              }}
+              title="Rafraîchir les données Bandcamp et Propagande (Supabase)"
+              className="px-2 py-1 rounded text-sm bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray600 dark:text-gray-gray200 hover:bg-gray-gray200"
+            >
+              ↺ Bandcamp/Propagande
             </button>
           </div>
         </div>
@@ -2721,6 +2850,7 @@ function ArtistApp({ cfg }) {
           subtitle: g.name,
           projetId: g.id,
           isrcs: canalIsrcs(rec, cfg, oeuvresTable ? oeuvresRecords : null),
+          catalogs: canalCatalogs(rec, cfg),
           template: getTemplateUrl(rec, templateAttachmentField),
           calc: computeCanalPeriod({ canalId: rec.id, period, cfg, records, revenusChoices, soldeCompteId, soldeReporteCompteId, paiementCompteIds }),
         }))
@@ -2736,17 +2866,21 @@ function ArtistApp({ cfg }) {
   const supaOn = supabaseConfigured(cfg);
   const supaTargets = baseRows.filter((r) => r.calc.status === "open");
   const supaEntryKey = (canalId) => `${canalId}_${period.key}_${supaRefreshKey}`;
-  const supaKey = supaTargets.map((r) => `${r.id}:${r.isrcs.join(",")}`).join("|");
+  const supaKey = supaTargets.map((r) => `${r.id}:${r.isrcs.join(",")}:${r.catalogs.join(",")}`).join("|");
+  const catalogSourcesOn = !!(cfg.bandcampColumn || cfg.propagandeColumn);
   useEffect(() => {
     setSupa({});
     if (!supaOn || supaTargets.length === 0) return;
     let didCancel = false;
     for (const r of supaTargets) {
-      const cacheKey = `${r.id}_${period.key}_${r.isrcs.join(",")}_${supaRefreshKey}`;
+      const cacheKey = `${r.id}_${period.key}_${r.isrcs.join(",")}_${r.catalogs.join(",")}_${supaRefreshKey}`;
       cachedFetch(supaCacheRef.current, cacheKey, () => Promise.all([
         r.isrcs.length > 0 && cfg.royaltiesColumn ? fetchBelieveByMonth(cfg, r.isrcs, period) : null,
         fetchShopifyByMonth(cfg, r.id, period),
-      ]).then(([believe, shopify]) => ({ believe, shopify })))
+        (r.isrcs.length > 0 || r.catalogs.length > 0) && catalogSourcesOn
+          ? fetchCatalogSourcesByMonth(cfg, r.isrcs, r.catalogs, period)
+          : null,
+      ]).then(([believe, shopify, catalogSources]) => ({ believe, shopify, ...(catalogSources || {}) })))
         .then((data) => { if (!didCancel) setSupa((prev) => ({ ...prev, [supaEntryKey(r.id)]: data })); })
         .catch((err) => { if (!didCancel) setSupa((prev) => ({ ...prev, [supaEntryKey(r.id)]: { error: err.message || String(err) } })); });
     }
