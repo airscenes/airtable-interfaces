@@ -1080,9 +1080,12 @@ async function fillCanalReport({
   // A period at a loss is not split: the loss stays in the solde.
   const ayant_droit = ayantsDroits.map((a) => ({ nom: a.nom, part: a.part, montant: Math.max(net, 0) * a.part }));
 
-  fillTemplate(ws, { tags, blocks: { depense, revenu, paiement, ayant_droit } });
+  // Month rows beyond the period (m2…m6 of a monthly report) are removed, not left empty.
+  const dropPrefixes = Array.from({ length: Math.max(0, 6 - period.months.length) }, (_, i) => `m${period.months.length + i + 1}`);
+  fillTemplate(ws, { tags, blocks: { depense, revenu, paiement, ayant_droit }, dropPrefixes });
 
-  return { wb, ws, totals: { totalRevenus, totalDepenses, net, soldePrecedent, totalPaiements, soldeFermeture } };
+  const parts = ayantsDroits.map((a, i) => ({ key: a.key, nom: a.nom, montant: ayant_droit[i].montant }));
+  return { wb, ws, totals: { totalRevenus, totalDepenses, net, soldePrecedent, totalPaiements, soldeFermeture }, parts };
 }
 
 async function downloadWorkbook(wb, filename) {
@@ -1123,20 +1126,39 @@ async function buildArtistWorkbook({ artistName, period, items }) {
   const sommaire = out.addWorksheet("Sommaire");
   const used = new Set(["sommaire"]);
   const rows = [];
+  // One column per distinct ayant-droit (by Organisme id), in order of first appearance.
+  const ayants = new Map();
   for (const item of items) {
-    const { ws, totals } = await fillCanalReport(item.fillArgs);
+    const { ws, totals, parts } = await fillCanalReport(item.fillArgs);
     copyWorksheet(ws, out, uniqueSheetName(item.canalName, used));
-    rows.push({ canal: item.canalName, statut: item.statusLabel, ...totals });
+    const montants = new Map();
+    for (const p of parts) {
+      if (!ayants.has(p.key)) ayants.set(p.key, p.nom);
+      montants.set(p.key, (montants.get(p.key) || 0) + p.montant);
+    }
+    rows.push({ canal: item.canalName, statut: item.statusLabel, ...totals, montants });
   }
+  const ayantKeys = [...ayants.keys()];
 
-  sommaire.columns = [
-    { width: 42 }, { width: 22 }, { width: 16 }, { width: 16 },
-    { width: 18 }, { width: 18 }, { width: 16 }, { width: 16 },
+  // Amount columns: Revenus, Dépenses, Net, one per ayant-droit, then the soldes.
+  // A canal without a given ayant-droit leaves its cell empty (excluded from the total).
+  const amountCols = [
+    { header: "Revenus", width: 16, get: (r) => r.totalRevenus },
+    { header: "Dépenses", width: 16, get: (r) => r.totalDepenses },
+    { header: "Net (à partager)", width: 18, get: (r) => r.net },
+    ...ayantKeys.map((key) => ({
+      header: ayants.get(key), width: Math.min(Math.max(ayants.get(key).length * 0.6, 16), 24), get: (r) => (r.montants.has(key) ? r.montants.get(key) : null),
+    })),
+    { header: "Solde précédent", width: 18, get: (r) => r.soldePrecedent },
+    { header: "Paiements", width: 16, get: (r) => r.totalPaiements },
+    { header: "Solde fermeture", width: 16, get: (r) => r.soldeFermeture },
   ];
+
+  sommaire.columns = [{ width: 42 }, { width: 22 }, ...amountCols.map((c) => ({ width: c.width }))];
   sommaire.getCell("A1").value = `Rapport — ${artistName}`;
   sommaire.getCell("A1").font = { bold: true, size: 14 };
   sommaire.getCell("A2").value = `Période : ${period.label}`;
-  const header = ["Canal", "Statut", "Revenus", "Dépenses", "Net (à partager)", "Solde précédent", "Paiements", "Solde fermeture"];
+  const header = ["Canal", "Statut", ...amountCols.map((c) => c.header)];
   const headerRow = sommaire.getRow(4);
   header.forEach((h, i) => {
     const cell = headerRow.getCell(i + 1);
@@ -1144,25 +1166,27 @@ async function buildArtistWorkbook({ artistName, period, items }) {
     cell.font = { bold: true };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEEEEEE" } };
     cell.border = { bottom: { style: "thin" } };
-    if (i >= 2) cell.alignment = { horizontal: "right" };
+    // Wrapped so long ayant-droit names stay readable in their column.
+    cell.alignment = { horizontal: i >= 2 ? "right" : "left", vertical: "bottom", wrapText: true };
   });
   rows.forEach((r, k) => {
     const row = sommaire.getRow(5 + k);
-    row.values = [
-      r.canal, r.statut, r.totalRevenus, r.totalDepenses, r.net,
-      r.soldePrecedent, r.totalPaiements, r.soldeFermeture,
-    ];
-    for (let c = 3; c <= 8; c++) row.getCell(c).numFmt = CURRENCY_FMT;
+    row.getCell(1).value = r.canal;
+    row.getCell(2).value = r.statut;
+    amountCols.forEach((c, i) => {
+      const cell = row.getCell(3 + i);
+      cell.value = c.get(r);
+      cell.numFmt = CURRENCY_FMT;
+    });
   });
   const totalRow = sommaire.getRow(5 + rows.length);
   totalRow.getCell(1).value = "Total";
   const last = 4 + rows.length;
-  ["C", "D", "E", "F", "G", "H"].forEach((col, i) => {
-    const values = rows.map((r) => [r.totalRevenus, r.totalDepenses, r.net, r.soldePrecedent,
-      r.totalPaiements, r.soldeFermeture][i]);
+  amountCols.forEach((c, i) => {
+    const col = sommaire.getColumn(3 + i).letter;
     const cell = totalRow.getCell(3 + i);
     cell.value = rows.length
-      ? { formula: `SUM(${col}5:${col}${last})`, result: values.reduce((s, v) => s + v, 0) }
+      ? { formula: `SUM(${col}5:${col}${last})`, result: rows.reduce((s, r) => s + (c.get(r) || 0), 0) }
       : 0;
     cell.numFmt = CURRENCY_FMT;
   });
@@ -1282,10 +1306,19 @@ function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, sol
   // `part` is the fraction stored by the percent field (0.5 = 50 %).
   const ayantsDroits = !ayantsTable || !ayantsCanalLinkField || !ayantsPartField || !records.ayants ? [] : records.ayants
     .filter((rec) => linksTo(rec, ayantsCanalLinkField, canalId))
-    .map((rec) => ({
-      nom: (ayantsNomField && rec.getCellValueAsString(ayantsNomField)) || rec.name || "",
-      part: Number(rec.getCellValue(ayantsPartField)) || 0,
-    }));
+    // A row left blank (no name, no part) is ignored rather than shown under its record id.
+    .filter((rec) => !ayantsNomField || rec.getCellValueAsString(ayantsNomField) || Number(rec.getCellValue(ayantsPartField)))
+    .map((rec) => {
+      const nom = (ayantsNomField ? rec.getCellValueAsString(ayantsNomField) || "(organisme manquant)" : rec.name) || "";
+      // `key` identifies the same ayant-droit across canaux (artist Sommaire columns):
+      // the linked Organisme's id when the name field is a link (or a lookup through
+      // the link), else the name itself.
+      const linked = ayantsNomField ? rec.getCellValue(ayantsNomField) : null;
+      const first = Array.isArray(linked) ? linked[0] : null;
+      const id = first?.id || first?.value?.id || first?.linkedRecordId;
+      const key = id || `name:${nom.trim()}`;
+      return { key, nom, part: Number(rec.getCellValue(ayantsPartField)) || 0 };
+    });
 
   const sum = (recs, f) => (!f ? 0 : recs.reduce((s, r) => s + (Number(r.getCellValue(f)) || 0), 0));
   // Revenus on the "Solde d'ouverture" compte (4000) add to Solde précédent;

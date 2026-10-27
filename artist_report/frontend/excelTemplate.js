@@ -177,15 +177,19 @@ function copyRow(ws, src, dest) {
   });
 }
 
-// Re-point a formula's references after rows were inserted.
-// `imagesOf(r)` = final rows the template row r became (several for a block row).
+// Re-point a formula's references after rows were inserted or dropped.
+// `imagesOf(r)` = final rows the template row r became (several for a block row,
+// none for a dropped row). A range bound on a dropped row shrinks to the nearest
+// kept row inside the range; a lone reference to a dropped row becomes #REF!.
 function translateFormula(formula, { selfOriginal, selfFinal, imagesOf, origCount, delta }) {
   const mapRow = (r, isEnd) => {
     if (r === selfOriginal) return selfFinal;
     if (r > origCount) return r + delta;
-    const images = imagesOf(r);
-    if (!images.length) return r;
-    return isEnd ? images[images.length - 1] : images[0];
+    for (let k = r; k >= 1 && k <= origCount; k += isEnd ? -1 : 1) {
+      const images = imagesOf(k);
+      if (images.length) return isEnd ? images[images.length - 1] : images[0];
+    }
+    return null;
   };
   // Leave string literals ("…") alone.
   return formula
@@ -203,9 +207,13 @@ function translateFormula(formula, { selfOriginal, selfFinal, imagesOf, origCoun
             if (isArg && r <= origCount && images.length > 1) {
               return `${pre}${col1}${images[0]}:${col1}${images[images.length - 1]}`;
             }
+            if (r !== selfOriginal && r <= origCount && !images.length) return `${pre}#REF!`;
             return `${pre}${col1}${mapRow(r, false)}`;
           }
-          return `${pre}${col1}${mapRow(Number(row1), false)}:${col2}${mapRow(Number(row2), true)}`;
+          const start = mapRow(Number(row1), false);
+          const end = mapRow(Number(row2), true);
+          if (start === null || end === null || start > end) return `${pre}#REF!`;
+          return `${pre}${col1}${start}:${col2}${end}`;
         }),
     )
     .join("");
@@ -255,8 +263,10 @@ function rebuildMerges(ws, originalRanges, imagesOf) {
  * @param ws      ExcelJS worksheet (freshly loaded template)
  * @param tags    { key: string|number } scalar tags
  * @param blocks  { prefix: [{ field: string|number }] } one-row blocks
+ * @param dropPrefixes  [prefix] rows carrying a `${prefix.…}` tag are removed
+ *                      (e.g. the unused month rows of a monthly report)
  */
-export function fillTemplate(ws, { tags = {}, blocks = {} }) {
+export function fillTemplate(ws, { tags = {}, blocks = {}, dropPrefixes = [] }) {
   unshareFormulas(ws);
 
   // Unmerge everything up front: ExcelJS doesn't move merges with spliced rows,
@@ -275,15 +285,23 @@ export function fillTemplate(ws, { tags = {}, blocks = {} }) {
   for (const range of originalMerges) ws.unMergeCells(range);
   for (const { r, c, style } of mergedStyles) ws.getCell(r, c).style = style;
   const origCount = ws.rowCount;
-  // layout[finalRow - 1] = template row now sitting there. Rows are only ever
-  // inserted (never removed), so every template row keeps at least one image.
+  // layout[finalRow - 1] = template row now sitting there. A dropped row has no
+  // image; any other template row keeps at least one.
   const layout = Array.from({ length: origCount }, (_, i) => i + 1);
+
+  // Dropped rows first, bottom-up, so the block anchors are found on the final rows.
+  for (let r = origCount; r >= 1; r--) {
+    if (dropPrefixes.some((prefix) => rowHasTagPrefix(ws, r, prefix))) {
+      ws.spliceRows(r, 1);
+      layout.splice(r - 1, 1);
+    }
+  }
 
   // Blocks, bottom-up: expanding a block only pushes down rows below it, so
   // the anchors found above it stay valid.
   const anchors = [];
   for (const prefix of Object.keys(blocks)) {
-    for (let r = 1; r <= origCount; r++) {
+    for (let r = 1; r <= layout.length; r++) {
       if (rowHasTagPrefix(ws, r, prefix)) {
         anchors.push({ prefix, row: r });
         break;
@@ -330,7 +348,7 @@ export function fillTemplate(ws, { tags = {}, blocks = {} }) {
   });
 
   // Re-point formulas, and drop cached results so Excel recalculates them.
-  if (finalCount !== origCount) {
+  if (layout.some((original, i) => original !== i + 1) || finalCount !== origCount) {
     ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
       row.eachCell({ includeEmpty: false }, (cell) => {
         if (!isFormula(cell.value)) return;
