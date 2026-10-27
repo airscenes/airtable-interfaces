@@ -16,6 +16,7 @@ import {
   sortRepsByDate,
 } from "../utils/airtable";
 import { parseIsoDate } from "../utils/format";
+import { hasSalesSource, salesSourceFrom } from "../utils/salesReport";
 import { visibleRepColumns } from "../utils/columns";
 import { SpectacleCard } from "./SpectacleCard";
 import { HomeSalesChart } from "./HomeSalesChart";
@@ -79,8 +80,7 @@ function SalesChartApp() {
     repsTable &&
     customPropertyValueByKey.spectacleLinkField &&
     customPropertyValueByKey.repNameField &&
-    customPropertyValueByKey.supabaseUrl &&
-    customPropertyValueByKey.supabaseAnonKey;
+    hasSalesSource(salesSourceFrom(customPropertyValueByKey, base.id));
   if (!isConfigured) {
     return (
       <div className="flex items-center justify-center min-h-screen p-6">
@@ -90,7 +90,7 @@ function SalesChartApp() {
           </p>
           <p className="text-sm text-gray-gray500 dark:text-gray-gray400">
             Ouvrez le panneau des proprietes pour configurer les tables, les
-            champs, l&apos;URL Supabase et la cle API.
+            champs, l&apos;adresse de l&apos;API des ventes et le jeton des ventes.
           </p>
         </div>
       </div>
@@ -139,8 +139,13 @@ function SalesChartLoaded({ base, cp }) {
   const colStatut = cp.colStatut;
   const colSiteWeb = cp.colSiteWeb;
   const freeEventField = cp.freeEventField;
-  const supabaseUrl = cp.supabaseUrl;
-  const supabaseAnonKey = cp.supabaseAnonKey;
+  // Memoised on its four strings: cp is a new object on every render, and the
+  // charts refetch whenever the source they are given changes.
+  const { salesApiUrl, salesApiToken, supabaseUrl, supabaseAnonKey } = cp;
+  const salesSource = useMemo(
+    () => salesSourceFrom({ salesApiToken, salesApiUrl, supabaseAnonKey, supabaseUrl }, base.id),
+    [salesApiUrl, salesApiToken, supabaseUrl, supabaseAnonKey, base.id],
+  );
   // Artist link lives on the Projets/Spectacles table (the reverse of the
   // Artistes → Projets link), so we read it from the already-loaded spectacle
   // records — no separate Artistes table to load.
@@ -440,9 +445,7 @@ function SalesChartLoaded({ base, cp }) {
     return (
       <ArtistsPage
         artists={artistSections}
-        supabaseUrl={supabaseUrl}
-        supabaseAnonKey={supabaseAnonKey}
-        baseId={base.id}
+        salesSource={salesSource}
         onBack={() => setView("gallery")}
       />
     );
@@ -455,9 +458,7 @@ function SalesChartLoaded({ base, cp }) {
         spectacle={selectedSpectacle}
         representations={representations}
         spectacleKPIs={spectacleKPIs}
-        supabaseUrl={supabaseUrl}
-        supabaseAnonKey={supabaseAnonKey}
-        baseId={base.id}
+        salesSource={salesSource}
         onBack={() => setSelectedSpectacleId(null)}
         repRecords={repRecords}
         repColumns={repColumns}
@@ -528,9 +529,7 @@ function SalesChartLoaded({ base, cp }) {
         </h3>
         <HomeSalesChart
           repIds={(repRecords || []).map((r) => r.id)}
-          supabaseUrl={supabaseUrl}
-          supabaseAnonKey={supabaseAnonKey}
-          baseId={base.id}
+          salesSource={salesSource}
         />
       </div>
 

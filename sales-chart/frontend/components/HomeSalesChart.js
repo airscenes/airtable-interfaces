@@ -1,11 +1,12 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { PRESETS } from "../utils/constants";
 import { aggregateSalesByDate } from "../utils/salesData";
+import { fetchSalesReport, hasSalesSource, salesSourceKey } from "../utils/salesReport";
 import { SalesChart } from "./SalesChart";
 
 // --- Home aggregate chart: total sales across every representation ---
 
-export function HomeSalesChart({ repIds, supabaseUrl, supabaseAnonKey, baseId }) {
+export function HomeSalesChart({ repIds, salesSource }) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -18,13 +19,15 @@ export function HomeSalesChart({ repIds, supabaseUrl, supabaseAnonKey, baseId })
   // Note: dateFrom/dateTo above default to empty (full range) for the global
   // overview; the 7-day default is applied to the per-spectacle detail chart.
 
+  const sourceKey = salesSourceKey(salesSource);
+
   useEffect(() => {
-    if (!supabaseUrl || !supabaseAnonKey || !idsStr) {
+    if (!hasSalesSource(salesSource) || !idsStr) {
       setData([]);
       return;
     }
     const today = new Date().toISOString().split("T")[0];
-    const cacheKey = `home_${baseId}_${today}_${refreshKey}`;
+    const cacheKey = `home_${sourceKey}_${today}_${refreshKey}`;
     let didCancel = false;
 
     const run = async () => {
@@ -38,44 +41,13 @@ export function HomeSalesChart({ repIds, supabaseUrl, supabaseAnonKey, baseId })
       setLoading(true);
       setError(null);
       try {
-        const ids = idsStr.split(",");
-        // Chunk the IN() filter so URLs stay within server limits.
-        const chunkSize = 150;
-        const pageSize = 1000;
-        let rows = [];
-        for (let i = 0; i < ids.length; i += chunkSize) {
-          const chunk = ids.slice(i, i + chunkSize).join(",");
-          const baseUrl =
-            `${supabaseUrl}/rest/v1/sales_report` +
-            `?base_id=eq.${baseId}` +
-            `&record_id=in.(${chunk})` +
-            `&order=date.asc` +
-            `&select=record_id,date,sold,free,total`;
-          let offset = 0;
-          while (true) {
-            const response = await fetch(
-              baseUrl + `&limit=${pageSize}&offset=${offset}`,
-              {
-                headers: {
-                  apikey: supabaseAnonKey,
-                  Authorization: `Bearer ${supabaseAnonKey}`,
-                  "Content-Type": "application/json",
-                },
-              },
-            );
-            if (!response.ok) {
-              throw new Error(
-                `Erreur Supabase: ${response.status} ${response.statusText}`,
-              );
-            }
-            const page = await response.json();
-            rows = rows.concat(page);
-            if (page.length < pageSize) break;
-            offset += pageSize;
-            if (didCancel) return;
-          }
-        }
-        if (didCancel) return;
+        const rows = await fetchSalesReport(
+          salesSource,
+          idsStr.split(","),
+          "record_id,date,sold,free,total",
+          () => didCancel,
+        );
+        if (rows === null || didCancel) return;
         const formatted = aggregateSalesByDate(rows);
         cacheRef.current.set(cacheKey, formatted);
         setData(formatted);
@@ -92,7 +64,7 @@ export function HomeSalesChart({ repIds, supabaseUrl, supabaseAnonKey, baseId })
     return () => {
       didCancel = true;
     };
-  }, [idsStr, supabaseUrl, supabaseAnonKey, baseId, refreshKey]);
+  }, [idsStr, salesSource, sourceKey, refreshKey]);
 
   const localDateStr = (d) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import { fmtNumber, formatDate } from "../utils/format";
 import { lastNMondays, cumulativeSoldByWeek } from "../utils/salesData";
+import { fetchSalesReport, hasSalesSource, salesSourceKey } from "../utils/salesReport";
 import { downloadArtistsCsv } from "../utils/csv";
 
 // --- Artists page: weekly sold grid, hierarchy Artiste → Spectacles → Dates ---
@@ -25,7 +26,7 @@ const fmtPct = (sold, capacity) =>
     maximumFractionDigits: 2,
   })} %`;
 
-export function ArtistsPage({ artists, supabaseUrl, supabaseAnonKey, baseId, onBack }) {
+export function ArtistsPage({ artists, salesSource, onBack }) {
   const weeks = useMemo(() => lastNMondays(WEEK_COUNT), []);
   const [mode, setMode] = useState("count"); // "count" | "pct"
 
@@ -41,13 +42,15 @@ export function ArtistsPage({ artists, supabaseUrl, supabaseAnonKey, baseId, onB
   const [error, setError] = useState(null);
   const cacheRef = useRef(new Map());
 
+  const sourceKey = salesSourceKey(salesSource);
+
   useEffect(() => {
-    if (!supabaseUrl || !supabaseAnonKey || !idsStr) {
+    if (!hasSalesSource(salesSource) || !idsStr) {
       setSoldByRec({});
       return;
     }
     const today = new Date().toISOString().split("T")[0];
-    const cacheKey = `artists_${baseId}_${idsStr}_${today}`;
+    const cacheKey = `artists_${sourceKey}_${idsStr}_${today}`;
     let didCancel = false;
 
     const run = async () => {
@@ -61,38 +64,8 @@ export function ArtistsPage({ artists, supabaseUrl, supabaseAnonKey, baseId, onB
       setLoading(true);
       setError(null);
       try {
-        const ids = idsStr.split(",");
-        const chunkSize = 150;
-        const pageSize = 1000;
-        let rows = [];
-        for (let i = 0; i < ids.length; i += chunkSize) {
-          const chunk = ids.slice(i, i + chunkSize).join(",");
-          const baseUrl =
-            `${supabaseUrl}/rest/v1/sales_report` +
-            `?base_id=eq.${baseId}` +
-            `&record_id=in.(${chunk})` +
-            `&order=date.asc` +
-            `&select=record_id,date,sold`;
-          let offset = 0;
-          while (true) {
-            const response = await fetch(baseUrl + `&limit=${pageSize}&offset=${offset}`, {
-              headers: {
-                apikey: supabaseAnonKey,
-                Authorization: `Bearer ${supabaseAnonKey}`,
-                "Content-Type": "application/json",
-              },
-            });
-            if (!response.ok) {
-              throw new Error(`Erreur Supabase: ${response.status} ${response.statusText}`);
-            }
-            const page = await response.json();
-            rows = rows.concat(page);
-            if (page.length < pageSize) break;
-            offset += pageSize;
-            if (didCancel) return;
-          }
-        }
-        if (didCancel) return;
+        const rows = await fetchSalesReport(salesSource, idsStr.split(","), "record_id,date,sold", () => didCancel);
+        if (rows === null || didCancel) return;
         const series = cumulativeSoldByWeek(rows, weeks.map((w) => w.endIso));
         cacheRef.current.set(cacheKey, series);
         setSoldByRec(series);
@@ -109,7 +82,7 @@ export function ArtistsPage({ artists, supabaseUrl, supabaseAnonKey, baseId, onB
     return () => {
       didCancel = true;
     };
-  }, [idsStr, supabaseUrl, supabaseAnonKey, baseId, weeks]);
+  }, [idsStr, salesSource, sourceKey, weeks]);
 
   const minWidth = LABEL_COL + weeks.length * WEEK_COL;
 

@@ -17,6 +17,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
+import { fetchSalesReport, hasSalesSource, salesSourceFrom, salesSourceKey } from "./salesReport";
 import "./style.css";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -256,9 +257,12 @@ function getCustomProperties(base) {
     { key: "colRevenus", label: "Colonne: Revenus billetterie", type: "field", table: eventsTable, shouldFieldBeAllowed: isAnyField, defaultValue: findField(eventsTable, "revenu") },
     { key: "colStatut", label: "Colonne: Statut", type: "field", table: eventsTable, shouldFieldBeAllowed: isAnyField, defaultValue: findField(eventsTable, "statut") || findField(eventsTable, "status") },
 
-    // --- Supabase ---
-    { key: "supabaseUrl", label: "Supabase URL (ex: https://xyz.supabase.co)", type: "string", defaultValue: "" },
-    { key: "supabaseAnonKey", label: "Supabase Anon Key", type: "string", defaultValue: "" },
+    // --- Sales: the base's token (see salesReport.js) ---
+    { key: "salesApiUrl", label: "Adresse de l'API des ventes (ex: https://app.airscenes.ca/api/airtable/sales-report)", type: "string", defaultValue: "" },
+    { key: "salesApiToken", label: "Jeton des ventes (propre à cette base)", type: "string", defaultValue: "" },
+    // --- Supabase: the legacy anon path, used while the token is empty ---
+    { key: "supabaseUrl", label: "Supabase URL — ancien accès (ex: https://xyz.supabase.co)", type: "string", defaultValue: "" },
+    { key: "supabaseAnonKey", label: "Supabase Anon Key — ancien accès", type: "string", defaultValue: "" },
   ];
 }
 
@@ -589,7 +593,7 @@ function DetailPage({
   promoterCompsField, salesTargetField,
   artistFeeField, splitPercentageField, approvedExpensesField,
   mealProvidedField, accommodationField, transportField,
-  supabaseUrl, supabaseAnonKey, baseId,
+  salesSource,
   onBack,
 }) {
   // --- Read values from records ---
@@ -639,16 +643,18 @@ function DetailPage({
   const cacheRef = useRef(new Map());
   const [saving, setSaving] = useState(false);
 
-  // Fetch sales from Supabase
+  const sourceKey = salesSourceKey(salesSource);
+
+  // Fetch sales (the base's token, or the legacy anon key — see salesReport.js)
   useEffect(() => {
-    if (!supabaseUrl || !supabaseAnonKey || !eventRecord) {
+    if (!hasSalesSource(salesSource) || !eventRecord) {
       setSalesData([]);
       return;
     }
 
     const recordId = eventRecord.id;
     const today = new Date().toISOString().split("T")[0];
-    const cacheKey = `event_${recordId}_${today}_${refreshKey}`;
+    const cacheKey = `event_${sourceKey}_${recordId}_${today}_${refreshKey}`;
     let didCancel = false;
 
     const fetchSales = async () => {
@@ -662,30 +668,14 @@ function DetailPage({
 
       setSalesLoading(true);
       try {
-        const filter = `record_id=in.(${recordId})`;
-        const baseUrl = `${supabaseUrl}/rest/v1/sales_report?base_id=eq.${baseId}&${filter}&order=date.asc&select=record_id,date,sold,free,total`;
-        console.log("[EventPage] Supabase fetch:", { recordId, baseId, url: baseUrl });
+        const data = await fetchSalesReport(
+          salesSource,
+          [recordId],
+          "record_id,date,sold,free,total",
+          () => didCancel,
+        );
 
-        let data = [];
-        let offset = 0;
-        const pageSize = 1000;
-        while (true) {
-          const response = await fetch(baseUrl + `&limit=${pageSize}&offset=${offset}`, {
-            headers: {
-              apikey: supabaseAnonKey,
-              Authorization: `Bearer ${supabaseAnonKey}`,
-              "Content-Type": "application/json",
-            },
-          });
-          if (!response.ok) throw new Error(`Erreur Supabase: ${response.status}`);
-          const page = await response.json();
-          data = data.concat(page);
-          if (page.length < pageSize) break;
-          offset += pageSize;
-          if (didCancel) return;
-        }
-
-        if (!didCancel) {
+        if (data !== null && !didCancel) {
           const formatted = data.map((row) => ({
             date: row.date ? row.date.split("T")[0] : row.date,
             sold: row.sold || 0,
@@ -712,7 +702,7 @@ function DetailPage({
 
     fetchSales();
     return () => { didCancel = true; };
-  }, [eventRecord?.id, supabaseUrl, supabaseAnonKey, baseId, refreshKey]);
+  }, [eventRecord?.id, salesSource, sourceKey, refreshKey]);
 
   // --- Calculations ---
   const latestSales = salesData.length > 0 ? salesData[salesData.length - 1] : null;
@@ -995,8 +985,13 @@ function EventPageApp() {
   const colTauxRemplissage = customPropertyValueByKey.colTauxRemplissage;
   const colRevenus = customPropertyValueByKey.colRevenus;
   const colStatut = customPropertyValueByKey.colStatut;
-  const supabaseUrl = customPropertyValueByKey.supabaseUrl;
-  const supabaseAnonKey = customPropertyValueByKey.supabaseAnonKey;
+  // Memoised on its four strings: the detail view refetches whenever the
+  // source it is given changes.
+  const { salesApiUrl, salesApiToken, supabaseUrl, supabaseAnonKey } = customPropertyValueByKey;
+  const salesSource = useMemo(
+    () => salesSourceFrom({ salesApiToken, salesApiUrl, supabaseAnonKey, supabaseUrl }, base.id),
+    [salesApiUrl, salesApiToken, supabaseUrl, supabaseAnonKey, base.id],
+  );
 
   const eventRecords = useRecords(eventsTable);
   const projetRecords = useRecords(projetsTable);
@@ -1004,8 +999,6 @@ function EventPageApp() {
   const [selectedEventId, setSelectedEventId] = useState(null);
   const [search, setSearch] = useState("");
   const [showAll, setShowAll] = useState(false);
-
-  const baseId = base.id;
 
   // Check configuration
   const isConfigured = eventsTable && projetsTable;
@@ -1128,9 +1121,7 @@ function EventPageApp() {
           mealProvidedField={mealProvidedField}
           accommodationField={accommodationField}
           transportField={transportField}
-          supabaseUrl={supabaseUrl}
-          supabaseAnonKey={supabaseAnonKey}
-          baseId={baseId}
+          salesSource={salesSource}
           onBack={() => setSelectedEventId(null)}
         />
       ) : (

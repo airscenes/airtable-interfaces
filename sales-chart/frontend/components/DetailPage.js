@@ -8,6 +8,7 @@ import {
   computeWeekDeltas,
   buildObjectiveSeries,
 } from "../utils/salesData";
+import { fetchSalesReport, hasSalesSource, salesSourceKey } from "../utils/salesReport";
 import { useRepFilters } from "../hooks/useRepFilters";
 import { SalesChart } from "./SalesChart";
 import { RepresentationsTable } from "./RepresentationsTable";
@@ -18,9 +19,7 @@ export function DetailPage({
   spectacle,
   representations,
   spectacleKPIs,
-  supabaseUrl,
-  supabaseAnonKey,
-  baseId,
+  salesSource,
   onBack,
   repRecords,
   repColumns,
@@ -57,9 +56,11 @@ export function DetailPage({
     [filteredReps],
   );
 
-  // Fetch sales data from Supabase (total or individual)
+  const sourceKey = salesSourceKey(salesSource);
+
+  // Fetch sales data (total or individual)
   useEffect(() => {
-    if (!supabaseUrl || !supabaseAnonKey) {
+    if (!hasSalesSource(salesSource)) {
       setSalesData([]);
       setLoading(false);
       setError(null);
@@ -74,7 +75,9 @@ export function DetailPage({
     }
 
     const today = new Date().toISOString().split("T")[0];
-    const cacheKey = isAllMode ? `all_${allRepIds}_${today}_${refreshKey}` : `multi_${selectedRepIdsStr}_${today}_${refreshKey}`;
+    const cacheKey = isAllMode
+      ? `all_${sourceKey}_${allRepIds}_${today}_${refreshKey}`
+      : `multi_${sourceKey}_${selectedRepIdsStr}_${today}_${refreshKey}`;
     let didCancel = false;
 
     const fetchSales = async () => {
@@ -90,45 +93,14 @@ export function DetailPage({
       setError(null);
 
       try {
-        const filter = `record_id=in.(${idsToFetch})`;
+        const data = await fetchSalesReport(
+          salesSource,
+          idsToFetch.split(","),
+          "record_id,date,sold,free,total",
+          () => didCancel,
+        );
 
-        const baseUrl =
-          `${supabaseUrl}/rest/v1/sales_report` +
-          `?base_id=eq.${baseId}` +
-          `&${filter}` +
-          `&order=date.asc` +
-          `&select=record_id,date,sold,free,total`;
-
-        // Paginate to fetch all rows (Supabase caps at 1000 per request)
-        let data = [];
-        let offset = 0;
-        const pageSize = 1000;
-        while (true) {
-          const response = await fetch(
-            baseUrl + `&limit=${pageSize}&offset=${offset}`,
-            {
-              headers: {
-                apikey: supabaseAnonKey,
-                Authorization: `Bearer ${supabaseAnonKey}`,
-                "Content-Type": "application/json",
-              },
-            },
-          );
-
-          if (!response.ok) {
-            throw new Error(
-              `Erreur Supabase: ${response.status} ${response.statusText}`,
-            );
-          }
-
-          const page = await response.json();
-          data = data.concat(page);
-          if (page.length < pageSize) break;
-          offset += pageSize;
-          if (didCancel) return;
-        }
-
-        if (!didCancel) {
+        if (data !== null && !didCancel) {
           const formatted = aggregateSalesByDate(data);
           cacheRef.current.set(cacheKey, formatted);
           setSalesData(formatted);
@@ -147,49 +119,21 @@ export function DetailPage({
     return () => {
       didCancel = true;
     };
-  }, [selectedRepIdsStr, supabaseUrl, supabaseAnonKey, baseId, allRepIds, refreshKey]);
+  }, [selectedRepIdsStr, salesSource, sourceKey, allRepIds, refreshKey]);
 
   // Raw per-representation sales rows for all filtered reps (regardless of chart
   // selection). Used to derive both the weekly table columns and the period KPI
   // revenue (priced via average net price, consistent with the columns).
   useEffect(() => {
-    if (!supabaseUrl || !supabaseAnonKey || !allRepIds) {
+    if (!hasSalesSource(salesSource) || !allRepIds) {
       setSalesRows([]);
       return;
     }
     let didCancel = false;
     const run = async () => {
       try {
-        const ids = allRepIds.split(",");
-        const chunkSize = 150;
-        const pageSize = 1000;
-        let rows = [];
-        for (let i = 0; i < ids.length; i += chunkSize) {
-          const chunk = ids.slice(i, i + chunkSize).join(",");
-          const url =
-            `${supabaseUrl}/rest/v1/sales_report` +
-            `?base_id=eq.${baseId}` +
-            `&record_id=in.(${chunk})` +
-            `&order=date.asc` +
-            `&select=record_id,date,sold,total`;
-          let offset = 0;
-          while (true) {
-            const resp = await fetch(url + `&limit=${pageSize}&offset=${offset}`, {
-              headers: {
-                apikey: supabaseAnonKey,
-                Authorization: `Bearer ${supabaseAnonKey}`,
-                "Content-Type": "application/json",
-              },
-            });
-            if (!resp.ok) throw new Error(`Supabase ${resp.status}`);
-            const page = await resp.json();
-            rows = rows.concat(page);
-            if (page.length < pageSize) break;
-            offset += pageSize;
-            if (didCancel) return;
-          }
-        }
-        if (didCancel) return;
+        const rows = await fetchSalesReport(salesSource, allRepIds.split(","), "record_id,date,sold,total", () => didCancel);
+        if (rows === null || didCancel) return;
         setSalesRows(rows);
       } catch {
         if (!didCancel) setSalesRows([]);
@@ -199,7 +143,7 @@ export function DetailPage({
     return () => {
       didCancel = true;
     };
-  }, [allRepIds, supabaseUrl, supabaseAnonKey, baseId, refreshKey]);
+  }, [allRepIds, salesSource, refreshKey]);
 
   // Per-rep deltas for the Vendus/Revenus table columns. Window is
   // configurable: "7d" = last complete Mon→Mon week, "24h" = last complete day.

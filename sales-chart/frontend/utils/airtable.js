@@ -332,16 +332,29 @@ export function getCustomProperties(base, selectedSpectaclesTableId, selectedRep
       ],
       defaultValue: "7d",
     },
-    // --- Supabase ---
+    // --- Sales: the base's token (see utils/salesReport.js) ---
+    {
+      key: "salesApiUrl",
+      label: "Adresse de l'API des ventes (ex: https://app.airscenes.ca/api/airtable/sales-report)",
+      type: "string",
+      defaultValue: "",
+    },
+    {
+      key: "salesApiToken",
+      label: "Jeton des ventes (propre à cette base)",
+      type: "string",
+      defaultValue: "",
+    },
+    // --- Supabase: the legacy anon path, used while the token is empty ---
     {
       key: "supabaseUrl",
-      label: "Supabase URL (ex: https://xyz.supabase.co)",
+      label: "Supabase URL — ancien accès (ex: https://xyz.supabase.co)",
       type: "string",
       defaultValue: "",
     },
     {
       key: "supabaseAnonKey",
-      label: "Supabase Anon Key",
+      label: "Supabase Anon Key — ancien accès",
       type: "string",
       defaultValue: "",
     },
