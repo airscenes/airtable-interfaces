@@ -1,0 +1,457 @@
+// Tag-driven Excel template filling (ExcelJS worksheet in, filled worksheet out).
+//
+// Ported from Airscenes' `expandDocumentBlocks.ts`. Everything is located by the
+// tags the template carries, never by row number, so the template layout can
+// change without a code change.
+//
+// Two kinds of tags:
+//
+// - Scalars: `${nom_spectacle}` (legacy `{{nom_spectacle}}` also accepted),
+//   replaced anywhere in the sheet. An unknown scalar is left visible on
+//   purpose, so a template typo shows up instead of silently blanking a cell.
+// - One-row blocks: a row carrying `${depense.montant}`, `${depense.date}`…
+//   is duplicated once per record, each copy filled with that record. With no
+//   record, the row is kept (so formulas pointing at it stay valid) but emptied.
+// - Sections: several consecutive template rows, each carrying its own prefix
+//   (e.g. a group header `${revenu_compte.nom}` row followed by an item
+//   `${revenu.montant}` row), replaced by an ordered list of rows where each
+//   entry picks the template row to copy by prefix. Used for grouped listings
+//   (header, items, header, items…) that a one-row block can't express.
+//
+// A cell holding exactly one tag whose value is a number receives the number
+// itself (not text), so its number format and the formulas using it work.
+//
+// Template formulas are kept and re-pointed after rows are inserted (ExcelJS
+// does not do it): `SUM(G25:G25)` over a block row becomes `SUM(G25:G31)`, a
+// reference to a row below the block follows it down, and a formula inside a
+// block row refers to its own copy's row. A lone block-row reference passed to
+// a function (`SUM(G25)`, as Google Sheets saves `SUM(G25:G25)`) is widened too.
+
+import JSZip from "jszip";
+
+const TAG_RE = /\$\{([\w.]+)\}|\{\{([\w.]+)\}\}/g;
+const MERGE_RANGE = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/;
+// A1 reference or range. The prefix/lookahead keep it off function names
+// (LOG10), defined names and other-sheet references (Feuil2!A1).
+const REF_RE = /(^|[^A-Za-z0-9_.!$'"])(\$?[A-Z]{1,3}\$?)(\d+)(?::(\$?[A-Z]{1,3}\$?)(\d+))?(?![A-Za-z0-9_(!])/g;
+
+const cellText = (value) => {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && Array.isArray(value.richText)) {
+    return value.richText.map((run) => run.text ?? "").join("");
+  }
+  return "";
+};
+
+const isFormula = (value) => value && typeof value === "object" && typeof value.formula === "string";
+
+// Convert every shared formula into a standalone one. Excel stores a formula
+// dragged across cells once (master) + references to it (clones); as soon as a
+// master is overwritten or rows move around it, ExcelJS throws "Shared Formula
+// master must exist above and or left of clone" on write. Must run before any
+// cell is touched: `cell.formula` on a clone is translated from its master.
+export function unshareFormulas(ws) {
+  const cells = [];
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      const v = cell.value;
+      if (v && typeof v === "object" && (v.sharedFormula || v.shareType === "shared")) {
+        cells.push({ cell, formula: cell.formula, result: v.result });
+      }
+    });
+  });
+  for (const { cell, formula, result } of cells) cell.value = { formula, result };
+}
+
+// ExcelJS writes <sheetPr> children as tabColor → pageSetUpPr → outlinePr, but
+// the schema wants outlinePr before pageSetUpPr: a template carrying both comes
+// out invalid and Excel offers to "repair" it. outlinePr only positions the
+// summary line of grouped rows, which the report doesn't use.
+export function normalizeWorkbookForExcel(wb) {
+  wb.eachSheet((ws) => {
+    delete ws.properties.outlineProperties;
+  });
+}
+
+// Copy a (filled) worksheet into another workbook: ExcelJS has no cross-workbook
+// copy. The sheet model carries values, styles, merges, column widths, print setup
+// and views; images live in the source workbook's media, so they are registered
+// again in the target. Formulas pointing to other sheets of the source template
+// would dangle: templates are expected to be self-contained on one sheet.
+export function copyWorksheet(src, dstWb, name) {
+  const dst = dstWb.addWorksheet(name);
+  const model = src.model;
+  dst.model = {
+    ...model,
+    name: dst.name,
+    // The getter names them `merges`, the setter reads `mergeCells`.
+    mergeCells: model.merges || [],
+    media: [],
+    tables: [],
+    // Only the first sheet may be selected, otherwise Excel opens with grouped tabs.
+    views: (model.views || []).map((v) => ({ ...v, tabSelected: false })),
+  };
+  // Merging drops the secondary cells' styles (e.g. the right border of a merged
+  // header): put every cell's style back.
+  for (const row of model.rows) {
+    for (const cell of row.cells) {
+      if (cell.style) dst.getCell(cell.address).style = JSON.parse(JSON.stringify(cell.style));
+    }
+  }
+  for (const image of src.getImages()) {
+    const medium = src.workbook.getImage(Number(image.imageId));
+    if (!medium) continue;
+    const id = dstWb.addImage({ buffer: medium.buffer, base64: medium.base64, extension: medium.extension });
+    dst.addImage(id, image.model.range);
+  }
+  return dst;
+}
+
+// Google Sheets can save a merged row as several overlapping multi-row ranges
+// (H22:K42 + H23:K43) while showing two clean one-row merges. ExcelJS refuses
+// to even load such a file ("Cannot merge already merged cells"), so before
+// loading, every merge that overlaps another one is cut down to its first row.
+// Takes and returns the raw .xlsx bytes.
+export async function fixOverlappingMerges(buffer) {
+  const zip = await JSZip.loadAsync(buffer);
+  const colNum = (c) => [...c].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
+  let changed = false;
+  for (const path of Object.keys(zip.files).filter((p) => /^xl\/worksheets\/[^/]+\.xml$/.test(p))) {
+    const xml = await zip.file(path).async("string");
+    const ranges = [...xml.matchAll(/<mergeCell ref="([A-Z]+)(\d+):([A-Z]+)(\d+)"\s*\/>/g)].map((m) => ({
+      c1: colNum(m[1]), r1: Number(m[2]), c2: colNum(m[3]), r2: Number(m[4]), startCol: m[1], endCol: m[3],
+    }));
+    const overlaps = (a, b) => a !== b && a.c1 <= b.c2 && b.c1 <= a.c2 && a.r1 <= b.r2 && b.r1 <= a.r2;
+    if (!ranges.some((a) => ranges.some((b) => overlaps(a, b)))) continue;
+    const kept = new Set(
+      ranges.map((a) => (ranges.some((b) => overlaps(a, b)) ? `${a.startCol}${a.r1}:${a.endCol}${a.r1}` : `${a.startCol}${a.r1}:${a.endCol}${a.r2}`)),
+    );
+    const cells = [...kept].map((ref) => `<mergeCell ref="${ref}"/>`).join("");
+    zip.file(path, xml.replace(/<mergeCells[^>]*>[\s\S]*?<\/mergeCells>/, `<mergeCells count="${kept.size}">${cells}</mergeCells>`));
+    changed = true;
+  }
+  return changed ? zip.generateAsync({ type: "arraybuffer" }) : buffer;
+}
+
+// Replace the tags of one cell. `lookup(key)` returns undefined for a tag it
+// doesn't own (left untouched), otherwise the value (null/"" blanks it).
+function fillCell(cell, lookup) {
+  const value = cell.value;
+  const text = cellText(value);
+  if (!text.includes("${") && !text.includes("{{")) return;
+
+  const only = /^\s*(?:\$\{([\w.]+)\}|\{\{([\w.]+)\}\})\s*$/.exec(text);
+  if (only) {
+    const v = lookup(only[1] || only[2]);
+    if (v === undefined) return;
+    cell.value = v === "" || v == null ? null : v;
+    return;
+  }
+
+  const replace = (s) =>
+    s.replace(TAG_RE, (match, a, b) => {
+      const v = lookup(a || b);
+      return v === undefined ? match : v == null ? "" : String(v);
+    });
+  if (typeof value === "string") {
+    cell.value = replace(value);
+  } else {
+    // Rich text: replace run by run so styling survives (a tag split across
+    // two runs by partial formatting is not supported).
+    cell.value = { richText: value.richText.map((run) => ({ ...run, text: run.text ? replace(run.text) : run.text })) };
+  }
+}
+
+const rowHasTagPrefix = (ws, rowNumber, prefix) => {
+  let found = false;
+  ws.getRow(rowNumber).eachCell({ includeEmpty: false }, (cell) => {
+    if (cellText(cell.value).includes(`\${${prefix}.`)) found = true;
+  });
+  return found;
+};
+
+// Copy values, styles and height of one row onto rows that already exist.
+function copyRow(ws, src, dest) {
+  const from = ws.getRow(src);
+  const to = ws.getRow(dest);
+  to.height = from.height;
+  from.eachCell({ includeEmpty: true }, (cell, col) => {
+    const target = to.getCell(col);
+    target.value = cell.value;
+    target.style = { ...cell.style };
+  });
+}
+
+// Snapshot of one row (values, styles, height), so it can be written elsewhere
+// after the rows around it have been moved or overwritten.
+function snapshotRow(ws, rowNumber) {
+  const row = ws.getRow(rowNumber);
+  const cells = [];
+  row.eachCell({ includeEmpty: true }, (cell, col) => {
+    cells.push({ col, value: cell.value, style: JSON.parse(JSON.stringify(cell.style || {})) });
+  });
+  return { height: row.height, cells };
+}
+
+function writeSnapshot(ws, snap, rowNumber) {
+  const row = ws.getRow(rowNumber);
+  row.eachCell({ includeEmpty: true }, (cell) => {
+    cell.value = null;
+    cell.style = {};
+  });
+  row.height = snap.height;
+  for (const { col, value, style } of snap.cells) {
+    const cell = row.getCell(col);
+    cell.value = value;
+    cell.style = JSON.parse(JSON.stringify(style));
+  }
+}
+
+/**
+ * Copy a worksheet (values, styles, merges, column widths, images, page setup)
+ * into a new tab of the same workbook. ExcelJS has no native sheet copy.
+ * Run `unshareFormulas(src)` first if the source carries shared formulas.
+ * (To copy into another workbook, use `copyWorksheet`.)
+ */
+export function cloneWorksheet(wb, src, name) {
+  // structuredClone keeps Date cell values (JSON would turn them into strings).
+  // Tables are dropped: their names must be unique across the workbook.
+  const model = structuredClone({ ...src.model, tables: [] });
+  const copy = wb.addWorksheet(name);
+  copy.model = { ...model, id: copy.id, name, mergeCells: model.merges };
+  return copy;
+}
+
+// Re-point a formula's references after rows were inserted or dropped.
+// `imagesOf(r)` = final rows the template row r became (several for a block row,
+// none for a dropped row). A range bound on a dropped row shrinks to the nearest
+// kept row inside the range; a lone reference to a dropped row becomes #REF!.
+function translateFormula(formula, { selfOriginal, selfFinal, imagesOf, origCount, delta }) {
+  const mapRow = (r, isEnd) => {
+    if (r === selfOriginal) return selfFinal;
+    if (r > origCount) return r + delta;
+    for (let k = r; k >= 1 && k <= origCount; k += isEnd ? -1 : 1) {
+      const images = imagesOf(k);
+      if (images.length) return isEnd ? images[images.length - 1] : images[0];
+    }
+    return null;
+  };
+  // Leave string literals ("…") alone.
+  return formula
+    .split(/("(?:[^"]|"")*")/)
+    .map((part, i) =>
+      i % 2 === 1
+        ? part
+        : part.replace(REF_RE, (m, pre, col1, row1, col2, row2, offset, str) => {
+          if (col2 === undefined) {
+            // A lone function argument on a block row (`SUM(G23)`, which Google
+            // Sheets writes for `SUM(G23:G23)`) spans every copy of that row.
+            const r = Number(row1);
+            const images = r === selfOriginal ? [] : imagesOf(r);
+            const isArg = /^[(,;]$/.test(pre) && /^[),;]$/.test(str[offset + m.length] ?? "");
+            if (isArg && r <= origCount && images.length > 1) {
+              return `${pre}${col1}${images[0]}:${col1}${images[images.length - 1]}`;
+            }
+            if (r !== selfOriginal && r <= origCount && !images.length) return `${pre}#REF!`;
+            return `${pre}${col1}${mapRow(r, false)}`;
+          }
+          const start = mapRow(Number(row1), false);
+          const end = mapRow(Number(row2), true);
+          if (start === null || end === null || start > end) return `${pre}#REF!`;
+          return `${pre}${col1}${start}:${col2}${end}`;
+        }),
+    )
+    .join("");
+}
+
+// Put merged ranges back on every row their template row became. ExcelJS
+// doesn't merge the copies of a merged row, so the ranges are snapshotted
+// before anything moves and recreated from the final layout.
+//
+// Unmerging wipes the secondary cells' styles and merging copies the first
+// cell's style over them, which would drop e.g. the right border of a merged
+// header. So every cell's style is saved before and put back after.
+function rebuildMerges(ws, originalRanges, imagesOf) {
+  const wanted = new Set();
+  for (const range of originalRanges) {
+    const match = MERGE_RANGE.exec(range);
+    if (!match) continue;
+    const [, startCol, startRow, endCol, endRow] = match;
+    const height = Number(endRow) - Number(startRow);
+    for (const image of imagesOf(Number(startRow))) {
+      wanted.add(`${startCol}${image}:${endCol}${image + height}`);
+    }
+  }
+
+  const styles = [];
+  for (const range of wanted) {
+    const [tl, br] = range.split(":").map((a) => ws.getCell(a));
+    for (let r = tl.row; r <= br.row; r++) {
+      for (let c = tl.col; c <= br.col; c++) {
+        styles.push({ r, c, style: JSON.parse(JSON.stringify(ws.getCell(r, c).style || {})) });
+      }
+    }
+  }
+
+  for (const range of wanted) {
+    try {
+      ws.mergeCells(range);
+    } catch {
+      // Overlapping copies of a multi-row merge: losing one merge beats losing the file.
+    }
+  }
+  for (const { r, c, style } of styles) ws.getCell(r, c).style = style;
+}
+
+/**
+ * Fill a worksheet in place.
+ * @param ws        ExcelJS worksheet (freshly loaded template)
+ * @param tags      { key: string|number } scalar tags
+ * @param blocks    { prefix: [{ field: string|number }] } one-row blocks
+ * @param sections  { name: { prefixes: [prefix, …], rows: [{ prefix, data: { field } }] } }
+ *                  The template rows of `prefixes` must be consecutive. Each output row copies
+ *                  the template row of its prefix. Template rows whose prefix never appears in
+ *                  `rows` disappear; with no rows at all, the template rows are kept but emptied.
+ * @param dropPrefixes  [prefix] rows carrying a `${prefix.…}` tag are removed
+ *                      (e.g. the unused month rows of a monthly report)
+ * @returns { imagesOf } imagesOf(templateRow) = final row numbers that template row became.
+ */
+export function fillTemplate(ws, { tags = {}, blocks = {}, sections = {}, dropPrefixes = [] }) {
+  unshareFormulas(ws);
+
+  // Unmerge everything up front: ExcelJS doesn't move merges with spliced rows,
+  // so a merge left in place would stay behind at its old row. Styles are
+  // saved first since unmerging wipes the secondary cells' styles.
+  const originalMerges = [...(ws.model.merges || [])];
+  const mergedStyles = [];
+  for (const range of originalMerges) {
+    const [tl, br] = range.split(":").map((a) => ws.getCell(a));
+    for (let r = tl.row; r <= br.row; r++) {
+      for (let c = tl.col; c <= br.col; c++) {
+        mergedStyles.push({ r, c, style: JSON.parse(JSON.stringify(ws.getCell(r, c).style || {})) });
+      }
+    }
+  }
+  for (const range of originalMerges) ws.unMergeCells(range);
+  for (const { r, c, style } of mergedStyles) ws.getCell(r, c).style = style;
+  const origCount = ws.rowCount;
+  // layout[finalRow - 1] = template row now sitting there. Blocks only insert
+  // rows; a dropped row (dropPrefixes, or a section prefix left unused) has no
+  // image, and translateFormula shrinks or #REF!s the references to it.
+  const layout = Array.from({ length: origCount }, (_, i) => i + 1);
+
+  // Dropped rows first, bottom-up, so the block anchors are found on the final rows.
+  for (let r = origCount; r >= 1; r--) {
+    if (dropPrefixes.some((prefix) => rowHasTagPrefix(ws, r, prefix))) {
+      ws.spliceRows(r, 1);
+      layout.splice(r - 1, 1);
+    }
+  }
+
+  // Searched on the current rows, since dropped rows are already gone.
+  const findRow = (prefix) => {
+    for (let r = 1; r <= layout.length; r++) if (rowHasTagPrefix(ws, r, prefix)) return r;
+    return null;
+  };
+
+  // Blocks and sections, bottom-up: expanding one only moves rows below it, so
+  // the anchors found above it stay valid.
+  const anchors = [];
+  for (const prefix of Object.keys(blocks)) {
+    const row = findRow(prefix);
+    if (row) anchors.push({ prefix, row });
+  }
+  for (const { prefixes = [], rows = [] } of Object.values(sections)) {
+    const rowOf = new Map();
+    for (const prefix of prefixes) {
+      const row = findRow(prefix);
+      if (row) rowOf.set(prefix, row);
+    }
+    if (!rowOf.size) continue;
+    const tplRows = [...rowOf.values()];
+    anchors.push({ section: { rowOf, rows }, row: Math.min(...tplRows), end: Math.max(...tplRows) });
+  }
+  anchors.sort((a, b) => b.row - a.row);
+
+  for (const { prefix, row, end, section } of anchors) {
+    if (section) {
+      const size = end - row + 1;
+      const snaps = Array.from({ length: size }, (_, i) => snapshotRow(ws, row + i));
+      const tplOf = (current) => layout[current - 1];
+      let out = section.rows
+        .filter((r) => section.rowOf.has(r.prefix))
+        .map((r) => ({ current: section.rowOf.get(r.prefix), prefix: r.prefix, data: r.data }));
+      if (!out.length) out = snaps.map((_, i) => ({ current: row + i, prefix: null, data: null }));
+      const tpls = out.map((o) => tplOf(o.current));
+      if (out.length > size) ws.spliceRows(end + 1, 0, ...Array.from({ length: out.length - size }, () => []));
+      else if (out.length < size) ws.spliceRows(row + out.length, size - out.length);
+      layout.splice(row - 1, size, ...tpls);
+      out.forEach((o, k) => {
+        writeSnapshot(ws, snaps[o.current - row], row + k);
+        ws.getRow(row + k).eachCell({ includeEmpty: false }, (cell) => {
+          if (!o.data) {
+            cell.value = null;
+            return;
+          }
+          fillCell(cell, (key) => (key.startsWith(`${o.prefix}.`) ? (o.data[key.slice(o.prefix.length + 1)] ?? "") : undefined));
+        });
+      });
+      continue;
+    }
+    const records = blocks[prefix] || [];
+    const extra = records.length - 1;
+    if (extra > 0) {
+      ws.spliceRows(row + 1, 0, ...Array.from({ length: extra }, () => []));
+      layout.splice(row, 0, ...Array.from({ length: extra }, () => layout[row - 1]));
+      for (let k = 1; k <= extra; k++) copyRow(ws, row, row + k);
+    }
+    if (records.length === 0) {
+      // Keep the row and its borders, drop its content (tags and formulas).
+      ws.getRow(row).eachCell({ includeEmpty: false }, (cell) => {
+        cell.value = null;
+      });
+      continue;
+    }
+    records.forEach((data, k) => {
+      ws.getRow(row + k).eachCell({ includeEmpty: false }, (cell) => {
+        fillCell(cell, (key) => (key.startsWith(`${prefix}.`) ? (data[key.slice(prefix.length + 1)] ?? "") : undefined));
+      });
+    });
+  }
+
+  const finalCount = layout.length;
+  const imagesByOriginal = new Map();
+  layout.forEach((original, i) => {
+    if (!imagesByOriginal.has(original)) imagesByOriginal.set(original, []);
+    imagesByOriginal.get(original).push(i + 1);
+  });
+  const imagesOf = (r) => imagesByOriginal.get(r) || [];
+
+  // Scalars everywhere (blocks are already filled, so only scalars remain).
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      fillCell(cell, (key) => (Object.prototype.hasOwnProperty.call(tags, key) ? tags[key] : undefined));
+    });
+  });
+
+  // Re-point formulas, and drop cached results so Excel recalculates them.
+  if (layout.some((original, i) => original !== i + 1) || finalCount !== origCount) {
+    ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+      row.eachCell({ includeEmpty: false }, (cell) => {
+        if (!isFormula(cell.value)) return;
+        cell.value = {
+          formula: translateFormula(cell.value.formula, {
+            selfOriginal: layout[rowNumber - 1],
+            selfFinal: rowNumber,
+            imagesOf,
+            origCount,
+            delta: finalCount - origCount,
+          }),
+        };
+      });
+    });
+  }
+
+  rebuildMerges(ws, originalMerges, imagesOf);
+  return { imagesOf };
+}

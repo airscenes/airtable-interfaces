@@ -31,6 +31,8 @@ async function fetchTemplateUrlForBase(workingBaseId, pat) {
   if (!tplUrl) throw new Error("Champ template vide sur le record client");
   return tplUrl;
 }
+import { EventReportsPanel } from "./eventReports";
+import { parseIsoParts, readDateIso, filterForPeriod, belongsToSpectacle } from "./periodFilters";
 import "./style.css";
 
 // --- Helpers ---
@@ -40,6 +42,24 @@ const MONTHS_FR = [
   "Juillet","Août","Septembre","Octobre","Novembre","Décembre",
 ];
 
+// Kind of a numeric field, from its type (or its result type for formulas/rollups/lookups):
+// "currency" | "percent" | "number". Only currency fields get a "$" (not ticket counts).
+function numberKind(field) {
+  const type = field?.options?.result?.type || field?.type;
+  if (type === "currency") return "currency";
+  if (type === "percent") return "percent";
+  return "number";
+}
+
+const fmtNumber = (v) =>
+  v == null || (typeof v === "number" && isNaN(v))
+    ? "—"
+    : Number(v).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+
+// Percent fields store a fraction (0.15 = 15 %).
+const fmtByKind = (v, kind) =>
+  kind === "currency" ? fmtCurrency(v) : kind === "percent" ? `${fmtNumber(v * 100)} %` : fmtNumber(v);
+
 const fmtCurrency = (v) =>
   v == null || (typeof v === "number" && isNaN(v))
     ? "—"
@@ -48,38 +68,6 @@ const fmtCurrency = (v) =>
 function monthIsoDate(year, monthIdx) {
   const mm = String(monthIdx).padStart(2, "0");
   return `${year}-${mm}-01`;
-}
-
-function parseIsoParts(value) {
-  let iso = value;
-  if (Array.isArray(iso)) iso = iso[0];
-  if (iso && typeof iso === "object" && iso.value) iso = iso.value;
-  if (!iso || typeof iso !== "string") return null;
-  if (iso.includes("/")) {
-    const parts = iso.split("/").map((s) => parseInt(s, 10));
-    if (parts.length === 3) {
-      const [d, m, y] = parts;
-      if (y && m && d) return { year: y, month: m, day: d };
-    }
-    return null;
-  }
-  const [y, m, d] = iso.slice(0, 10).split("-").map((s) => parseInt(s, 10));
-  if (!y || !m || !d) return null;
-  return { year: y, month: m, day: d };
-}
-
-function isInPeriod(iso, year, month) {
-  const p = parseIsoParts(iso);
-  if (!p || p.year !== year) return false;
-  return p.month === month;
-}
-
-// True when the date is strictly before the first day of the selected (year, month).
-function isBeforePeriod(iso, year, month) {
-  const p = parseIsoParts(iso);
-  if (!p) return false;
-  if (p.year !== year) return p.year < year;
-  return p.month < month;
 }
 
 function getInitials(name) {
@@ -119,7 +107,9 @@ function getCustomProperties(base) {
   const spectaclesTable = findTable("spectacle") || tables[0];
   const evenementsTable = findTable("événement", "evenement", "event") || tables[0];
   const revenusTable = findTable("revenu") || tables[0];
+  const depensesTable = findTable("dépense", "depense") || tables[0];
   const facturesTable = findTable("facture") || tables[0];
+  const organismesTable = findTable("organisme") || tables[0];
 
   const anyField = () => true;
 
@@ -133,8 +123,16 @@ function getCustomProperties(base) {
     { key: "evenementsTable", label: "Table des Événements", type: "table" },
     { key: "evenementSpectacleIdField", label: "Champ Spectacle ID (Événements, lookup/formula)", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
     { key: "evenementDateField", label: "Champ Date (Événements) — pour tri/filtre", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
-    { key: "evenementCachetField", label: "Champ Cachet (Événements) — revenu", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
-    { key: "evenementRemiseField", label: "Champ Remise (Événements) — revenu", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
+    { key: "evenementCachetField", label: "Champ Cachet (Événements) — revenu (laisser vide si le cachet est facturé dans Revenus)", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
+    { key: "evenementRemiseField", label: "Champ Remise (Événements) — revenu (laisser vide si la remise est facturée dans Revenus)", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
+    // Off = Cachet + Remise always added (historical behavior). On = only for events with no
+    // Revenus line linked (any date): once an event is invoiced, its invoice lines replace them.
+    {
+      key: "evenementCachetSiNonFacture",
+      label: "Cachet + Remise de l'événement seulement s'il n'a aucune ligne Revenus (facture)",
+      type: "boolean",
+      defaultValue: false,
+    },
     { key: "evenementCommissionField", label: "Champ Commission (Événements) — dépense", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
     {
       key: "evenementLabelsCsv",
@@ -159,6 +157,17 @@ function getCustomProperties(base) {
     { key: "revenusTaxesField", label: "Champ Taxes (Revenus, single-select)", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
     { key: "revenusSpectacleLinkField", label: "Lien Spectacle (Revenus, link direct) — écrit à la saisie", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
     { key: "revenusSpectacleIdField", label: "Champ Spectacle ID (Revenus, lookup/formula) — pour filtrer", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+    { key: "revenusDateFallbackField", label: "Champ Date de secours (Revenus) — ex. Date de la représentation, si la ligne n'a pas de date", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+
+    // --- Dépenses (table Dépenses; without it, dépenses = Revenus with a negative montant) ---
+    { key: "depensesTable", label: "Table des Dépenses", type: "table" },
+    { key: "depensesSpectacleField", label: "Champ Spectacle (Dépenses, lien/lookup/formula) — pour filtrer", type: "field", table: depensesTable, shouldFieldBeAllowed: anyField },
+    { key: "depensesDateField", label: "Champ Date (Dépenses)", type: "field", table: depensesTable, shouldFieldBeAllowed: anyField },
+    { key: "depensesDateFallbackField", label: "Champ Date de secours (Dépenses) — ex. Date de la représentation", type: "field", table: depensesTable, shouldFieldBeAllowed: anyField },
+    { key: "depensesMontantField", label: "Champ Montant (Dépenses)", type: "field", table: depensesTable, shouldFieldBeAllowed: anyField },
+    { key: "depensesCompteField", label: "Champ Compte (Dépenses) — regroupement", type: "field", table: depensesTable, shouldFieldBeAllowed: anyField },
+    { key: "depensesDescriptionField", label: "Champ Description (Dépenses, optionnel)", type: "field", table: depensesTable, shouldFieldBeAllowed: anyField },
+    { key: "depensesEvenementLinkField", label: "Lien Représentations (Dépenses) — rapports par événement", type: "field", table: depensesTable, shouldFieldBeAllowed: anyField },
 
     // --- Templates (master base lookup) ---
     {
@@ -179,10 +188,18 @@ function getCustomProperties(base) {
     { key: "etatSpectacleLinkField", label: "Lien Spectacle (États de compte)", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("état") || t.name.toLowerCase().includes("etat")) || tables[0], shouldFieldBeAllowed: anyField },
     { key: "etatDateField", label: "Champ Date (États de compte) — mois", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("état") || t.name.toLowerCase().includes("etat")) || tables[0], shouldFieldBeAllowed: anyField },
     { key: "etatAttachmentField", label: "Champ Attachement (États de compte)", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("état") || t.name.toLowerCase().includes("etat")) || tables[0], shouldFieldBeAllowed: anyField },
-    { key: "etatTotalRevenusField", label: "Champ Total Revenus (États de compte)", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("état") || t.name.toLowerCase().includes("etat")) || tables[0], shouldFieldBeAllowed: anyField },
-    { key: "etatTotalDepensesField", label: "Champ Total Dépenses (États de compte)", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("état") || t.name.toLowerCase().includes("etat")) || tables[0], shouldFieldBeAllowed: anyField },
+    { key: "etatTotalRevenusField", label: "Champ Total Revenus (États de compte) — optionnel, vide si calculé par rollup", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("état") || t.name.toLowerCase().includes("etat")) || tables[0], shouldFieldBeAllowed: anyField },
+    { key: "etatTotalDepensesField", label: "Champ Total Dépenses (États de compte) — optionnel, vide si calculé par rollup", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("état") || t.name.toLowerCase().includes("etat")) || tables[0], shouldFieldBeAllowed: anyField },
     { key: "etatEvenementsLinkField", label: "Lien Événements (États de compte) — audit trail", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("état") || t.name.toLowerCase().includes("etat")) || tables[0], shouldFieldBeAllowed: anyField },
     { key: "etatRevenusLinkField", label: "Lien Revenus (États de compte) — audit trail", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("état") || t.name.toLowerCase().includes("etat")) || tables[0], shouldFieldBeAllowed: anyField },
+    { key: "etatDepensesLinkField", label: "Lien Dépenses (États de compte) — audit trail", type: "field", table: tables.find((t) => t.name.toLowerCase().includes("état") || t.name.toLowerCase().includes("etat")) || tables[0], shouldFieldBeAllowed: anyField },
+
+    // --- Rapports par événement (download only, never closes the period) ---
+    { key: "revenusEvenementLinkField", label: "Lien Événements (Revenus) — rapports par événement", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+    { key: "revenusCompteField", label: "Champ Compte (Revenus) — regroupement des rapports par événement", type: "field", table: revenusTable, shouldFieldBeAllowed: anyField },
+    { key: "evenementLieuField", label: "Champ Lieu (Événements, optionnel) — rapports par événement", type: "field", table: evenementsTable, shouldFieldBeAllowed: anyField },
+    { key: "organismesTable", label: "Table des Organismes (producteur du spectacle)", type: "table" },
+    { key: "organismeTemplateField", label: "Champ template rapports par événement (Organismes, pièce jointe)", type: "field", table: organismesTable, shouldFieldBeAllowed: anyField },
   ];
 }
 
@@ -458,13 +475,21 @@ function SaisiesEditor({ title, rows, onChange, revenusCategories, taxesChoices,
 // JSON format: [{"label": "Date", "fieldName": "Date événement"}, {"label": "Lieu", "fieldName": "Venue"}, ...]
 // Champs absents (vides) sur un événement sont masqués pour cette ligne.
 
-function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField, reportedIds }) {
+function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField, reportedIds, year, month }) {
   const showCheck = !!reportedIds;
+  // Expanded month groups ("YYYY-MM"); all collapsed by default, as in artist_report.
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggleGroup = (key) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   const sorted = useMemo(() => {
     if (!dateField) return evenements;
     const key = (rec) => {
-      const v = rec.getCellValue(dateField);
-      const p = parseIsoParts(v);
+      const p = parseIsoParts(readDateIso(rec, dateField));
       return p ? p.year * 10000 + p.month * 100 + p.day : 0;
     };
     return [...evenements].sort((a, b) => key(a) - key(b));
@@ -508,7 +533,9 @@ function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField, 
   // For each column, sum values that are actually numbers. Strings (including date strings like
   // "2026-05-15", which parseFloat would mis-read as 2026) are skipped. A column is "numeric" only
   // when at least one row yields a real Number — those columns get a total in the footer.
+  // Percent columns get no total (adding percentages means nothing).
   const columnTotals = visibleCols.map((c) => {
+    if (numberKind(c.field) === "percent") return null;
     let sum = 0;
     let hasAny = false;
     for (const rec of sorted) {
@@ -522,8 +549,34 @@ function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField, 
   });
   const hasAnyTotal = columnTotals.some((t) => t !== null);
 
+  // Group by month of the event date ("YYYY-MM"), in date order. Months before the selected
+  // period are rattrapages (past events never put on an État de compte).
+  const groups = [];
+  for (const rec of sorted) {
+    const p = dateField ? parseIsoParts(readDateIso(rec, dateField)) : null;
+    const key = p ? `${p.year}-${String(p.month).padStart(2, "0")}` : "—";
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.rows.push(rec);
+    else groups.push({ key, label: p ? `${MONTHS_FR[p.month - 1]} ${p.year}` : "Sans date", p, rows: [rec] });
+  }
+  const isRattrapage = (p) => !!p && !!year && (p.year < year || (p.year === year && p.month < month));
+  const groupTotal = (rows, field) =>
+    rows.reduce((s, r) => {
+      const raw = r.getCellValue(field);
+      return typeof raw === "number" && !isNaN(raw) ? s + raw : s;
+    }, 0);
+  const allCollapsed = groups.every((g) => !expanded.has(g.key));
+
   return (
     <div className="overflow-x-auto">
+      <div className="flex justify-end mb-1">
+        <button
+          onClick={() => setExpanded(allCollapsed ? new Set(groups.map((g) => g.key)) : new Set())}
+          className="text-sm text-blue-blue hover:underline"
+        >
+          {allCollapsed ? "Tout déplier" : "Tout replier"}
+        </button>
+      </div>
       <table className="w-full text-sm border-collapse">
         <thead className="bg-gray-gray50 dark:bg-gray-gray800">
           <tr>
@@ -536,31 +589,64 @@ function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField, 
           </tr>
         </thead>
         <tbody>
-          {sorted.map((rec) => (
-            <tr key={rec.id} className="border-b border-gray-gray100 dark:border-gray-gray700 hover:bg-gray-gray50 dark:hover:bg-gray-gray800">
-              {showCheck && (
-                <td className="p-2 text-center" style={{ width: 28 }}>
-                  {reportedIds.has(rec.id)
-                    ? <span className="text-green-greenDark1" title="Inclus dans l'État de compte">✓</span>
-                    : ""}
-                </td>
-              )}
-              {visibleCols.map((c) => {
-                const v = rec.getCellValueAsString(c.field);
-                return (
-                  <td key={c.fieldName} className="p-2 text-gray-gray700 dark:text-gray-gray100 align-top">
-                    {v || ""}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
+          {groups.map((g) => {
+            const isCollapsed = !expanded.has(g.key);
+            return (
+              <Fragment key={g.key}>
+                <tr
+                  onClick={() => toggleGroup(g.key)}
+                  className="bg-gray-gray100 dark:bg-gray-gray800 border-t border-gray-gray200 dark:border-gray-gray600 cursor-pointer select-none hover:bg-gray-gray200 dark:hover:bg-gray-gray600"
+                >
+                  {showCheck && <td className="p-2" style={{ width: 28 }}></td>}
+                  {visibleCols.map((c, idx) => (
+                    <td key={c.fieldName} className="p-2 font-semibold text-gray-gray700 dark:text-gray-gray100 whitespace-nowrap">
+                      {idx === 0 ? (
+                        <>
+                          <span
+                            className="inline-block w-4 text-gray-gray500 transition-transform"
+                            style={{ transform: isCollapsed ? "rotate(-90deg)" : "none" }}
+                          >
+                            ▾
+                          </span>
+                          {g.label} <span className="text-gray-gray500 font-normal">({g.rows.length})</span>
+                          {isRattrapage(g.p) && (
+                            <span className="ml-1 px-1 rounded text-xs font-normal bg-orange-orangeLight2 text-orange-orangeDark1" title="Période antérieure jamais rapportée">
+                              rattrapage
+                            </span>
+                          )}
+                        </>
+                      ) : columnTotals[idx] !== null ? fmtByKind(groupTotal(g.rows, c.field), numberKind(c.field)) : ""}
+                    </td>
+                  ))}
+                </tr>
+                {!isCollapsed && g.rows.map((rec) => (
+                  <tr key={rec.id} className="border-b border-gray-gray100 dark:border-gray-gray700 hover:bg-gray-gray50 dark:hover:bg-gray-gray800">
+                    {showCheck && (
+                      <td className="p-2 text-center" style={{ width: 28 }}>
+                        {reportedIds.has(rec.id)
+                          ? <span className="text-green-greenDark1" title="Inclus dans l'État de compte">✓</span>
+                          : ""}
+                      </td>
+                    )}
+                    {visibleCols.map((c) => {
+                      const v = rec.getCellValueAsString(c.field);
+                      return (
+                        <td key={c.fieldName} className="p-2 text-gray-gray700 dark:text-gray-gray100 align-top">
+                          {v || ""}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </Fragment>
+            );
+          })}
           {hasAnyTotal && (
             <tr className="bg-gray-gray50 dark:bg-gray-gray800 font-semibold border-t border-gray-gray200 dark:border-gray-gray600">
               {showCheck && <td className="p-2" style={{ width: 28 }}></td>}
               {visibleCols.map((c, idx) => (
                 <td key={c.fieldName} className="p-2 text-gray-gray700 dark:text-gray-gray100 whitespace-nowrap">
-                  {columnTotals[idx] !== null ? fmtCurrency(columnTotals[idx]) : (idx === 0 ? `Total (${sorted.length})` : "")}
+                  {columnTotals[idx] !== null ? fmtByKind(columnTotals[idx], numberKind(c.field)) : (idx === 0 ? `Total (${sorted.length})` : "")}
                 </td>
               ))}
             </tr>
@@ -574,7 +660,20 @@ function EvenementsList({ evenements, evenementsTable, fieldsConfig, dateField, 
 // --- UI: Revenus groupés par catégorie ---
 
 // `revenusFactureDates` is a Map(revenuId → ISO date) computed by the parent from the linked Facture.
-function RevenusByCategory({ revenus, montantField, categorieField, descriptionField, revenusFactureDates, reportedIds, groupByCategory = true, totalLabel = "Total" }) {
+// `extraEntries` = computed lines that aren't records ({ id, cat, dateIso, desc, m, unbilled }),
+// e.g. the cachet of an event that has no invoice line yet.
+function RevenusByCategory({ revenus, montantField, categorieField, descriptionField, revenusFactureDates, reportedIds, groupByCategory = true, totalLabel = "Total", year, month, extraEntries }) {
+  // Expanded groups (compte names); all collapsed by default, as in artist_report.
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggleGroup = (key) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  // Entries dated before the selected month are rattrapages (never put on an État de compte).
+  const periodStart = year && month ? monthIsoDate(year, month) : null;
   // When reportedIds is provided, show a leading ✓ column marking items already in the saved report.
   const showCheck = !!reportedIds;
   const checkCell = (id) => (
@@ -584,23 +683,31 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
         : ""}
     </td>
   );
-  // Hide zero-amount entries (no useful information to display).
-  const visibleRevenus = useMemo(
-    () => (revenus || []).filter((r) => (Number(r.getCellValue(montantField)) || 0) !== 0),
-    [revenus, montantField],
-  );
+  // Records and extra entries normalised to rows; zero amounts are hidden (nothing to show).
+  const entries = useMemo(() => {
+    const fromRecords = (revenus || []).map((r) => ({
+      id: r.id,
+      dateIso: revenusFactureDates.get(r.id) || "",
+      desc: descriptionField ? r.getCellValueAsString(descriptionField) : "",
+      cat: categorieField ? r.getCellValueAsString(categorieField) : "",
+      m: Number(r.getCellValue(montantField)) || 0,
+    }));
+    return [...fromRecords, ...(extraEntries || [])].filter((e) => e.m !== 0);
+  }, [revenus, extraEntries, revenusFactureDates, descriptionField, categorieField, montantField]);
   const groups = useMemo(() => {
     if (!groupByCategory) return null;
     const map = new Map();
-    for (const r of visibleRevenus) {
-      const key = categorieField ? r.getCellValueAsString(categorieField) || "—" : "—";
+    for (const e of entries) {
+      const key = e.cat || "—";
       if (!map.has(key)) map.set(key, []);
-      map.get(key).push(r);
+      map.get(key).push(e);
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b, "fr"));
-  }, [visibleRevenus, categorieField, groupByCategory]);
+    return Array.from(map.entries())
+      .map(([cat, rows]) => [cat, [...rows].sort((a, b) => (a.dateIso || "").localeCompare(b.dateIso || ""))])
+      .sort(([a], [b]) => a.localeCompare(b, "fr", { numeric: true }));
+  }, [entries, groupByCategory]);
 
-  if (visibleRevenus.length === 0) {
+  if (entries.length === 0) {
     return (
       <div className="text-sm text-gray-gray500 italic">
         Aucune entrée pour cette période.
@@ -608,17 +715,27 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
     );
   }
 
-  const grandTotal = visibleRevenus.reduce((s, r) => s + (Number(r.getCellValue(montantField)) || 0), 0);
+  const grandTotal = entries.reduce((s, e) => s + e.m, 0);
+  const unbilledBadge = (row) => row.unbilled && (
+    <span className="ml-1 px-1 rounded text-xs bg-gray-gray200 text-gray-gray700" title="Aucune ligne Revenus (facture) pour cet événement : montant pris sur l'événement">
+      non facturé
+    </span>
+  );
 
-  const rowFor = (r) => {
-    const dateIso = revenusFactureDates.get(r.id) || "";
-    const desc = descriptionField ? r.getCellValueAsString(descriptionField) : "";
-    const cat = categorieField ? r.getCellValueAsString(categorieField) : "";
-    const m = Number(r.getCellValue(montantField)) || 0;
-    return { id: r.id, dateIso, desc, cat, m };
-  };
+  const allCollapsed = !groups || groups.every(([k]) => !expanded.has(k));
 
   return (
+    <div>
+    {groupByCategory && (
+      <div className="flex justify-end mb-1">
+        <button
+          onClick={() => setExpanded(allCollapsed ? new Set(groups.map(([k]) => k)) : new Set())}
+          className="text-sm text-blue-blue hover:underline"
+        >
+          {allCollapsed ? "Tout déplier" : "Tout replier"}
+        </button>
+      </div>
+    )}
     <div className="border border-gray-gray100 dark:border-gray-gray600 rounded overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-gray-gray50 dark:bg-gray-gray800">
@@ -633,26 +750,40 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
         <tbody>
           {groupByCategory ? (
             groups.map(([cat, rows]) => {
-              const groupTotal = rows.reduce((s, r) => s + (Number(r.getCellValue(montantField)) || 0), 0);
+              const groupTotal = rows.reduce((s, e) => s + e.m, 0);
+              const isCollapsed = !expanded.has(cat);
               return (
                 <Fragment key={cat}>
-                  <tr className="bg-gray-gray100 dark:bg-gray-gray800 border-t border-gray-gray200 dark:border-gray-gray600">
+                  <tr
+                    onClick={() => toggleGroup(cat)}
+                    className="bg-gray-gray100 dark:bg-gray-gray800 border-t border-gray-gray200 dark:border-gray-gray600 cursor-pointer select-none hover:bg-gray-gray200 dark:hover:bg-gray-gray600"
+                  >
                     <td colSpan={showCheck ? 3 : 2} className="p-2 font-semibold text-gray-gray700 dark:text-gray-gray100">
+                      <span
+                        className="inline-block w-4 text-gray-gray500 transition-transform"
+                        style={{ transform: isCollapsed ? "rotate(-90deg)" : "none" }}
+                      >
+                        ▾
+                      </span>
                       {cat} <span className="text-gray-gray500 font-normal">({rows.length})</span>
                     </td>
                     <td className="p-2 text-right font-semibold text-gray-gray700 dark:text-gray-gray100 whitespace-nowrap">
                       {fmtCurrency(groupTotal)}
                     </td>
                   </tr>
-                  {rows.map((r) => {
-                    const row = rowFor(r);
+                  {!isCollapsed && rows.map((row) => {
                     return (
                       <tr key={row.id} className="border-t border-gray-gray100 dark:border-gray-gray700">
                         {showCheck && checkCell(row.id)}
                         <td className="p-2 text-gray-gray600 dark:text-gray-gray300 whitespace-nowrap">
                           {typeof row.dateIso === "string" ? row.dateIso.slice(0, 10) : ""}
+                          {periodStart && row.dateIso && row.dateIso < periodStart && (
+                            <span className="ml-1 px-1 rounded text-xs bg-orange-orangeLight2 text-orange-orangeDark1" title="Période antérieure jamais rapportée">
+                              rattrapage
+                            </span>
+                          )}
                         </td>
-                        <td className="p-2 text-gray-gray600 dark:text-gray-gray300">{row.desc}</td>
+                        <td className="p-2 text-gray-gray600 dark:text-gray-gray300">{row.desc}{unbilledBadge(row)}</td>
                         <td className="p-2 text-right text-gray-gray700 dark:text-gray-gray100 whitespace-nowrap">
                           {fmtCurrency(row.m)}
                         </td>
@@ -663,8 +794,7 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
               );
             })
           ) : (
-            [...visibleRevenus]
-              .map(rowFor)
+            [...entries]
               .sort((a, b) => (a.dateIso || "").localeCompare(b.dateIso || ""))
               .map((row) => (
                 <tr key={row.id} className="border-t border-gray-gray100 dark:border-gray-gray700">
@@ -675,7 +805,7 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
                   {categorieField && (
                     <td className="p-2 text-gray-gray600 dark:text-gray-gray300">{row.cat}</td>
                   )}
-                  <td className="p-2 text-gray-gray600 dark:text-gray-gray300">{row.desc}</td>
+                  <td className="p-2 text-gray-gray600 dark:text-gray-gray300">{row.desc}{unbilledBadge(row)}</td>
                   <td className="p-2 text-right text-gray-gray700 dark:text-gray-gray100 whitespace-nowrap">
                     {fmtCurrency(row.m)}
                   </td>
@@ -688,6 +818,7 @@ function RevenusByCategory({ revenus, montantField, categorieField, descriptionF
           </tr>
         </tbody>
       </table>
+    </div>
     </div>
   );
 }
@@ -709,6 +840,8 @@ function EtatDeCompteUpload({
   etatRevenusLinkField,
   evenementIds,
   revenusIds,
+  etatDepensesLinkField,
+  depensesIds,
   kpis,
   onBeforeSnapshot,
 }) {
@@ -751,14 +884,19 @@ function EtatDeCompteUpload({
       const baseFields = {};
       if (etatDateField) baseFields[etatDateField.id] = isoDate;
       if (etatSpectacleLinkField) baseFields[etatSpectacleLinkField.id] = [{ id: spectacleId }];
-      if (etatTotalRevenusField) baseFields[etatTotalRevenusField.id] = kpis.revenus;
-      if (etatTotalDepensesField) baseFields[etatTotalDepensesField.id] = kpis.depenses;
       if (etatEvenementsLinkField && Array.isArray(evenementIds)) {
         baseFields[etatEvenementsLinkField.id] = evenementIds.map((id) => ({ id }));
       }
       if (etatRevenusLinkField && Array.isArray(revenusIds)) {
         baseFields[etatRevenusLinkField.id] = revenusIds.map((id) => ({ id }));
       }
+      if (etatDepensesLinkField && Array.isArray(depensesIds)) {
+        baseFields[etatDepensesLinkField.id] = depensesIds.map((id) => ({ id }));
+      }
+      // Optional frozen totals (bases without rollups on the État de compte). A computed field
+      // (rollup/formula) already holds the total and can't be written: skip it.
+      if (etatTotalRevenusField && !etatTotalRevenusField.isComputed) baseFields[etatTotalRevenusField.id] = kpis.revenus;
+      if (etatTotalDepensesField && !etatTotalDepensesField.isComputed) baseFields[etatTotalDepensesField.id] = kpis.depenses;
       if (existing) {
         await etatsTable.updateRecordsAsync([{ id: existing.id, fields: baseFields }]);
       } else {
@@ -860,6 +998,8 @@ function EtatDeCompteUpload({
 //   At a marker, the row becomes the section header, and N data rows are inserted below it.
 
 const NUM_FMT_MONEY = '#,##0.00" $"';
+const NUM_FMT_NUMBER = "#,##0";
+const NUM_FMT_PERCENT = "0%";
 const ROBOTO = "Roboto";
 const FONT_SIZE = 10;
 
@@ -880,7 +1020,8 @@ function findMarkerRow(ws, key) {
 
 // Insert a section (header + N rows) at a marker. Returns the number of rows added below the marker
 // so callers can compensate when processing multiple markers top-down (we process bottom-up to avoid this).
-function writeSection(ws, markerRow, headers, rows, totalsRow) {
+// `colFormats` (optional): numFmt per column; numbers default to money.
+function writeSection(ws, markerRow, headers, rows, totalsRow, colFormats) {
   // Clear the marker row (it will become the header row).
   const headerRow = ws.getRow(markerRow);
   headerRow.eachCell({ includeEmpty: true }, (cell) => { cell.value = null; cell.font = null; });
@@ -918,7 +1059,7 @@ function writeSection(ws, markerRow, headers, rows, totalsRow) {
       const cell = ws.getCell(markerRow + 1 + i, c);
       if (cell.value == null || cell.value === "") continue;
       cell.font = { ...(cell.font || {}), name: ROBOTO, size: FONT_SIZE };
-      if (typeof cell.value === "number") cell.numFmt = NUM_FMT_MONEY;
+      if (typeof cell.value === "number") cell.numFmt = colFormats?.[c - 1] || NUM_FMT_MONEY;
     }
   }
 
@@ -929,7 +1070,7 @@ function writeSection(ws, markerRow, headers, rows, totalsRow) {
       const cell = ws.getCell(totalsRowIdx, c);
       if (cell.value != null && cell.value !== "") {
         cell.font = { name: ROBOTO, size: FONT_SIZE, bold: true };
-        if (typeof cell.value === "number") cell.numFmt = NUM_FMT_MONEY;
+        if (typeof cell.value === "number") cell.numFmt = colFormats?.[c - 1] || NUM_FMT_MONEY;
       }
       cell.fill = BAND_FILL;
       cell.border = BORDER_TOP;
@@ -972,17 +1113,21 @@ function buildEventsSection(records, fieldsConfig, evenementsTable, dateField) {
     }),
   );
 
-  // Totals row: "Total" label in the first column, sums in numeric columns, empty elsewhere.
+  // Number format per column from the field type: only currency columns get "$".
+  const kinds = visible.map((c) => numberKind(c.field));
+  const formats = kinds.map((k) => (k === "currency" ? NUM_FMT_MONEY : k === "percent" ? NUM_FMT_PERCENT : NUM_FMT_NUMBER));
+
+  // Totals row: "Total" label in the first column, sums in numeric columns (not percentages), empty elsewhere.
   const totalsRow = visible.map((c, i) => {
     if (i === 0) return "Total";
-    if (!numericCols[i]) return "";
+    if (!numericCols[i] || kinds[i] === "percent") return "";
     return sorted.reduce((s, r) => {
       const v = r.getCellValue(c.field);
       return s + (typeof v === "number" ? v : 0);
     }, 0);
   });
 
-  return { headers, rows, totals: totalsRow };
+  return { headers, rows, totals: totalsRow, formats };
 }
 
 // Wide row layouts (10 cols, empty strings act as spacers).
@@ -1066,7 +1211,7 @@ async function exportFromTemplate({
   templateUrl, spectacleName, year, month, totals,
   evenements, evenementFieldsConfig, evenementsTable, evenementDateField,
   revenus, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusFactureDates,
-  depenses, saisies,
+  depenses, depensesFields, saisies, unbilledEntries = [],
 }) {
   const { default: ExcelJS } = await import("exceljs");
   const periodLabel = `${MONTHS_FR[month - 1]} ${year}`;
@@ -1111,7 +1256,8 @@ async function exportFromTemplate({
 
   // 2. Build the 3 sections. Unsaved saisies (typically 0, occasionally 1-2 rows) are injected
   //    in-memory so this download already reflects them, before they are persisted to Airtable.
-  let revenuSaisies = [];
+  // Unbilled event cachets/remises are listed with the revenus, like unsaved saisies.
+  let revenuSaisies = unbilledEntries.map((e) => ({ cat: e.cat, date: e.dateIso, desc: `${e.desc} (non facturé)`, amt: e.m }));
   let depenseSaisies = [];
   if (saisies && saisies.length) {
     for (const r of saisies) {
@@ -1126,7 +1272,7 @@ async function exportFromTemplate({
   }
   const eventsSection = buildEventsSection(evenements, evenementFieldsConfig, evenementsTable, evenementDateField);
   const revenusSection = buildRevenusSection(revenus, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusFactureDates, revenuSaisies);
-  const depensesSection = buildDepensesSection(depenses, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusFactureDates, depenseSaisies);
+  const depensesSection = buildDepensesSection(depenses, depensesFields.montantField, depensesFields.categorieField, depensesFields.descriptionField, revenusFactureDates, depenseSaisies);
 
   // 3. Find marker rows AFTER tag replacement.
   // Process them bottom-up so earlier insertions don't shift later marker rows.
@@ -1139,7 +1285,7 @@ async function exportFromTemplate({
    .sort((a, b) => b.row - a.row);
 
   for (const m of markers) {
-    writeSection(ws, m.row, m.section.headers, m.section.rows, m.section.totals);
+    writeSection(ws, m.row, m.section.headers, m.section.rows, m.section.totals, m.section.formats);
   }
 
   wb.calcProperties = { ...(wb.calcProperties || {}), fullCalcOnLoad: true };
@@ -1183,19 +1329,6 @@ function getSelectOptions(field, ignoreList) {
     .map((o) => ({ id: o.id, name: o.name }));
 }
 
-// --- Helper: extract an ISO date string from a date cell value (handles wrappers/arrays). ---
-function readDateIso(rec, ...fields) {
-  for (const f of fields) {
-    if (!f) continue;
-    let v = rec.getCellValue(f);
-    if (Array.isArray(v)) v = v[0];
-    if (v && typeof v === "object" && v.value) v = v.value;
-    if (v == null || v === "") v = rec.getCellValueAsString(f);
-    if (v && typeof v === "string") return v;
-  }
-  return null;
-}
-
 // --- Main App ---
 
 function ProjectReportApp() {
@@ -1212,14 +1345,19 @@ function ReportInner({ cfg }) {
   const base = useBase();
   const {
     spectaclesTable, spectacleImageField, spectacleSubtitleField,
-    evenementsTable, evenementSpectacleIdField, evenementDateField, evenementCachetField, evenementRemiseField, evenementCommissionField, evenementLabelsCsv, evenementFieldsCsv,
+    evenementsTable, evenementSpectacleIdField, evenementDateField, evenementCachetField, evenementRemiseField, evenementCachetSiNonFacture, evenementCommissionField, evenementLabelsCsv, evenementFieldsCsv,
     revenusTable, revenusFactureLinkField, revenusDateField, revenusMontantField, revenusCategorieField, revenusDescriptionField, revenusTaxesField, revenusSpectacleLinkField, revenusSpectacleIdField,
     templatesPat,
     facturesTable, factureSpectacleLinkField, factureDateWriteField,
     factureDescriptionField,
     etatsTable, etatSpectacleLinkField, etatDateField, etatAttachmentField,
+    etatEvenementsLinkField, etatRevenusLinkField, etatDepensesLinkField,
     etatTotalRevenusField, etatTotalDepensesField,
-    etatEvenementsLinkField, etatRevenusLinkField,
+    revenusDateFallbackField,
+    depensesTable, depensesSpectacleField, depensesDateField, depensesDateFallbackField,
+    depensesMontantField, depensesCompteField, depensesDescriptionField, depensesEvenementLinkField,
+    revenusEvenementLinkField, revenusCompteField, evenementLieuField,
+    organismesTable, organismeTemplateField,
   } = cfg;
 
   // Organisme link: Spectacles.Producteur → Factures.Organisations (each falls back to "Organismes").
@@ -1235,9 +1373,13 @@ function ReportInner({ cfg }) {
   const spectaclesRecords = useRecords(spectaclesTable);
   const evenementsRecords = useRecords(evenementsTable);
   const revenusRecords = useRecords(revenusTable);
+  const depensesRecords = useRecords(depensesTable || revenusTable);
   const etatsRecords = useRecords(etatsTable || revenusTable);
+  const organismesRecords = useRecords(organismesTable || spectaclesTable);
 
   const [selectedSpectacleId, setSelectedSpectacleId] = useState(null);
+  // "mensuel" = monthly État de compte (can close the period); "evenements" = per-event download.
+  const [mode, setMode] = useState("mensuel");
   const [spectacleSearch, setSpectacleSearch] = useState("");
   const [year, setYear] = useState(() => new Date().getFullYear());
   const [month, setMonth] = useState(() => new Date().getMonth() + 1);
@@ -1311,6 +1453,10 @@ function ReportInner({ cfg }) {
     () => new Set(resolveLinkedIds(currentEtatRecord, etatRevenusLinkField)),
     [currentEtatRecord, etatRevenusLinkField],
   );
+  const reportedDepenseIds = useMemo(
+    () => new Set(resolveLinkedIds(currentEtatRecord, etatDepensesLinkField)),
+    [currentEtatRecord, etatDepensesLinkField],
+  );
 
   // IDs of Événements / Revenus linked to an État de compte OTHER than the current month's one.
   // These are already reconciled elsewhere and must never be re-linked (prevents double-linking).
@@ -1336,79 +1482,80 @@ function ReportInner({ cfg }) {
     return set;
   }, [etatsRecords, etatRevenusLinkField, currentEtatId]);
 
-  // --- Événements : filtrés par spectacle_id (lookup/formula) + date ---
-  // On affiche les événements du mois sélectionné, PLUS les événements passés non encore
-  // rattachés à un État de compte (pour les rattraper dans le relevé courant).
+  const reconciledDepenseIdsElsewhere = useMemo(() => {
+    const set = new Set();
+    if (!etatsRecords || !etatDepensesLinkField) return set;
+    for (const rec of etatsRecords) {
+      if (rec.id === currentEtatId) continue;
+      for (const id of resolveLinkedIds(rec, etatDepensesLinkField)) set.add(id);
+    }
+    return set;
+  }, [etatsRecords, etatDepensesLinkField, currentEtatId]);
 
-  const spectacleEvenements = useMemo(() => {
-    if (!evenementsRecords || !selectedSpectacleId) return [];
-    return evenementsRecords.filter((rec) => {
-      if (evenementSpectacleIdField) {
-        const sid = rec.getCellValueAsString(evenementSpectacleIdField);
-        if (!sid || !sid.includes(selectedSpectacleId)) return false;
-      }
-      if (evenementDateField) {
-        const d = readDateIso(rec, evenementDateField);
-        const inPeriod = isInPeriod(d, year, month);
-        const past = isBeforePeriod(d, year, month);
-        if (!inPeriod && !past) return false; // future → exclude
-        // Linked to another État de compte → already reconciled, do not carry forward.
-        if (reconciledEventIdsElsewhere.has(rec.id)) return false;
-      }
-      return true;
-    });
-  }, [evenementsRecords, evenementSpectacleIdField, evenementDateField, selectedSpectacleId, year, month, reconciledEventIdsElsewhere]);
+  // --- Records of the period ---
+  // The selected month PLUS earlier records never put on an État de compte (rattrapages); future
+  // records and records reconciled on another État are left out (see filterForPeriod).
 
-  // Revenus filtrés par spectacle_id (lookup/formula) si configuré, puis par mois sélectionné.
-  // Comme les événements, on ajoute les revenus passés non encore rattachés à un État de compte.
-  const spectacleRevenusAll = useMemo(() => {
-    const all = revenusRecords || [];
-    if (!selectedSpectacleId) return [];
-    return all.filter((rec) => {
-      if (revenusSpectacleIdField) {
-        const sid = rec.getCellValueAsString(revenusSpectacleIdField);
-        if (!sid || !sid.includes(selectedSpectacleId)) return false;
-      }
-      if (revenusDateField) {
-        const d = readDateIso(rec, revenusDateField);
-        const inPeriod = isInPeriod(d, year, month);
-        const past = isBeforePeriod(d, year, month);
-        if (!inPeriod && !past) return false; // future → exclude
-        // Linked to another État de compte → already reconciled, do not carry forward.
-        if (reconciledRevenuIdsElsewhere.has(rec.id)) return false;
-      }
-      return true;
-    });
-  }, [revenusRecords, revenusSpectacleIdField, revenusDateField, selectedSpectacleId, year, month, reconciledRevenuIdsElsewhere]);
+  const spectacleName = selectedSpectacle?.name;
 
-  // Display-only filter: hide categories listed in revenusCategorieIgnore (already shown in the
-  // Événements table). The KPIs continue to use spectacleRevenusAll so totals stay accurate.
+  const spectacleEvenements = useMemo(() => filterForPeriod(evenementsRecords, {
+    spectacleField: evenementSpectacleIdField, spectacleId: selectedSpectacleId, spectacleName,
+    dateFields: [evenementDateField], year, month, excludeIds: reconciledEventIdsElsewhere,
+  }), [evenementsRecords, evenementSpectacleIdField, selectedSpectacleId, spectacleName, evenementDateField, year, month, reconciledEventIdsElsewhere]);
+
+  // Revenus = invoice lines. A line without its own date takes the fallback date (e.g. the date
+  // of its représentation) instead of dropping out of every month.
+  const spectacleRevenusAll = useMemo(() => filterForPeriod(revenusRecords, {
+    spectacleField: revenusSpectacleIdField, spectacleId: selectedSpectacleId, spectacleName,
+    dateFields: [revenusDateField, revenusDateFallbackField], year, month, excludeIds: reconciledRevenuIdsElsewhere,
+  }), [revenusRecords, revenusSpectacleIdField, selectedSpectacleId, spectacleName, revenusDateField, revenusDateFallbackField, year, month, reconciledRevenuIdsElsewhere]);
+
   const spectacleRevenusVisible = spectacleRevenusAll;
-
-  // Split visible Revenus into income (montant >= 0) and expense (montant < 0) for the two lists.
   const spectacleRevenus = useMemo(
     () => revenusMontantField
       ? spectacleRevenusVisible.filter((r) => (Number(r.getCellValue(revenusMontantField)) || 0) >= 0)
       : spectacleRevenusVisible,
     [spectacleRevenusVisible, revenusMontantField],
   );
-  const spectacleDepenses = useMemo(
-    () => revenusMontantField
-      ? spectacleRevenusVisible.filter((r) => (Number(r.getCellValue(revenusMontantField)) || 0) < 0)
-      : [],
-    [spectacleRevenusVisible, revenusMontantField],
-  );
 
-  // Map (revenuId → ISO date) read directly from the Revenu record, for display in RevenusByCategory.
+  // Dépenses come from the Dépenses table when it is configured; otherwise (legacy bases) from
+  // Revenus lines with a negative montant. `dep` carries the fields of whichever source is used.
+  const dep = depensesTable
+    ? {
+        montantField: depensesMontantField,
+        categorieField: depensesCompteField,
+        descriptionField: depensesDescriptionField,
+      }
+    : {
+        montantField: revenusMontantField,
+        categorieField: revenusCategorieField,
+        descriptionField: revenusDescriptionField,
+      };
+
+  const spectacleDepenses = useMemo(() => {
+    if (!depensesTable) {
+      return revenusMontantField
+        ? spectacleRevenusVisible.filter((r) => (Number(r.getCellValue(revenusMontantField)) || 0) < 0)
+        : [];
+    }
+    return filterForPeriod(depensesRecords, {
+      spectacleField: depensesSpectacleField, spectacleId: selectedSpectacleId, spectacleName,
+      dateFields: [depensesDateField, depensesDateFallbackField], year, month, excludeIds: reconciledDepenseIdsElsewhere,
+    }).filter((r) => !depensesMontantField || (Number(r.getCellValue(depensesMontantField)) || 0) !== 0);
+  }, [depensesTable, depensesRecords, depensesSpectacleField, depensesMontantField, depensesDateField, depensesDateFallbackField,
+    selectedSpectacleId, spectacleName, year, month, reconciledDepenseIdsElsewhere, spectacleRevenusVisible, revenusMontantField]);
+
+  // Map (record id → ISO date) for display and export, with the same fallback as the filter.
   const revenusFactureDates = useMemo(() => {
     const map = new Map();
-    if (!revenusDateField) return map;
     for (const rec of spectacleRevenusVisible) {
-      const d = readDateIso(rec, revenusDateField);
-      map.set(rec.id, typeof d === "string" ? d.slice(0, 10) : "");
+      map.set(rec.id, (readDateIso(rec, revenusDateField, revenusDateFallbackField) || "").slice(0, 10));
+    }
+    for (const rec of depensesTable ? spectacleDepenses : []) {
+      map.set(rec.id, (readDateIso(rec, depensesDateField, depensesDateFallbackField) || "").slice(0, 10));
     }
     return map;
-  }, [spectacleRevenusVisible, revenusDateField]);
+  }, [spectacleRevenusVisible, revenusDateField, revenusDateFallbackField, depensesTable, spectacleDepenses, depensesDateField, depensesDateFallbackField]);
 
   // --- Categories ---
 
@@ -1423,11 +1570,13 @@ function ReportInner({ cfg }) {
 
   // --- KPIs ---
   //
-  // Revenus KPI = sum(Cachet + Remise) over events of the period
-  //             + visible Revenus with montant > 0 (categories not ignored)
+  // Revenus KPI = sum(Cachet + Remise) over events of the period — only when those fields are
+  //               configured; all events, or only the ones without any Revenus line when
+  //               "evenementCachetSiNonFacture" is on (so an invoiced cachet isn't counted twice)
+  //             + Revenus (invoice lines) with montant > 0
   //             + saisies "revenu"
   // Dépenses KPI = sum(Commission) over events of the period
-  //             + visible Revenus with montant < 0 (absolute)
+  //             + dépenses of the period (Dépenses table, or Revenus with montant < 0 without it)
   //             + saisies "depense"
 
   const sumField = (records, field) => {
@@ -1435,18 +1584,54 @@ function ReportInner({ cfg }) {
     return records.reduce((s, r) => s + (Number(r.getCellValue(field)) || 0), 0);
   };
 
+  // Events with at least one Revenus line linked, whatever its date: they are invoiced.
+  const invoicedEventIds = useMemo(() => {
+    const set = new Set();
+    if (!revenusEvenementLinkField) return set;
+    for (const r of revenusRecords || []) for (const id of resolveLinkedIds(r, revenusEvenementLinkField)) set.add(id);
+    return set;
+  }, [revenusRecords, revenusEvenementLinkField]);
+
+  // Events whose Cachet + Remise count as revenus: all of them (historical behavior), or only
+  // the ones not invoiced yet when evenementCachetSiNonFacture is on.
+  const cachetEvenements = useMemo(
+    () => (evenementCachetSiNonFacture ? spectacleEvenements.filter((e) => !invoicedEventIds.has(e.id)) : spectacleEvenements),
+    [evenementCachetSiNonFacture, spectacleEvenements, invoicedEventIds],
+  );
   const eventCachetTotal = useMemo(
-    () => sumField(spectacleEvenements, evenementCachetField),
-    [spectacleEvenements, evenementCachetField],
+    () => sumField(cachetEvenements, evenementCachetField),
+    [cachetEvenements, evenementCachetField],
   );
   const eventRemiseTotal = useMemo(
-    () => sumField(spectacleEvenements, evenementRemiseField),
-    [spectacleEvenements, evenementRemiseField],
+    () => sumField(cachetEvenements, evenementRemiseField),
+    [cachetEvenements, evenementRemiseField],
   );
+
+  // In the "si non facturé" mode, those cachets/remises are listed with the Revenus as
+  // "non facturé" lines (and in the Excel), so the total can be traced line by line.
+  const unbilledEntries = useMemo(() => {
+    if (!evenementCachetSiNonFacture) return [];
+    const out = [];
+    for (const ev of cachetEvenements) {
+      const dateIso = (readDateIso(ev, evenementDateField) || "").slice(0, 10);
+      for (const [field, label] of [[evenementCachetField, "Cachet"], [evenementRemiseField, "Remise"]]) {
+        const m = field ? Number(ev.getCellValue(field)) || 0 : 0;
+        if (m) out.push({ id: `${ev.id}-${label}`, cat: "Non facturé (événements)", dateIso, desc: `${label} — ${ev.name}`, m, unbilled: true });
+      }
+    }
+    return out;
+  }, [evenementCachetSiNonFacture, cachetEvenements, evenementDateField, evenementCachetField, evenementRemiseField]);
   const eventCommissionTotal = useMemo(
     () => sumField(spectacleEvenements, evenementCommissionField),
     [spectacleEvenements, evenementCommissionField],
   );
+
+  const saisiesTotal = (type) => saisies
+    .filter((r) => (type === "depense") === (r.type === "depense"))
+    .reduce((s, r) => {
+      const v = parseFloat(String(r.montant || "").replace(",", "."));
+      return s + (isNaN(v) ? 0 : v);
+    }, 0);
 
   const totalRevenus = useMemo(() => {
     const fromEvents = eventCachetTotal + eventRemiseTotal;
@@ -1456,31 +1641,85 @@ function ReportInner({ cfg }) {
           return v > 0 ? s + v : s;
         }, 0)
       : 0;
-    const saisi = saisies
-      .filter((r) => r.type !== "depense")
-      .reduce((s, r) => {
-        const v = parseFloat(String(r.montant || "").replace(",", "."));
-        return s + (isNaN(v) ? 0 : v);
-      }, 0);
-    return fromEvents + fromVisible + saisi;
+    return fromEvents + fromVisible + saisiesTotal("revenu");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventCachetTotal, eventRemiseTotal, spectacleRevenusVisible, revenusMontantField, saisies]);
 
+  const depMontantField = dep.montantField;
   const totalDepenses = useMemo(() => {
     const fromEvents = Math.abs(eventCommissionTotal);
-    const fromVisible = revenusMontantField
-      ? spectacleRevenusVisible.reduce((s, r) => {
-          const v = Number(r.getCellValue(revenusMontantField)) || 0;
-          return v < 0 ? s + Math.abs(v) : s;
-        }, 0)
+    const fromDepenses = depMontantField
+      ? spectacleDepenses.reduce((s, r) => s + Math.abs(Number(r.getCellValue(depMontantField)) || 0), 0)
       : 0;
-    const saisi = saisies
-      .filter((r) => r.type === "depense")
-      .reduce((s, r) => {
-        const v = parseFloat(String(r.montant || "").replace(",", "."));
-        return s + (isNaN(v) ? 0 : v);
-      }, 0);
-    return fromEvents + fromVisible + saisi;
-  }, [eventCommissionTotal, spectacleRevenusVisible, revenusMontantField, saisies]);
+    return fromEvents + fromDepenses + saisiesTotal("depense");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventCommissionTotal, spectacleDepenses, depMontantField, saisies]);
+
+  // --- Rapports par événement ---
+
+  // Every event of the spectacle, whatever its date or État de compte: this report only
+  // downloads, so it can't conflict with the monthly statement.
+  const allSpectacleEvenements = useMemo(() => {
+    if (!evenementsRecords || !selectedSpectacleId) return [];
+    if (!evenementSpectacleIdField) return evenementsRecords;
+    return evenementsRecords.filter((rec) =>
+      belongsToSpectacle(rec, evenementSpectacleIdField, selectedSpectacleId, selectedSpectacle?.name),
+    );
+  }, [evenementsRecords, evenementSpectacleIdField, selectedSpectacleId, selectedSpectacle]);
+
+  const etatEventIds = useMemo(() => {
+    const set = new Set();
+    for (const rec of etatsRecords || []) for (const id of resolveLinkedIds(rec, etatEvenementsLinkField)) set.add(id);
+    return set;
+  }, [etatsRecords, etatEvenementsLinkField]);
+
+  // Template = attachment on the spectacle's producteur (Organismes); built-in default otherwise.
+  const producteur = useMemo(() => {
+    const spectacleRec = (spectaclesRecords || []).find((r) => r.id === selectedSpectacleId);
+    const [producteurId] = resolveLinkedIds(spectacleRec, spectacleProducteurField);
+    const rec = organismesTable ? (organismesRecords || []).find((r) => r.id === producteurId) : null;
+    const att = rec && organismeTemplateField ? rec.getCellValue(organismeTemplateField) : null;
+    const url = Array.isArray(att) && att[0] ? att[0].url : null;
+    const name = rec ? rec.name : "";
+    return {
+      name,
+      template: {
+        url,
+        label: url
+          ? `Template : ${att[0].filename || "pièce jointe"} (${name})`
+          : `Template par défaut — aucun template sur ${name ? `le producteur ${name}` : "le producteur"}`,
+      },
+    };
+  }, [spectaclesRecords, selectedSpectacleId, spectacleProducteurField, organismesTable, organismesRecords, organismeTemplateField]);
+
+  const eventReportsCfg = useMemo(() => ({
+    dateField: evenementDateField,
+    lieuField: evenementLieuField,
+    revenusEvenementLinkField,
+    revenusMontantField,
+    revenusCompteField,
+    revenusDateField,
+    revenusDateFallbackField,
+    revenusDescriptionField,
+    // Dépenses table (optional): each event gets the lines linked to it.
+    depensesEvenementLinkField: depensesTable ? depensesEvenementLinkField : null,
+    depensesMontantField,
+    depensesCompteField,
+    depensesDateField,
+    depensesDateFallbackField,
+    depensesDescriptionField,
+    // Same commission field as the monthly report, shown as e.g. "Commission 7e Ciel".
+    commissionField: evenementCommissionField,
+    cachetField: evenementCachetField,
+    remiseField: evenementRemiseField,
+    cachetSiNonFacture: !!evenementCachetSiNonFacture,
+    commissionLabel: producteur.name ? `Commission ${producteur.name}` : "Commission",
+  }), [
+    evenementDateField, evenementLieuField, revenusEvenementLinkField, revenusMontantField, revenusCompteField,
+    revenusDateField, revenusDateFallbackField, revenusDescriptionField, depensesTable, depensesEvenementLinkField,
+    depensesMontantField, depensesCompteField, depensesDateField, depensesDateFallbackField, depensesDescriptionField,
+    evenementCommissionField, evenementCachetField, evenementRemiseField, evenementCachetSiNonFacture, producteur.name,
+  ]);
 
   // --- Save (create 1 Facture + 1 Revenu item per saisie row) ---
 
@@ -1586,7 +1825,9 @@ function ReportInner({ cfg }) {
         revenusDescriptionField,
         revenusFactureDates,
         depenses: spectacleDepenses,
+        depensesFields: dep,
         saisies,
+        unbilledEntries,
       });
       setSavedMsg("Rapport téléchargé.");
     } catch (err) {
@@ -1671,8 +1912,34 @@ function ReportInner({ cfg }) {
         <h1 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100">
           {selectedSpectacle.name}
         </h1>
+        <div className="ml-auto inline-flex rounded border border-gray-gray200 dark:border-gray-gray600 overflow-hidden text-sm">
+          {[["mensuel", "Rapport mensuel"], ["evenements", "Rapports par événement"]].map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setMode(key)}
+              className={mode === key
+                ? "px-3 py-1.5 bg-blue-blue text-white"
+                : "px-3 py-1.5 bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100"}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
+      {mode === "evenements" ? (
+        <EventReportsPanel
+          events={allSpectacleEvenements}
+          revenusRecords={revenusRecords}
+          depensesRecords={depensesTable ? depensesRecords : []}
+          cfg={eventReportsCfg}
+          spectacleName={selectedSpectacle.name}
+          producteurName={producteur.name}
+          template={producteur.template}
+          etatEventIds={etatEventIds}
+        />
+      ) : (
+      <>
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
         <PeriodPicker year={year} month={month} onChangeYear={setYear} onChangeMonth={setMonth} />
       </div>
@@ -1722,6 +1989,8 @@ function ReportInner({ cfg }) {
               etatRevenusLinkField={etatRevenusLinkField}
               evenementIds={spectacleEvenements.map((r) => r.id)}
               revenusIds={spectacleRevenusAll.map((r) => r.id)}
+              etatDepensesLinkField={depensesTable ? etatDepensesLinkField : null}
+              depensesIds={spectacleDepenses.map((r) => r.id)}
               kpis={{ revenus: totalRevenus, depenses: totalDepenses, solde: totalRevenus - totalDepenses }}
               onBeforeSnapshot={handleReportActions}
             />
@@ -1739,6 +2008,8 @@ function ReportInner({ cfg }) {
           fieldsConfig={evenementFieldsConfig}
           dateField={evenementDateField}
           reportedIds={reportedEventIds}
+          year={year}
+          month={month}
         />
       </div>
 
@@ -1753,7 +2024,9 @@ function ReportInner({ cfg }) {
           descriptionField={revenusDescriptionField}
           revenusFactureDates={revenusFactureDates}
           reportedIds={reportedRevenuIds}
-          groupByCategory={false}
+          year={year}
+          month={month}
+          extraEntries={unbilledEntries}
           totalLabel="Total revenus"
         />
       </div>
@@ -1764,16 +2037,18 @@ function ReportInner({ cfg }) {
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-6">
         <RevenusByCategory
           revenus={spectacleDepenses}
-          montantField={revenusMontantField}
-          categorieField={revenusCategorieField}
-          descriptionField={revenusDescriptionField}
+          montantField={dep.montantField}
+          categorieField={dep.categorieField}
+          descriptionField={dep.descriptionField}
           revenusFactureDates={revenusFactureDates}
-          reportedIds={reportedRevenuIds}
-          groupByCategory={false}
+          reportedIds={depensesTable ? reportedDepenseIds : reportedRevenuIds}
+          year={year}
+          month={month}
           totalLabel="Total dépenses"
         />
       </div>
-
+      </>
+      )}
     </div>
   );
 }
