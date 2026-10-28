@@ -698,8 +698,11 @@ function DetailPage({
       <div className="w-full">
         <div className="flex items-center gap-2 mb-2 flex-wrap">
           <span className="text-xs text-gray-gray500 dark:text-gray-gray400 font-medium">Voir par:</span>
-          {/* get_royalties_summary returns no platform / country / sales type
-              columns, so only source and track can be ranked. */}
+          {/* Only source and track can be ranked: get_royalties_summary reads a
+              pre-aggregated table that keeps neither platform, country nor sales
+              type. Summarizing them would multiply its rows (see frontend
+              migration 20261027202419_royalty_summary_source.sql), so those views
+              were removed rather than shown as "(autre)". */}
           {[
             { key: "source", label: "Source" },
             { key: "track", label: "Piste" },
