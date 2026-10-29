@@ -304,7 +304,9 @@ function getCustomProperties(base) {
       defaultValue: "[]",
     },
 
-    // --- Royalties Supabase ---
+    // --- Royalties: the base's token (preferred), or the legacy Supabase anon key ---
+    { key: "royaltiesApiUrl", label: "Adresse de l'API des royalties (ex: https://app.airscenes.ca/api/airtable/royalties)", type: "string", defaultValue: "" },
+    { key: "royaltiesApiToken", label: "Jeton de la base (le même que pour les ventes)", type: "string", defaultValue: "" },
     { key: "supabaseUrl", label: "Supabase URL", type: "string", defaultValue: "" },
     { key: "supabaseAnonKey", label: "Supabase Anon Key", type: "string", defaultValue: "" },
     { key: "clientId", label: "Client UUID (Believe)", type: "string", defaultValue: "" },
@@ -1520,17 +1522,83 @@ async function postSupabaseRpc(supabaseUrl, anonKey, clientId, fn, body) {
   return response.json();
 }
 
+// --- Reading royalties / Shopify sales: the base's token, or the legacy anon key ---
+//
+// - royaltiesApiUrl + royaltiesApiToken: the Airscenes API (frontend repo,
+//   /api/airtable/royalties). The token is the base's one — the same as
+//   sales-chart's — and the server resolves the client from it, so no client
+//   id is sent.
+// - supabaseUrl + supabaseAnonKey + clientId: the RPCs with the public anon key,
+//   the legacy path, kept while bases move to their token.
+// The token wins when both are filled in.
+
+const trimmed = (v) => (v || "").trim();
+const usesRoyaltiesToken = (cfg) => !!(trimmed(cfg.royaltiesApiUrl) && trimmed(cfg.royaltiesApiToken));
+
+const royaltiesConfigured = (cfg) =>
+  usesRoyaltiesToken(cfg) || !!(cfg.supabaseUrl && cfg.supabaseAnonKey && cfg.clientId);
+
+// A string that changes when the source does, for effect dependencies and caches.
+const royaltiesSourceKey = (cfg) =>
+  usesRoyaltiesToken(cfg)
+    ? `api|${trimmed(cfg.royaltiesApiUrl)}|${trimmed(cfg.royaltiesApiToken)}`
+    : `anon|${cfg.supabaseUrl}|${cfg.supabaseAnonKey}|${cfg.clientId}`;
+
+async function postRoyaltiesApi(cfg, body) {
+  const response = await fetch(trimmed(cfg.royaltiesApiUrl), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${trimmed(cfg.royaltiesApiToken)}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (response.status === 401) {
+    throw new Error("Jeton refusé : vérifiez le jeton dans les réglages de l'extension.");
+  }
+  if (response.status === 403) {
+    throw new Error("Ce jeton n'ouvre pas les royalties : sa base n'est reliée à aucun client Airscenes.");
+  }
+  if (!response.ok) {
+    throw new Error(`Erreur API royalties: ${response.status} ${response.statusText}`);
+  }
+  return (await response.json()).rows;
+}
+
+// get_royalties_summary rows. Without `sources` the server returns Believe only.
+function fetchRoyaltiesSummary(cfg, { isrcs, catalogs = null, sources = null, from, to }) {
+  if (usesRoyaltiesToken(cfg)) {
+    return postRoyaltiesApi(cfg, { summary: "royalties", isrcs, catalogs, ...(sources ? { sources } : {}), from, to });
+  }
+  return postSupabaseRpc(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.clientId, "get_royalties_summary", {
+    p_client_id: cfg.clientId,
+    p_isrcs: isrcs,
+    p_from: from,
+    p_to: to,
+    ...(catalogs ? { p_catalogs: catalogs } : {}),
+    ...(sources ? { p_sources: sources } : {}),
+  });
+}
+
+// get_shopify_sales_summary rows; `to` is exclusive.
+function fetchShopifySummary(cfg, { projectIds, from, to }) {
+  if (usesRoyaltiesToken(cfg)) {
+    return postRoyaltiesApi(cfg, { summary: "shopify", project_ids: projectIds, from, to });
+  }
+  return postSupabaseRpc(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.clientId, "get_shopify_sales_summary", {
+    p_client_id: cfg.clientId,
+    p_project_ids: projectIds,
+    p_from: from,
+    p_to: to,
+  });
+}
+
 // --- Supabase sources of the Revenus grid ---
 // Believe royalties (by the ISRCs of the canal's Oeuvres) and Shopify sales (Shopify
 // project_id = Airtable canal record id), each as { month: amount } for the period.
 
 async function fetchBelieveByMonth(cfg, isrcs, period) {
-  const rows = await postSupabaseRpc(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.clientId, "get_royalties_summary", {
-    p_client_id: cfg.clientId,
-    p_isrcs: isrcs,
-    p_from: period.start,
-    p_to: period.end,
-  });
+  const rows = await fetchRoyaltiesSummary(cfg, { isrcs, from: period.start, to: period.end });
   const byMonth = {};
   for (const row of rows || []) {
     const monthKey = (row.reporting_month || "").slice(0, 7); // YYYY-MM
@@ -1548,13 +1616,12 @@ async function fetchBelieveByMonth(cfg, isrcs, period) {
 const CATALOG_SOURCES = ["bandcamp", "propagande"];
 
 async function fetchCatalogSourcesByMonth(cfg, isrcs, catalogs, period) {
-  const rows = await postSupabaseRpc(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.clientId, "get_royalties_summary", {
-    p_client_id: cfg.clientId,
-    p_isrcs: isrcs,
-    p_from: period.start,
-    p_to: period.end,
-    p_catalogs: catalogs.length > 0 ? catalogs : null,
-    p_sources: CATALOG_SOURCES,
+  const rows = await fetchRoyaltiesSummary(cfg, {
+    isrcs,
+    catalogs: catalogs.length > 0 ? catalogs : null,
+    sources: CATALOG_SOURCES,
+    from: period.start,
+    to: period.end,
   });
   const out = { bandcamp: {}, propagande: {} };
   for (const row of rows || []) {
@@ -1568,12 +1635,11 @@ async function fetchCatalogSourcesByMonth(cfg, isrcs, catalogs, period) {
 }
 
 async function fetchShopifyByMonth(cfg, canalId, period) {
-  const rows = await postSupabaseRpc(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.clientId, "get_shopify_sales_summary", {
-    p_client_id: cfg.clientId,
-    p_project_ids: [canalId],
-    p_from: period.start,
+  const rows = await fetchShopifySummary(cfg, {
+    projectIds: [canalId],
+    from: period.start,
     // get_shopify_sales_summary uses order_date < p_to, so p_to is exclusive.
-    p_to: period.next,
+    to: period.next,
   });
   const byMonth = {};
   for (const row of rows || []) {
@@ -1586,7 +1652,6 @@ async function fetchShopifyByMonth(cfg, canalId, period) {
   return byMonth;
 }
 
-const supabaseConfigured = (cfg) => !!(cfg.supabaseUrl && cfg.supabaseAnonKey && cfg.clientId);
 
 // ISRCs of the canal's linked Oeuvres.
 function canalIsrcs(canalRec, cfg, oeuvresRecords) {
@@ -1937,8 +2002,10 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     oeuvresTable,
     ayantsTable, etatsTable, soldeOuvertureCompte, soldeReporteCompte, paiementsComptes,
     canauxFilterField, canauxFilterDefault,
-    supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn, bandcampColumn, propagandeColumn,
+    royaltiesColumn, bandcampColumn, propagandeColumn,
   } = cfg;
+  const royaltiesOn = royaltiesConfigured(cfg);
+  const royaltiesSource = royaltiesSourceKey(cfg);
 
   const canauxRecords = useRecords(canauxTable);
   const revenusRecords = useRecords(revenusTable);
@@ -2032,10 +2099,10 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
   // Fetch royalties from Supabase for the selected period and pre-fill the Royalties column
   useEffect(() => {
     if (saving) return; // don't mutate revenusInputs while a save is in flight
-    if (!supabaseUrl || !supabaseAnonKey || !clientId || !royaltiesColumn || isrcList.length === 0 || !selectedCanalId) {
+    if (!royaltiesOn || !royaltiesColumn || isrcList.length === 0 || !selectedCanalId) {
       return;
     }
-    const cacheKey = `${selectedCanalId}_${periodKey}_${isrcList.join(",")}_${royaltiesRefreshKey}`;
+    const cacheKey = `${royaltiesSource}_${selectedCanalId}_${periodKey}_${isrcList.join(",")}_${royaltiesRefreshKey}`;
     let didCancel = false;
 
     const applyData = (byMonth) => {
@@ -2068,16 +2135,16 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     // render (useRecords returns a new array), which used to cancel the request in a loop.
     // period / monthIndices derive from periodKey; safe to omit
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCanalId, periodKey, isrcKey, supabaseUrl, supabaseAnonKey, clientId, royaltiesColumn, royaltiesRefreshKey, existingRoyaltyMonthsKey]);
+  }, [selectedCanalId, periodKey, isrcKey, royaltiesSource, royaltiesColumn, royaltiesRefreshKey, existingRoyaltyMonthsKey]);
 
   // Fetch Shopify sales from Supabase for the selected period and pre-fill the Shopify column.
   // The Shopify project_id is the Airtable canal record id.
   useEffect(() => {
     if (saving) return; // don't mutate revenusInputs while a save is in flight
-    if (!supabaseUrl || !supabaseAnonKey || !clientId || !selectedCanalId) {
+    if (!royaltiesOn || !selectedCanalId) {
       return;
     }
-    const cacheKey = `${selectedCanalId}_${periodKey}_${shopifyRefreshKey}`;
+    const cacheKey = `${royaltiesSource}_${selectedCanalId}_${periodKey}_${shopifyRefreshKey}`;
     let didCancel = false;
 
     const applyData = (byMonth) => {
@@ -2109,7 +2176,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     // See the royalties effect for why the deps are value keys.
     // period / monthIndices derive from periodKey; safe to omit
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCanalId, periodKey, supabaseUrl, supabaseAnonKey, clientId, shopifyRefreshKey, existingShopifyMonthsKey]);
+  }, [selectedCanalId, periodKey, royaltiesSource, shopifyRefreshKey, existingShopifyMonthsKey]);
 
   // Fetch Bandcamp / Propagande royalties and pre-fill their columns. A column is
   // filled only when its label is in revenusColumnsJson (the defaults "Bandcamp" /
@@ -2120,11 +2187,11 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
       { label: bandcampColumn, source: "bandcamp", existing: monthsWithExistingBandcamp },
       { label: propagandeColumn, source: "propagande", existing: monthsWithExistingPropagande },
     ].filter((t) => t.label && compteOfColumn(t.label));
-    if (!supabaseUrl || !supabaseAnonKey || !clientId || !selectedCanalId || targets.length === 0
+    if (!royaltiesOn || !selectedCanalId || targets.length === 0
       || (isrcList.length === 0 && catalogList.length === 0)) {
       return;
     }
-    const cacheKey = `${selectedCanalId}_${periodKey}_${isrcKey}_${catalogKey}_${catalogRefreshKey}`;
+    const cacheKey = `${royaltiesSource}_${selectedCanalId}_${periodKey}_${isrcKey}_${catalogKey}_${catalogRefreshKey}`;
     let didCancel = false;
 
     const applyData = (bySource) => {
@@ -2157,7 +2224,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     // See the royalties effect for why the deps are value keys.
     // period / monthIndices derive from periodKey; safe to omit
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCanalId, periodKey, isrcKey, catalogKey, supabaseUrl, supabaseAnonKey, clientId, bandcampColumn, propagandeColumn,
+  }, [selectedCanalId, periodKey, isrcKey, catalogKey, royaltiesSource, bandcampColumn, propagandeColumn,
     columnsConfig, catalogRefreshKey, existingBandcampMonthsKey, existingPropagandeMonthsKey]);
 
   const canaux = useMemo(() => {
@@ -2746,7 +2813,7 @@ function ArtistApp({ cfg }) {
     canauxTable, revenusTable, depensesTable, ayantsTable, etatsTable, comptesTable, comptesNumeroField,
     templateAttachmentField, revenusColumnsJson, depensesColumnsJson, soldeOuvertureCompte, soldeReporteCompte,
     paiementsComptes, canauxFilterField, canauxFilterDefault,
-    oeuvresTable, supabaseUrl, supabaseAnonKey, clientId,
+    oeuvresTable,
   } = cfg;
 
   const artistesRecords = useRecords(artistesTable);
@@ -2863,7 +2930,8 @@ function ArtistApp({ cfg }) {
 
   // Believe/Shopify amounts (Supabase) of the open canaux, as on the canal page. Months
   // already saved in Airtable are left out (see pendingGridInputs).
-  const supaOn = supabaseConfigured(cfg);
+  const supaOn = royaltiesConfigured(cfg);
+  const royaltiesSource = royaltiesSourceKey(cfg);
   const supaTargets = baseRows.filter((r) => r.calc.status === "open");
   const supaEntryKey = (canalId) => `${canalId}_${period.key}_${supaRefreshKey}`;
   const supaKey = supaTargets.map((r) => `${r.id}:${r.isrcs.join(",")}:${r.catalogs.join(",")}`).join("|");
@@ -2873,7 +2941,7 @@ function ArtistApp({ cfg }) {
     if (!supaOn || supaTargets.length === 0) return;
     let didCancel = false;
     for (const r of supaTargets) {
-      const cacheKey = `${r.id}_${period.key}_${r.isrcs.join(",")}_${r.catalogs.join(",")}_${supaRefreshKey}`;
+      const cacheKey = `${royaltiesSource}_${r.id}_${period.key}_${r.isrcs.join(",")}_${r.catalogs.join(",")}_${supaRefreshKey}`;
       cachedFetch(supaCacheRef.current, cacheKey, () => Promise.all([
         r.isrcs.length > 0 && cfg.royaltiesColumn ? fetchBelieveByMonth(cfg, r.isrcs, period) : null,
         fetchShopifyByMonth(cfg, r.id, period),
@@ -2887,7 +2955,7 @@ function ArtistApp({ cfg }) {
     return () => { didCancel = true; };
     // Deps are value keys: baseRows is rebuilt on every records change (see the canal page's effects).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supaKey, period.key, supaOn, supabaseUrl, supabaseAnonKey, clientId, supaRefreshKey]);
+  }, [supaKey, period.key, supaOn, royaltiesSource, supaRefreshKey]);
   const supaLoading = supaOn && supaTargets.some((r) => !(supaEntryKey(r.id) in supa));
 
   // Rows with the unsaved Believe/Shopify amounts added to their totals.
