@@ -71,6 +71,74 @@ function splitCatalogs(raw) {
 const SOURCES = ["believe", "bandcamp", "propagande"];
 const SOURCE_LABELS = { believe: "Believe", bandcamp: "Bandcamp", propagande: "Propagande" };
 
+// --- Reading royalties: the base's token, or the legacy anon key ---
+//
+// - royaltiesApiUrl + royaltiesApiToken: the Airscenes API (frontend repo,
+//   /api/airtable/royalties). The token is the base's one — the same as
+//   sales-chart's — and the server resolves the client from it, so no client
+//   id is sent.
+// - supabaseUrl + supabaseAnonKey + clientId: the RPC with the public anon key,
+//   the legacy path, kept while bases move to their token.
+// The token wins when both are filled in.
+
+const trimmed = (v) => (v || "").trim();
+const usesRoyaltiesToken = (cfg) => !!(trimmed(cfg.royaltiesApiUrl) && trimmed(cfg.royaltiesApiToken));
+
+const royaltiesConfigured = (cfg) =>
+  usesRoyaltiesToken(cfg) || !!(cfg.supabaseUrl && cfg.supabaseAnonKey && cfg.clientId);
+
+// A string that changes when the source does, for effect dependencies and caches.
+const royaltiesSourceKey = (cfg) =>
+  usesRoyaltiesToken(cfg)
+    ? `api|${trimmed(cfg.royaltiesApiUrl)}|${trimmed(cfg.royaltiesApiToken)}`
+    : `anon|${cfg.supabaseUrl}|${cfg.supabaseAnonKey}|${cfg.clientId}`;
+
+// get_royalties_summary rows for every source in SOURCES.
+async function fetchRoyaltiesSummary(cfg, { isrcs, catalogs, from, to }) {
+  if (usesRoyaltiesToken(cfg)) {
+    const response = await fetch(trimmed(cfg.royaltiesApiUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${trimmed(cfg.royaltiesApiToken)}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ summary: "royalties", isrcs, catalogs, sources: SOURCES, from, to }),
+    });
+    if (response.status === 401) {
+      throw new Error("Jeton refusé : vérifiez le jeton dans les réglages de l'extension.");
+    }
+    if (response.status === 403) {
+      throw new Error("Ce jeton n'ouvre pas les royalties : sa base n'est reliée à aucun client Airscenes.");
+    }
+    if (!response.ok) {
+      throw new Error(`Erreur API royalties: ${response.status} ${response.statusText}`);
+    }
+    return (await response.json()).rows;
+  }
+
+  const response = await fetch(`${cfg.supabaseUrl}/rest/v1/rpc/get_royalties_summary`, {
+    method: "POST",
+    headers: {
+      apikey: cfg.supabaseAnonKey,
+      Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+      "Content-Type": "application/json",
+      "x-client-id": cfg.clientId,
+    },
+    body: JSON.stringify({
+      p_client_id: cfg.clientId,
+      p_isrcs: isrcs,
+      p_from: from,
+      p_to: to,
+      p_catalogs: catalogs,
+      p_sources: SOURCES,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Erreur Supabase: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+}
+
 // Chart color palette for tracks
 const TRACK_COLORS = [
   "#4a90d9", "#6aa84f", "#e06666", "#f6b26b", "#8e7cc3",
@@ -168,7 +236,19 @@ function getCustomProperties(base) {
       table: oeuvresTable,
       shouldFieldBeAllowed: isTextField,
     },
-    // --- Supabase ---
+    // --- Royalties: the base's token (preferred) or the legacy anon key ---
+    {
+      key: "royaltiesApiUrl",
+      label: "Adresse de l'API des royalties (ex: https://app.airscenes.ca/api/airtable/royalties)",
+      type: "string",
+      defaultValue: "",
+    },
+    {
+      key: "royaltiesApiToken",
+      label: "Jeton de la base (le même que pour les ventes)",
+      type: "string",
+      defaultValue: "",
+    },
     {
       key: "supabaseUrl",
       label: "Supabase URL (ex: https://xyz.supabase.co)",
@@ -357,9 +437,7 @@ function DetailPage({
   isrcField,
   trackTitleField,
   catalogField,
-  supabaseUrl,
-  supabaseAnonKey,
-  clientId,
+  royaltiesCfg,
   onBack,
 }) {
   const [royaltiesData, setRoyaltiesData] = useState(null);
@@ -401,14 +479,16 @@ function DetailPage({
     return map;
   }, [catalogList, spectacle.name]);
 
-  // Fetch royalties from Supabase RPC
+  // Fetch royalties: through the base's token, else the anon RPC
+  const royaltiesOn = royaltiesConfigured(royaltiesCfg);
+  const royaltiesSource = royaltiesSourceKey(royaltiesCfg);
   useEffect(() => {
-    if (!supabaseUrl || !supabaseAnonKey || !clientId || (isrcList.length === 0 && catalogList.length === 0)) {
+    if (!royaltiesOn || (isrcList.length === 0 && catalogList.length === 0)) {
       setRoyaltiesData(null);
       return;
     }
 
-    const cacheKey = `${isrcList.join(",")}_${catalogList.join(",")}_${dateFrom}_${dateTo}_${refreshKey}`;
+    const cacheKey = `${royaltiesSource}_${isrcList.join(",")}_${catalogList.join(",")}_${dateFrom}_${dateTo}_${refreshKey}`;
     let didCancel = false;
 
     const fetchRoyalties = async () => {
@@ -424,34 +504,12 @@ function DetailPage({
       setError(null);
 
       try {
-        const body = {
-          p_client_id: clientId,
-          p_isrcs: isrcList,
-          p_from: dateFrom || "2020-01-01",
-          p_to: dateTo || "2030-12-31",
-          p_catalogs: catalogList.length > 0 ? catalogList : null,
-          p_sources: SOURCES,
-        };
-
-        const response = await fetch(
-          `${supabaseUrl}/rest/v1/rpc/get_royalties_summary`,
-          {
-            method: "POST",
-            headers: {
-              apikey: supabaseAnonKey,
-              Authorization: `Bearer ${supabaseAnonKey}`,
-              "Content-Type": "application/json",
-              "x-client-id": clientId,
-            },
-            body: JSON.stringify(body),
-          },
-        );
-
-        if (!response.ok) {
-          throw new Error(`Erreur Supabase: ${response.status} ${response.statusText}`);
-        }
-
-        const data = await response.json();
+        const data = await fetchRoyaltiesSummary(royaltiesCfg, {
+          isrcs: isrcList,
+          catalogs: catalogList.length > 0 ? catalogList : null,
+          from: dateFrom || "2020-01-01",
+          to: dateTo || "2030-12-31",
+        });
 
         if (!didCancel) {
           cacheRef.current.set(cacheKey, data);
@@ -468,7 +526,7 @@ function DetailPage({
 
     fetchRoyalties();
     return () => { didCancel = true; };
-  }, [supabaseUrl, supabaseAnonKey, clientId, isrcList, catalogList, dateFrom, dateTo, refreshKey]);
+  }, [royaltiesOn, royaltiesSource, isrcList, catalogList, dateFrom, dateTo, refreshKey]);
 
   // Monthly totals for the chart
   const chartData = useMemo(() => {
@@ -738,9 +796,13 @@ function RoyaltiesApp() {
   const isrcField = customPropertyValueByKey.isrcField;
   const trackTitleField = customPropertyValueByKey.trackTitleField;
   const catalogField = customPropertyValueByKey.catalogField;
-  const supabaseUrl = customPropertyValueByKey.supabaseUrl;
-  const supabaseAnonKey = customPropertyValueByKey.supabaseAnonKey;
-  const clientId = customPropertyValueByKey.clientId;
+  const royaltiesCfg = {
+    royaltiesApiUrl: customPropertyValueByKey.royaltiesApiUrl,
+    royaltiesApiToken: customPropertyValueByKey.royaltiesApiToken,
+    supabaseUrl: customPropertyValueByKey.supabaseUrl,
+    supabaseAnonKey: customPropertyValueByKey.supabaseAnonKey,
+    clientId: customPropertyValueByKey.clientId,
+  };
 
   if (!spectaclesTable || !oeuvresTable) {
     return (
@@ -798,9 +860,7 @@ function RoyaltiesApp() {
         isrcField={isrcField}
         trackTitleField={trackTitleField}
         catalogField={catalogField}
-        supabaseUrl={supabaseUrl}
-        supabaseAnonKey={supabaseAnonKey}
-        clientId={clientId}
+        royaltiesCfg={royaltiesCfg}
         onBack={() => setSelectedSpectacleId(null)}
       />
     );
