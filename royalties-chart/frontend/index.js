@@ -93,8 +93,11 @@ const royaltiesSourceKey = (cfg) =>
     ? `api|${trimmed(cfg.royaltiesApiUrl)}|${trimmed(cfg.royaltiesApiToken)}`
     : `anon|${cfg.supabaseUrl}|${cfg.supabaseAnonKey}|${cfg.clientId}`;
 
-// get_royalties_summary rows for every source in SOURCES.
-async function fetchRoyaltiesSummary(cfg, { isrcs, catalogs, from, to }) {
+// get_royalties_summary rows for every source in SOURCES. Each sale row is matched
+// by a single key, chosen server-side: its ISRC, else its UPC, else its catalog
+// number. `upcs` is sent only when non-empty.
+async function fetchRoyaltiesSummary(cfg, { isrcs, upcs, catalogs, from, to }) {
+  const upcArg = upcs && upcs.length > 0 ? upcs : null;
   if (usesRoyaltiesToken(cfg)) {
     const response = await fetch(trimmed(cfg.royaltiesApiUrl), {
       method: "POST",
@@ -102,7 +105,7 @@ async function fetchRoyaltiesSummary(cfg, { isrcs, catalogs, from, to }) {
         Authorization: `Bearer ${trimmed(cfg.royaltiesApiToken)}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ summary: "royalties", isrcs, catalogs, sources: SOURCES, from, to }),
+      body: JSON.stringify({ summary: "royalties", isrcs, ...(upcArg ? { upcs: upcArg } : {}), catalogs, sources: SOURCES, from, to }),
     });
     if (response.status === 401) {
       throw new Error("Jeton refusé : vérifiez le jeton dans les réglages de l'extension.");
@@ -131,6 +134,7 @@ async function fetchRoyaltiesSummary(cfg, { isrcs, catalogs, from, to }) {
       p_to: to,
       p_catalogs: catalogs,
       p_sources: SOURCES,
+      ...(upcArg ? { p_upcs: upcArg } : {}),
     }),
   });
   if (!response.ok) {
@@ -229,6 +233,21 @@ function getCustomProperties(base) {
       table: oeuvresTable,
       shouldFieldBeAllowed: isTextField,
     },
+    // UPCs of the oeuvres (digital, CD, vinyl, others): sales without an ISRC are
+    // matched on them. A cell may hold several, comma-separated.
+    ...[
+      ["upcField", "UPC", "Champ UPC (dans Oeuvres)"],
+      ["upc2Field", "UPC 2", "Champ UPC 2 (dans Oeuvres, optionnel)"],
+      ["upc3Field", "UPC 3", "Champ UPC 3 (dans Oeuvres, optionnel)"],
+      ["upc4Field", "UPC 4", "Champ UPC 4 (dans Oeuvres, optionnel)"],
+    ].map(([key, name, label]) => ({
+      key,
+      label,
+      type: "field",
+      table: oeuvresTable,
+      shouldFieldBeAllowed: isCatalogField,
+      defaultValue: oeuvresTable.fields.find((f) => f.name === name),
+    })),
     {
       key: "trackTitleField",
       label: "Champ titre de la piste (dans Oeuvres)",
@@ -435,6 +454,7 @@ function DetailPage({
   spectacle,
   oeuvresRecords,
   isrcField,
+  upcFields,
   trackTitleField,
   catalogField,
   royaltiesCfg,
@@ -469,8 +489,14 @@ function DetailPage({
     return map;
   }, [tracks]);
 
-  // Catalog numbers of the spectacle: sales without an ISRC (Propagande, most
-  // Bandcamp albums) are matched on these.
+  // UPCs of the oeuvres, sent raw (the server normalizes them). An album's oeuvres
+  // share its UPCs: deduplicated.
+  const upcList = useMemo(() => [...new Set((oeuvresRecords || [])
+    .flatMap((rec) => upcFields.map((f) => rec.getCellValueAsString(f)))
+    .flatMap(splitCatalogs))], [oeuvresRecords, upcFields]);
+  const upcKey = upcList.join(",");
+
+  // Catalog numbers of the spectacle: sales without an ISRC nor UPC are matched on these.
   const catalogValue = catalogField ? spectacle.record.getCellValueAsString(catalogField) : "";
   const catalogList = useMemo(() => [...new Set(splitCatalogs(catalogValue))], [catalogValue]);
   const catalogToLabel = useMemo(() => {
@@ -483,12 +509,12 @@ function DetailPage({
   const royaltiesOn = royaltiesConfigured(royaltiesCfg);
   const royaltiesSource = royaltiesSourceKey(royaltiesCfg);
   useEffect(() => {
-    if (!royaltiesOn || (isrcList.length === 0 && catalogList.length === 0)) {
+    if (!royaltiesOn || (isrcList.length === 0 && upcList.length === 0 && catalogList.length === 0)) {
       setRoyaltiesData(null);
       return;
     }
 
-    const cacheKey = `${royaltiesSource}_${isrcList.join(",")}_${catalogList.join(",")}_${dateFrom}_${dateTo}_${refreshKey}`;
+    const cacheKey = `${royaltiesSource}_${isrcList.join(",")}_${upcKey}_${catalogList.join(",")}_${dateFrom}_${dateTo}_${refreshKey}`;
     let didCancel = false;
 
     const fetchRoyalties = async () => {
@@ -506,6 +532,7 @@ function DetailPage({
       try {
         const data = await fetchRoyaltiesSummary(royaltiesCfg, {
           isrcs: isrcList,
+          upcs: upcList,
           catalogs: catalogList.length > 0 ? catalogList : null,
           from: dateFrom || "2020-01-01",
           to: dateTo || "2030-12-31",
@@ -526,7 +553,9 @@ function DetailPage({
 
     fetchRoyalties();
     return () => { didCancel = true; };
-  }, [royaltiesOn, royaltiesSource, isrcList, catalogList, dateFrom, dateTo, refreshKey]);
+    // upcKey, not upcList: the list is rebuilt whenever the oeuvres records change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [royaltiesOn, royaltiesSource, isrcList, upcKey, catalogList, dateFrom, dateTo, refreshKey]);
 
   // Monthly totals for the chart
   const chartData = useMemo(() => {
@@ -549,10 +578,10 @@ function DetailPage({
       const rev = parseFloat(row.total_net_revenue) || 0;
       let key;
       if (viewBy === "track") {
-        // Rows matched by catalog have isrc = null and catalog_key set
+        // Rows matched by UPC or catalog have isrc = null and upc_key / catalog_key set
         key = row.isrc
           ? isrcToLabel[row.isrc] || row.track_title || row.isrc
-          : row.release_title || catalogToLabel[row.catalog_key] || row.catalog_key || "(inconnu)";
+          : row.release_title || catalogToLabel[row.catalog_key] || row.upc_key || row.catalog_key || "(inconnu)";
       } else {
         key = SOURCE_LABELS[row.source] || row.source || "(autre)";
       }
@@ -796,6 +825,11 @@ function RoyaltiesApp() {
   const isrcField = customPropertyValueByKey.isrcField;
   const trackTitleField = customPropertyValueByKey.trackTitleField;
   const catalogField = customPropertyValueByKey.catalogField;
+  const upcFields = useMemo(
+    () => ["upcField", "upc2Field", "upc3Field", "upc4Field"].map((k) => customPropertyValueByKey[k]).filter(Boolean),
+    [customPropertyValueByKey.upcField, customPropertyValueByKey.upc2Field,
+      customPropertyValueByKey.upc3Field, customPropertyValueByKey.upc4Field],
+  );
   const royaltiesCfg = {
     royaltiesApiUrl: customPropertyValueByKey.royaltiesApiUrl,
     royaltiesApiToken: customPropertyValueByKey.royaltiesApiToken,
@@ -858,6 +892,7 @@ function RoyaltiesApp() {
         spectacle={selectedSpectacle}
         oeuvresRecords={linkedOeuvres}
         isrcField={isrcField}
+        upcFields={upcFields}
         trackTitleField={trackTitleField}
         catalogField={catalogField}
         royaltiesCfg={royaltiesCfg}
