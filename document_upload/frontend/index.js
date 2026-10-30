@@ -62,11 +62,9 @@ function DocumentUploadApp() {
                 <h1 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray200 mb-1">
                     Import de documents
                 </h1>
-                <p className="text-sm text-gray-gray400 mb-5">
-                    Sélectionnez le type de document à importer.
-                </p>
-
-                {/* Feature picker */}
+                {/* Feature picker: hidden while there is only one feature, so the
+                    report type is the only choice on screen. */}
+                {FEATURES.length > 1 && (
                 <div className="mb-5">
                     <label className="block text-xs font-semibold text-gray-gray500 dark:text-gray-gray400 mb-1">
                         Type de document
@@ -96,6 +94,10 @@ function DocumentUploadApp() {
                         <p className="text-xs text-gray-gray400 mt-1">{selected.description}</p>
                     )}
                 </div>
+                )}
+                {FEATURES.length <= 1 && selected?.description && (
+                    <p className="text-sm text-gray-gray400 mb-5">{selected.description}</p>
+                )}
 
                 {/* Config gate */}
                 {configMissing ? (
