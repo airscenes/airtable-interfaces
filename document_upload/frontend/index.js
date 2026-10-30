@@ -1,11 +1,12 @@
-import {useState} from 'react';
+import {useMemo, useState} from 'react';
 import {initializeBlock, useCustomProperties} from '@airtable/blocks/interface/ui';
 import RoyaltiesUpload from './features/royalties.js';
+import {makeUploadClient, missingSettings, royaltiesSourceKey} from './lib/uploadApi.js';
 import './style.css';
 
 // Registry of available document-upload features. Add new entries to expose
 // new scripts in the dropdown — each entry maps to a React component that
-// receives {supabaseUrl, apiKey, clientId, uploadSecret} props.
+// receives a {client} prop (see lib/uploadApi.js).
 const FEATURES = [
     {
         key: 'royalties',
@@ -17,6 +18,20 @@ const FEATURES = [
 
 function getCustomProperties() {
     return [
+        // Token path: both filled in = the legacy settings below are ignored.
+        {
+            key: 'royaltiesApiUrl',
+            label: 'URL de l\'API d\'upload des royalties (ex: https://…/api/airtable/royalty-upload)',
+            type: 'string',
+            defaultValue: '',
+        },
+        {
+            key: 'royaltiesApiToken',
+            label: 'Jeton de la base (le même que pour les ventes)',
+            type: 'string',
+            defaultValue: '',
+        },
+        // Legacy path (publishable key + client id + upload secret).
         {
             key: 'supabaseUrl',
             label: 'Supabase URL (ex: https://xyz.supabase.co)',
@@ -46,15 +61,24 @@ function getCustomProperties() {
 
 function DocumentUploadApp() {
     const {customPropertyValueByKey} = useCustomProperties(getCustomProperties);
-    const supabaseUrl = customPropertyValueByKey.supabaseUrl;
-    const apiKey = customPropertyValueByKey.supabaseApiKey;
-    const clientId = customPropertyValueByKey.clientId;
-    const uploadSecret = customPropertyValueByKey.uploadSecret;
+    const cfg = {
+        royaltiesApiUrl: customPropertyValueByKey.royaltiesApiUrl,
+        royaltiesApiToken: customPropertyValueByKey.royaltiesApiToken,
+        supabaseUrl: customPropertyValueByKey.supabaseUrl,
+        apiKey: customPropertyValueByKey.supabaseApiKey,
+        clientId: customPropertyValueByKey.clientId,
+        uploadSecret: customPropertyValueByKey.uploadSecret,
+    };
+    const sourceKey = royaltiesSourceKey(cfg);
+    // Rebuilt only when a setting changes, so the history effect does not refire.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const client = useMemo(() => makeUploadClient(cfg), [sourceKey]);
 
     const [selectedKey, setSelectedKey] = useState(FEATURES[0].key);
     const selected = FEATURES.find((f) => f.key === selectedKey);
 
-    const configMissing = !supabaseUrl || !apiKey || !clientId || !uploadSecret;
+    const missing = missingSettings(cfg);
+    const configMissing = missing.length > 0;
 
     return (
         <div className="p-4 sm:p-6 min-h-screen bg-gray-gray50 dark:bg-gray-gray800 overflow-auto">
@@ -102,22 +126,17 @@ function DocumentUploadApp() {
                 {/* Config gate */}
                 {configMissing ? (
                     <div className="bg-yellow-yellowLight3 dark:bg-yellow-yellowDusty/20 border border-yellow-yellowLight2 rounded-lg p-4 text-sm text-yellow-yellowDark1 dark:text-yellow-yellowLight1">
-                        Veuillez configurer les propriétés de l'extension :
+                        Veuillez configurer les propriétés de l&apos;extension :
                         <ul className="list-disc list-inside mt-2">
-                            {!supabaseUrl && <li>Supabase URL</li>}
-                            {!apiKey && <li>Supabase Publishable Key</li>}
-                            {!clientId && <li>Client UUID</li>}
-                            {!uploadSecret && <li>Upload Secret</li>}
+                            {missing.map((label) => <li key={label}>{label}</li>)}
                         </ul>
+                        <p className="mt-2 text-xs">
+                            {'Avec l\'URL de l\'API et le jeton de la base, les autres réglages ne sont pas nécessaires.'}
+                        </p>
                     </div>
                 ) : (
                     selected && (
-                        <selected.Component
-                            supabaseUrl={supabaseUrl}
-                            apiKey={apiKey}
-                            clientId={clientId}
-                            uploadSecret={uploadSecret}
-                        />
+                        <selected.Component client={client} />
                     )
                 )}
             </div>

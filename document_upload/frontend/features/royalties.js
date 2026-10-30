@@ -1,9 +1,5 @@
 import {useState, useEffect, useCallback, useRef} from 'react';
-import {
-    callEdgeFunction,
-    uploadToSignedUrl,
-    pgRestSelect,
-} from '../lib/supabase.js';
+import {uploadToSignedUrl} from '../lib/supabase.js';
 
 const MAX_BYTES = 50 * 1024 * 1024;
 // \p{L} accepts accented letters (e.g. "..._7ième-Ciel.csv"), which \w does not.
@@ -82,17 +78,10 @@ function periodOptions() {
     return options;
 }
 
-async function pollAuditStatus({supabaseUrl, apiKey, clientId, auditId}) {
+async function pollAuditStatus({client, auditId}) {
     const start = Date.now();
     while (Date.now() - start < POLL_TIMEOUT_MS) {
-        const rows = await pgRestSelect({
-            supabaseUrl,
-            apiKey,
-            clientId,
-            table: 'royalty_upload_audit',
-            query: `id=eq.${auditId}&select=status,rows_imported,error_message,imported_at`,
-        });
-        const row = rows[0];
+        const row = await client.status(auditId);
         if (row?.status === 'imported') {
             return {ok: true, rows: row.rows_imported};
         }
@@ -104,7 +93,9 @@ async function pollAuditStatus({supabaseUrl, apiKey, clientId, auditId}) {
     return {ok: null, error: 'Délai dépassé. L\'import est peut-être encore en cours.'};
 }
 
-export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSecret}) {
+// `client` is lib/uploadApi.js's makeUploadClient (token or legacy path). It
+// is rebuilt when a setting changes, which reloads the history.
+export default function RoyaltiesUpload({client}) {
     const [file, setFile] = useState(null);
     const [validationError, setValidationError] = useState(null);
     const [phase, setPhase] = useState('idle'); // idle | uploading | importing | done | error
@@ -122,26 +113,17 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
     const typeDef = REPORT_TYPE_BY_KEY[reportType];
 
     const refreshHistory = useCallback(async () => {
-        if (!supabaseUrl || !apiKey || !clientId) return;
+        if (!client) return;
         setHistoryLoading(true);
         setHistoryError(null);
         try {
-            const rows = await pgRestSelect({
-                supabaseUrl,
-                apiKey,
-                clientId,
-                table: 'royalty_upload_audit',
-                query:
-                    'select=id,filename,report_type,period,status,rows_imported,error_message,uploaded_at,imported_at' +
-                    '&order=uploaded_at.desc&limit=50',
-            });
-            setHistory(rows);
+            setHistory(await client.history());
         } catch (err) {
             setHistoryError(err.message);
         } finally {
             setHistoryLoading(false);
         }
-    }, [supabaseUrl, apiKey, clientId]);
+    }, [client]);
 
     useEffect(() => {
         refreshHistory();
@@ -154,14 +136,7 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
     const onRecalculate = async () => {
         setRecalc({phase: 'running', message: null});
         try {
-            const res = await callEdgeFunction({
-                supabaseUrl,
-                apiKey,
-                clientId,
-                uploadSecret,
-                name: 'refresh-royalty-summary',
-                body: {client_id: clientId},
-            });
+            const res = await client.refresh();
             setRecalc({
                 phase: 'done',
                 message: `Totaux recalculés : ${res.files} fichier${res.files > 1 ? 's' : ''}.`,
@@ -232,27 +207,22 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
 
         let signed;
         try {
-            signed = await callEdgeFunction({
-                supabaseUrl,
-                apiKey,
-                clientId,
-                uploadSecret,
-                name: 'request-upload-url',
-                body: {
-                    client_id: clientId,
-                    filename: file.name,
-                    report_type: reportType,
-                    ...(typeDef.needsPeriod ? {period} : {}),
-                },
+            signed = await client.requestUploadUrl({
+                filename: file.name,
+                reportType,
+                period: typeDef.needsPeriod ? period : null,
             });
         } catch (err) {
             setPhase('error');
-            if (err.status === 404) {
+            // 401 / 403 / 429 already carry their French message (lib/uploadApi.js).
+            if ([401, 403, 429].includes(err.status)) {
+                setErrorMessage(err.message);
+            } else if (err.status === 404) {
                 setErrorMessage('Client introuvable. Vérifiez la configuration de l\'extension.');
             } else if (err.status === 400) {
                 setErrorMessage(err.message || 'Requête invalide.');
             } else {
-                setErrorMessage(`Impossible d\'obtenir l'URL d'upload : ${err.message}`);
+                setErrorMessage(`Impossible d'obtenir l'URL d'upload : ${err.message}`);
             }
             return;
         }
@@ -273,12 +243,7 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
         setPhase('importing');
         refreshHistory();
 
-        const result = await pollAuditStatus({
-            supabaseUrl,
-            apiKey,
-            clientId,
-            auditId: signed.audit_id,
-        });
+        const result = await pollAuditStatus({client, auditId: signed.audit_id});
 
         if (result.ok === true) {
             setPhase('done');
@@ -488,7 +453,7 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
                     <div className="p-3 text-sm text-red-red">Erreur : {historyError}</div>
                 ) : history.length === 0 ? (
                     <div className="p-4 text-xs text-gray-gray400 text-center">
-                        Aucun upload pour l'instant.
+                        Aucun upload pour l&apos;instant.
                     </div>
                 ) : (
                     <div style={{maxHeight: 320, overflowY: 'auto'}}>
