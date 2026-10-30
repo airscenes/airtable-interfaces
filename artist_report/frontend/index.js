@@ -226,11 +226,16 @@ function getCustomProperties(base) {
     { key: "canauxFilterField", label: "Champ filtre (Canaux, single select, optionnel)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
     { key: "canauxFilterDefault", label: "Filtre Canaux — valeurs cochées par défaut (optionnel, ex. Actif,En cours)", type: "string", defaultValue: "" },
     { key: "oeuvresLinkField", label: "Champ lien Oeuvres (Canaux)", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
-    { key: "catalogField", label: "Champ numéro de catalogue (Canaux) — ventes Bandcamp/Propagande sans ISRC", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField, defaultValue: canauxTable.fields.find((f) => f.name === "numero_canal") },
+    { key: "catalogField", label: "Champ numéro de catalogue (Canaux) — ventes Bandcamp/Propagande sans ISRC ni UPC", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField, defaultValue: canauxTable.fields.find((f) => f.name === "numero_canal") },
 
-    // --- Oeuvres (pour récupérer les ISRCs) ---
+    // --- Oeuvres (pour récupérer les ISRCs et les UPCs) ---
     { key: "oeuvresTable", label: "Table des Oeuvres", type: "table" },
     { key: "isrcField", label: "Champ ISRC (Oeuvres)", type: "field", table: oeuvresTable, shouldFieldBeAllowed: anyField },
+    // Three UPCs per Oeuvre (digital, CD, vinyl): sales without an ISRC are matched by UPC.
+    { key: "upcField", label: "Champ UPC (Oeuvres) — ventes sans ISRC", type: "field", table: oeuvresTable, shouldFieldBeAllowed: anyField, defaultValue: oeuvresTable.fields.find((f) => f.name === "UPC") },
+    { key: "upc2Field", label: "Champ UPC 2 (Oeuvres, optionnel)", type: "field", table: oeuvresTable, shouldFieldBeAllowed: anyField, defaultValue: oeuvresTable.fields.find((f) => f.name === "UPC 2") },
+    { key: "upc3Field", label: "Champ UPC 3 (Oeuvres, optionnel)", type: "field", table: oeuvresTable, shouldFieldBeAllowed: anyField, defaultValue: oeuvresTable.fields.find((f) => f.name === "UPC 3") },
+    { key: "upc4Field", label: "Champ UPC 4 (Oeuvres, optionnel)", type: "field", table: oeuvresTable, shouldFieldBeAllowed: anyField, defaultValue: oeuvresTable.fields.find((f) => f.name === "UPC 4") },
 
     // --- Revenus ---
     { key: "revenusTable", label: "Table des Revenus", type: "table" },
@@ -1566,15 +1571,21 @@ async function postRoyaltiesApi(cfg, body) {
 }
 
 // get_royalties_summary rows. Without `sources` the server returns Believe only.
-function fetchRoyaltiesSummary(cfg, { isrcs, catalogs = null, sources = null, from, to }) {
+// Each sale row is matched by a single key, chosen server-side: its ISRC if it has
+// one, else its UPC, else its catalog number. `upcs` is sent only when non-empty.
+function fetchRoyaltiesSummary(cfg, { isrcs, upcs = [], catalogs = null, sources = null, from, to }) {
+  const hasUpcs = upcs && upcs.length > 0;
   if (usesRoyaltiesToken(cfg)) {
-    return postRoyaltiesApi(cfg, { summary: "royalties", isrcs, catalogs, ...(sources ? { sources } : {}), from, to });
+    return postRoyaltiesApi(cfg, {
+      summary: "royalties", isrcs, ...(hasUpcs ? { upcs } : {}), catalogs, ...(sources ? { sources } : {}), from, to,
+    });
   }
   return postSupabaseRpc(cfg.supabaseUrl, cfg.supabaseAnonKey, cfg.clientId, "get_royalties_summary", {
     p_client_id: cfg.clientId,
     p_isrcs: isrcs,
     p_from: from,
     p_to: to,
+    ...(hasUpcs ? { p_upcs: upcs } : {}),
     ...(catalogs ? { p_catalogs: catalogs } : {}),
     ...(sources ? { p_sources: sources } : {}),
   });
@@ -1594,11 +1605,11 @@ function fetchShopifySummary(cfg, { projectIds, from, to }) {
 }
 
 // --- Supabase sources of the Revenus grid ---
-// Believe royalties (by the ISRCs of the canal's Oeuvres) and Shopify sales (Shopify
-// project_id = Airtable canal record id), each as { month: amount } for the period.
+// Believe royalties (by the ISRCs, then UPCs, of the canal's Oeuvres) and Shopify sales
+// (Shopify project_id = Airtable canal record id), each as { month: amount } for the period.
 
-async function fetchBelieveByMonth(cfg, isrcs, period) {
-  const rows = await fetchRoyaltiesSummary(cfg, { isrcs, from: period.start, to: period.end });
+async function fetchBelieveByMonth(cfg, isrcs, upcs, period) {
+  const rows = await fetchRoyaltiesSummary(cfg, { isrcs, upcs, from: period.start, to: period.end });
   const byMonth = {};
   for (const row of rows || []) {
     const monthKey = (row.reporting_month || "").slice(0, 7); // YYYY-MM
@@ -1609,15 +1620,15 @@ async function fetchBelieveByMonth(cfg, isrcs, period) {
   return byMonth;
 }
 
-// Bandcamp / Propagande royalties, matched by ISRC then by catalog number for sales
-// without one (all of Propagande, most Bandcamp albums). Kept apart from the Believe
-// call above so Believe amounts are unchanged. Returns { bandcamp, propagande }, each
-// { month: amount }.
+// Bandcamp / Propagande royalties, matched by ISRC, else UPC, else catalog number for
+// sales without either (all of Propagande, most Bandcamp albums). Kept apart from the
+// Believe call above. Returns { bandcamp, propagande }, each { month: amount }.
 const CATALOG_SOURCES = ["bandcamp", "propagande"];
 
-async function fetchCatalogSourcesByMonth(cfg, isrcs, catalogs, period) {
+async function fetchCatalogSourcesByMonth(cfg, isrcs, upcs, catalogs, period) {
   const rows = await fetchRoyaltiesSummary(cfg, {
     isrcs,
+    upcs,
     catalogs: catalogs.length > 0 ? catalogs : null,
     sources: CATALOG_SOURCES,
     from: period.start,
@@ -1665,13 +1676,62 @@ function canalIsrcs(canalRec, cfg, oeuvresRecords) {
     .filter(Boolean);
 }
 
+// A cell holding several keys ("A, B", one per line…): one key per entry, deduplicated.
+const splitKeys = (raw) => [...new Set((raw || "").split(/[,;\n]/).map((s) => s.trim()).filter(Boolean))];
+
+// UPCs (UPC, UPC 2, UPC 3, UPC 4) of the canal's linked Oeuvres, sent raw (the
+// server normalizes them). The Oeuvres of an album share its UPCs: deduplicated.
+function canalUpcs(canalRec, cfg, oeuvresRecords) {
+  const { oeuvresTable, oeuvresLinkField } = cfg;
+  const fields = [cfg.upcField, cfg.upc2Field, cfg.upc3Field, cfg.upc4Field].filter(Boolean);
+  if (!canalRec || !oeuvresTable || !oeuvresLinkField || fields.length === 0 || !oeuvresRecords) return [];
+  const ids = new Set(linkedIds(canalRec, oeuvresLinkField));
+  if (ids.size === 0) return [];
+  return splitKeys(oeuvresRecords
+    .filter((rec) => ids.has(rec.id))
+    .flatMap((rec) => fields.map((f) => rec.getCellValueAsString(f)))
+    .join("\n"));
+}
+
 // Catalog numbers of the canal, sent raw (the server normalizes them). A lookup or
 // multi-value cell renders as "A, B": one catalog per entry.
 function canalCatalogs(canalRec, cfg) {
   if (!canalRec || !cfg.catalogField) return [];
-  const raw = canalRec.getCellValueAsString(cfg.catalogField) || "";
-  return [...new Set(raw.split(/[,;\n]/).map((s) => s.trim()).filter(Boolean))];
+  return splitKeys(canalRec.getCellValueAsString(cfg.catalogField));
 }
+
+// UPCs and catalog numbers used by more than one canal. The server matches a sale to
+// every canal sending its key, so the album's sales would be proposed, then saved, in
+// each of them: flagged, never split. Compared loosely (UPC: digits without leading
+// zeros; catalog: letters and digits, case-insensitive). ISRCs are not checked.
+// Returns Map canalId → [{ kind: "UPC" | "catalogue", key, others: [canal names] }].
+function sharedRoyaltyKeys(canauxRecords, cfg, oeuvresRecords) {
+  const owners = new Map(); // `${kind}|${normalized}` → { kind, key, canaux: Map id → name }
+  const add = (kind, key, normalized, rec) => {
+    if (!normalized) return;
+    const id = `${kind}|${normalized}`;
+    if (!owners.has(id)) owners.set(id, { kind, key, canaux: new Map() });
+    owners.get(id).canaux.set(rec.id, rec.name);
+  };
+  for (const rec of canauxRecords || []) {
+    for (const u of canalUpcs(rec, cfg, oeuvresRecords)) add("UPC", u, u.replace(/\D/g, "").replace(/^0+/, ""), rec);
+    for (const c of canalCatalogs(rec, cfg)) add("catalogue", c, c.toUpperCase().replace(/[^A-Z0-9]/g, ""), rec);
+  }
+  const out = new Map();
+  for (const { kind, key, canaux } of owners.values()) {
+    if (canaux.size < 2) continue;
+    for (const [id] of canaux) {
+      const others = [...canaux].filter(([oid]) => oid !== id).map(([, name]) => name);
+      if (!out.has(id)) out.set(id, []);
+      out.get(id).push({ kind, key, others });
+    }
+  }
+  return out;
+}
+
+// French warning lines for sharedRoyaltyKeys entries.
+const sharedKeyMessages = (shared) =>
+  (shared || []).map((s) => `${s.kind} ${s.key} aussi dans : ${s.others.join(", ")} — ventes comptées dans chaque canal`);
 
 // Months of the period that already have a revenu on `compteId` for the canal in
 // Airtable. Supabase amounts are not proposed for those months, so saving again
@@ -2083,13 +2143,25 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     () => canalIsrcs((canauxRecords || []).find((r) => r.id === selectedCanalId), cfg, oeuvresTable ? oeuvresRecords : null),
     [selectedCanalId, canauxRecords, cfg, oeuvresTable, oeuvresRecords],
   );
+  const upcList = useMemo(
+    () => canalUpcs((canauxRecords || []).find((r) => r.id === selectedCanalId), cfg, oeuvresTable ? oeuvresRecords : null),
+    [selectedCanalId, canauxRecords, cfg, oeuvresTable, oeuvresRecords],
+  );
   const catalogList = useMemo(
     () => canalCatalogs((canauxRecords || []).find((r) => r.id === selectedCanalId), cfg),
     [selectedCanalId, canauxRecords, cfg],
   );
+  // UPCs / catalogs of this canal also used by other canaux (across all loaded canaux).
+  const sharedKeyWarnings = useMemo(
+    () => (selectedCanalId
+      ? sharedKeyMessages(sharedRoyaltyKeys(canauxRecords, cfg, oeuvresTable ? oeuvresRecords : null).get(selectedCanalId))
+      : []),
+    [selectedCanalId, canauxRecords, cfg, oeuvresTable, oeuvresRecords],
+  );
 
   // Stable value keys for the fetch effects' deps (see the royalties effect).
   const isrcKey = isrcList.join(",");
+  const upcKey = upcList.join(",");
   const catalogKey = catalogList.join(",");
   const existingRoyaltyMonthsKey = [...monthsWithExistingRoyalty].sort((a, b) => a - b).join(",");
   const existingShopifyMonthsKey = [...monthsWithExistingShopify].sort((a, b) => a - b).join(",");
@@ -2099,10 +2171,10 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
   // Fetch royalties from Supabase for the selected period and pre-fill the Royalties column
   useEffect(() => {
     if (saving) return; // don't mutate revenusInputs while a save is in flight
-    if (!royaltiesOn || !royaltiesColumn || isrcList.length === 0 || !selectedCanalId) {
+    if (!royaltiesOn || !royaltiesColumn || (isrcList.length === 0 && upcList.length === 0) || !selectedCanalId) {
       return;
     }
-    const cacheKey = `${royaltiesSource}_${selectedCanalId}_${periodKey}_${isrcList.join(",")}_${royaltiesRefreshKey}`;
+    const cacheKey = `${royaltiesSource}_${selectedCanalId}_${periodKey}_${isrcKey}_${upcKey}_${royaltiesRefreshKey}`;
     let didCancel = false;
 
     const applyData = (byMonth) => {
@@ -2122,7 +2194,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
 
     setRoyaltiesLoading(true);
     setRoyaltiesError(null);
-    cachedFetch(royaltiesCacheRef.current, cacheKey, () => fetchBelieveByMonth(cfg, isrcList, period))
+    cachedFetch(royaltiesCacheRef.current, cacheKey, () => fetchBelieveByMonth(cfg, isrcList, upcList, period))
       .then((data) => { if (!didCancel) applyData(data); })
       .catch((err) => { if (!didCancel) setRoyaltiesError(err.message || String(err)); })
       .finally(() => { if (!didCancel) setRoyaltiesLoading(false); });
@@ -2135,7 +2207,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     // render (useRecords returns a new array), which used to cancel the request in a loop.
     // period / monthIndices derive from periodKey; safe to omit
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCanalId, periodKey, isrcKey, royaltiesSource, royaltiesColumn, royaltiesRefreshKey, existingRoyaltyMonthsKey]);
+  }, [selectedCanalId, periodKey, isrcKey, upcKey, royaltiesSource, royaltiesColumn, royaltiesRefreshKey, existingRoyaltyMonthsKey]);
 
   // Fetch Shopify sales from Supabase for the selected period and pre-fill the Shopify column.
   // The Shopify project_id is the Airtable canal record id.
@@ -2188,10 +2260,10 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
       { label: propagandeColumn, source: "propagande", existing: monthsWithExistingPropagande },
     ].filter((t) => t.label && compteOfColumn(t.label));
     if (!royaltiesOn || !selectedCanalId || targets.length === 0
-      || (isrcList.length === 0 && catalogList.length === 0)) {
+      || (isrcList.length === 0 && upcList.length === 0 && catalogList.length === 0)) {
       return;
     }
-    const cacheKey = `${royaltiesSource}_${selectedCanalId}_${periodKey}_${isrcKey}_${catalogKey}_${catalogRefreshKey}`;
+    const cacheKey = `${royaltiesSource}_${selectedCanalId}_${periodKey}_${isrcKey}_${upcKey}_${catalogKey}_${catalogRefreshKey}`;
     let didCancel = false;
 
     const applyData = (bySource) => {
@@ -2212,7 +2284,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
 
     setCatalogLoading(true);
     setCatalogError(null);
-    cachedFetch(catalogCacheRef.current, cacheKey, () => fetchCatalogSourcesByMonth(cfg, isrcList, catalogList, period))
+    cachedFetch(catalogCacheRef.current, cacheKey, () => fetchCatalogSourcesByMonth(cfg, isrcList, upcList, catalogList, period))
       .then((data) => { if (!didCancel) applyData(data); })
       .catch((err) => { if (!didCancel) setCatalogError(err.message || String(err)); })
       .finally(() => { if (!didCancel) setCatalogLoading(false); });
@@ -2224,7 +2296,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     // See the royalties effect for why the deps are value keys.
     // period / monthIndices derive from periodKey; safe to omit
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCanalId, periodKey, isrcKey, catalogKey, royaltiesSource, bandcampColumn, propagandeColumn,
+  }, [selectedCanalId, periodKey, isrcKey, upcKey, catalogKey, royaltiesSource, bandcampColumn, propagandeColumn,
     columnsConfig, catalogRefreshKey, existingBandcampMonthsKey, existingPropagandeMonthsKey]);
 
   const canaux = useMemo(() => {
@@ -2531,6 +2603,13 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
           {selectedCanal.name}
         </h1>
       </div>
+
+      {sharedKeyWarnings.length > 0 && (
+        <div className="bg-orange-orangeLight2 text-orange-orangeDark1 rounded-lg p-3 mb-4 text-sm">
+          <div className="font-medium">Clé de ventes partagée avec d&apos;autres canaux : les mêmes ventes sont proposées, puis enregistrées, dans chacun.</div>
+          {sharedKeyWarnings.map((m) => <div key={m}>• {m}</div>)}
+        </div>
+      )}
 
       <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -2891,6 +2970,12 @@ function ArtistApp({ cfg }) {
   const filteredArtists = useMemo(() => filterBySearch(artists, search), [artists, search]);
   const selectedArtist = artists.find((a) => a.id === selectedArtistId) || null;
 
+  // UPCs / catalogs shared between canaux, across all loaded canaux (not only the artist's).
+  const sharedKeys = useMemo(
+    () => sharedRoyaltyKeys(canauxRecords, cfg, oeuvresTable ? oeuvresRecords : null),
+    [canauxRecords, cfg, oeuvresTable, oeuvresRecords],
+  );
+
   // The artist's canaux with their period computation, grouped by projet (projets and
   // canaux sorted by name). A canal the extension doesn't receive (page search bar, page
   // data filters, permissions) can't be read: it is only counted.
@@ -2917,7 +3002,9 @@ function ArtistApp({ cfg }) {
           subtitle: g.name,
           projetId: g.id,
           isrcs: canalIsrcs(rec, cfg, oeuvresTable ? oeuvresRecords : null),
+          upcs: canalUpcs(rec, cfg, oeuvresTable ? oeuvresRecords : null),
           catalogs: canalCatalogs(rec, cfg),
+          sharedKeys: sharedKeyMessages(sharedKeys.get(rec.id)),
           template: getTemplateUrl(rec, templateAttachmentField),
           calc: computeCanalPeriod({ canalId: rec.id, period, cfg, records, revenusChoices, soldeCompteId, soldeReporteCompteId, paiementCompteIds }),
         }))
@@ -2926,7 +3013,7 @@ function ArtistApp({ cfg }) {
     return { rows: out, hiddenCount: hidden };
   }, [selectedArtistId, projetsByArtist, canauxRecords, revenusRecords, depensesRecords, etatsTable, etatsRecords,
     ayantsTable, ayantsRecords, oeuvresTable, oeuvresRecords, templateAttachmentField, period, cfg, revenusChoices,
-    soldeCompteId, soldeReporteCompteId, paiementCompteIds, canalMatches]);
+    soldeCompteId, soldeReporteCompteId, paiementCompteIds, canalMatches, sharedKeys]);
 
   // Believe/Shopify amounts (Supabase) of the open canaux, as on the canal page. Months
   // already saved in Airtable are left out (see pendingGridInputs).
@@ -2934,19 +3021,19 @@ function ArtistApp({ cfg }) {
   const royaltiesSource = royaltiesSourceKey(cfg);
   const supaTargets = baseRows.filter((r) => r.calc.status === "open");
   const supaEntryKey = (canalId) => `${canalId}_${period.key}_${supaRefreshKey}`;
-  const supaKey = supaTargets.map((r) => `${r.id}:${r.isrcs.join(",")}:${r.catalogs.join(",")}`).join("|");
+  const supaKey = supaTargets.map((r) => `${r.id}:${r.isrcs.join(",")}:${r.upcs.join(",")}:${r.catalogs.join(",")}`).join("|");
   const catalogSourcesOn = !!(cfg.bandcampColumn || cfg.propagandeColumn);
   useEffect(() => {
     setSupa({});
     if (!supaOn || supaTargets.length === 0) return;
     let didCancel = false;
     for (const r of supaTargets) {
-      const cacheKey = `${royaltiesSource}_${r.id}_${period.key}_${r.isrcs.join(",")}_${r.catalogs.join(",")}_${supaRefreshKey}`;
+      const cacheKey = `${royaltiesSource}_${r.id}_${period.key}_${r.isrcs.join(",")}_${r.upcs.join(",")}_${r.catalogs.join(",")}_${supaRefreshKey}`;
       cachedFetch(supaCacheRef.current, cacheKey, () => Promise.all([
-        r.isrcs.length > 0 && cfg.royaltiesColumn ? fetchBelieveByMonth(cfg, r.isrcs, period) : null,
+        (r.isrcs.length > 0 || r.upcs.length > 0) && cfg.royaltiesColumn ? fetchBelieveByMonth(cfg, r.isrcs, r.upcs, period) : null,
         fetchShopifyByMonth(cfg, r.id, period),
-        (r.isrcs.length > 0 || r.catalogs.length > 0) && catalogSourcesOn
-          ? fetchCatalogSourcesByMonth(cfg, r.isrcs, r.catalogs, period)
+        (r.isrcs.length > 0 || r.upcs.length > 0 || r.catalogs.length > 0) && catalogSourcesOn
+          ? fetchCatalogSourcesByMonth(cfg, r.isrcs, r.upcs, r.catalogs, period)
           : null,
       ]).then(([believe, shopify, catalogSources]) => ({ believe, shopify, ...(catalogSources || {}) })))
         .then((data) => { if (!didCancel) setSupa((prev) => ({ ...prev, [supaEntryKey(r.id)]: data })); })
@@ -3294,6 +3381,10 @@ function ArtistApp({ cfg }) {
                 Les montants Believe et Shopify des mois pas encore sauvegardés sont lus dans Supabase et comptés dans
                 les totaux et le rapport. La fermeture de la période les enregistre comme
                 Revenus, puis les lie à l&apos;état de compte.</p>
+              <p><strong>Rattachement des ventes</strong><br />
+                Chaque vente Believe, Bandcamp ou Propagande est rattachée au canal par son ISRC, sinon son UPC
+                (champs UPC des Oeuvres), sinon le numéro de catalogue du canal. Un UPC ou un catalogue présent dans
+                plusieurs canaux est signalé : ses ventes seraient comptées dans chacun.</p>
               <p><strong>Recherche</strong><br />
                 La recherche filtre l&apos;affichage par canal ou par projet. Un canal coché puis masqué par la
                 recherche reste inclus dans le rapport et la fermeture.</p>
@@ -3376,6 +3467,9 @@ function ArtistApp({ cfg }) {
                               )}
                               {empty && <div className="text-xs text-gray-gray500">Aucune entrée sauvegardée</div>}
                               {reason && <div className="text-xs text-orange-orangeDark1">{reason}</div>}
+                              {r.sharedKeys.map((m) => (
+                                <div key={m} className="text-xs text-orange-orangeDark1">{m}</div>
+                              ))}
                             </td>
                             <td className="p-2 align-top"><StatusBadge calc={r.calc} /></td>
                             <td className="p-2 align-top text-right whitespace-nowrap text-green-greenDark1">{fmtCurrency(r.totalRevenus)}</td>
