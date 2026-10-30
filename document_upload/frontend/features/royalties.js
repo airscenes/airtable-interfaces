@@ -318,7 +318,7 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
             <div className="flex gap-3">
                 <div className="flex-1">
                     <label className="block text-xs font-semibold text-gray-gray500 dark:text-gray-gray400 mb-1">
-                        Type de rapport
+                        Type de document
                     </label>
                     <div className="relative">
                         <select
