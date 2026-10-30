@@ -181,7 +181,9 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
             return 'Nom de fichier invalide. Utilisez uniquement des lettres (accentuées ou non), chiffres, espaces, points, tirets et soulignés.';
         }
         if (ext !== type.ext) {
-            return `Un rapport ${type.label} doit être un fichier .${type.ext} (fichier reçu : .${ext}).`;
+            const fits = REPORT_TYPES.filter((t) => t.ext === ext).map((t) => t.label).join(' ou ');
+            return `Un rapport ${type.label} doit être un fichier .${type.ext} (fichier reçu : .${ext}). ` +
+                `Choisissez le type ${fits} ci-dessus.`;
         }
         if (f.size > MAX_BYTES) {
             return `Fichier trop volumineux (${formatBytes(f.size)}). Maximum : 50 MB.`;
@@ -372,7 +374,9 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
                 <input
                     ref={fileInputRef}
                     type="file"
-                    accept={`.${typeDef.ext},${CONTENT_TYPES[typeDef.ext]}`}
+                    // Every report extension, whatever the type picked: the file is checked
+                    // against the type afterwards, so a Propagande .xls can be picked first.
+                    accept={Object.entries(CONTENT_TYPES).map(([ext, mime]) => `.${ext},${mime}`).join(',')}
                     style={{display: 'none'}}
                     onChange={(e) => onPickFile(e.target.files?.[0])}
                 />
@@ -497,20 +501,18 @@ export default function RoyaltiesUpload({supabaseUrl, apiKey, clientId, uploadSe
                                     <span className="font-medium text-gray-gray700 dark:text-gray-gray200 truncate flex-1">
                                         {row.filename}
                                     </span>
-                                    <span className={`font-semibold whitespace-nowrap ${STATUS_COLORS[row.status] || ''}`}>
+                                    {/* Rows written before report types existed have none: they were all Believe. */}
+                                    <span className="w-20 shrink-0 text-gray-gray600 dark:text-gray-gray300 whitespace-nowrap">
+                                        {REPORT_TYPE_BY_KEY[row.report_type || 'believe']?.label || row.report_type}
+                                    </span>
+                                    <span className={`w-28 shrink-0 text-right font-semibold whitespace-nowrap ${STATUS_COLORS[row.status] || ''}`}>
                                         {STATUS_LABELS[row.status] || row.status}
                                     </span>
                                 </div>
                                 <div className="flex items-center justify-between gap-2 mt-1 text-gray-gray400">
                                     <span>
                                         {formatDateTime(row.uploaded_at)}
-                                        {row.report_type && (
-                                            <>
-                                                {' · '}
-                                                {REPORT_TYPE_BY_KEY[row.report_type]?.label || row.report_type}
-                                                {row.period && ` · ${formatPeriod(row.period)}`}
-                                            </>
-                                        )}
+                                        {row.period && ` · ${formatPeriod(row.period)}`}
                                     </span>
                                     {row.status === 'imported' && row.rows_imported != null && (
                                         <span>{row.rows_imported.toLocaleString('fr-FR')} lignes</span>
