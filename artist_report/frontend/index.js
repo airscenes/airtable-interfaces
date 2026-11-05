@@ -280,7 +280,7 @@ function getCustomProperties(base) {
     { key: "ayantsCanalLinkField", label: "Lien Canal (Ayants-droits)", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField },
     { key: "ayantsNomField", label: "Champ Nom (Ayants-droits) — ex. lien Organismes", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField },
     { key: "ayantsPartField", label: "Champ Part % (Ayants-droits)", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField },
-    { key: "ayantsNonPayableField", label: "Case Non payable — ex. producteur (Ayants-droits, optionnel)", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField },
+    { key: "ayantsNonPayableField", label: "Case Non payable — ex. producteur (Ayants-droits, optionnel)", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField, defaultValue: ayantsTable.fields.find((f) => f.name === "non_payable") },
 
     // --- États de compte ---
     { key: "etatsTable", label: "Table des États de compte", type: "table" },
