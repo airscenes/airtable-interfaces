@@ -1078,7 +1078,7 @@ async function fillCanalReport({
   const totalPaiements = paiement.reduce((s, p) => s + p.montant, 0);
   const net = totalRevenus - totalDepenses;
   // Only the period's net is split; the solde is global and carried until paid (52xx).
-  const soldeFermeture = soldePrecedent + soldeVariation(net, producteurPartOf(ayantsDroits)) - totalPaiements;
+  const soldeFermeture = soldeApresNet(soldePrecedent, net, producteurPartOf(ayantsDroits)) - totalPaiements;
   tags.total_revenus = totalRevenus;
   tags.total_depenses = totalDepenses;
   tags.net = net;
@@ -1220,11 +1220,14 @@ async function buildArtistWorkbook({ artistName, period, items }) {
 //   open     no État dated on or after the period start
 // Open period: unlinked entries of the period, plus rattrapages (older unlinked
 // entries) when the previous État closed the period right before this one.
-// Change of the solde over a period. A profit only adds the payable ayants-droits' share:
-// the non-payable ones (e.g. the producer) are never paid in 52xx, so their share would
-// pile up in the solde. A loss is carried in full.
-function soldeVariation(net, producteurPart) {
-  return net > 0 ? net * (1 - producteurPart) : net;
+// Solde after a period's net (before 52xx payments). A loss is carried in full; a profit
+// first recoups a carried deficit in full, then only the payable ayants-droits' share of
+// the rest is added: the non-payable ones (e.g. the producer) are never paid in 52xx, so
+// their share would pile up in the solde.
+function soldeApresNet(soldePrecedent, net, producteurPart) {
+  if (net <= 0) return soldePrecedent + net;
+  const recoup = Math.min(net, Math.max(-soldePrecedent, 0));
+  return soldePrecedent + recoup + (net - recoup) * (1 - producteurPart);
 }
 
 const producteurPartOf = (ayantsDroits) => ayantsDroits.reduce((s, a) => s + (a.nonPayable ? a.part : 0), 0);
@@ -1369,7 +1372,7 @@ function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, sol
     // Net of the period: what the ayants-droits split. The solde is global: it carries
     // over (positive or not) until 52xx payments bring it down.
     net,
-    soldeFermeture: soldePrecedent + soldeVariation(net, producteurPart) - totalPaiements,
+    soldeFermeture: soldeApresNet(soldePrecedent, net, producteurPart) - totalPaiements,
   };
 }
 
@@ -2500,7 +2503,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
   // Revenus of the period: the opening-balance entries count in Solde précédent instead.
   const totalRevenus = calc.totalRevenus + sumInputs(revenusInputs) + saisiesTotals.revenu - soldeSaisiesTotal;
   const totalPaiements = calc.totalPaiements;
-  const soldeFermeture = soldePrecedent + soldeVariation(totalRevenus - totalDepenses, calc.producteurPart) - totalPaiements;
+  const soldeFermeture = soldeApresNet(soldePrecedent, totalRevenus - totalDepenses, calc.producteurPart) - totalPaiements;
 
   // --- Clôture ---
   // Closing a period = downloading its report, then creating an État de compte linked to the
@@ -3076,7 +3079,7 @@ function ArtistApp({ cfg }) {
       net: r.calc.net + pendingTotal,
       soldePrecedent: r.calc.soldePrecedent,
       totalPaiements: r.calc.totalPaiements,
-      soldeFermeture: r.calc.soldePrecedent + soldeVariation(r.calc.net + pendingTotal, r.calc.producteurPart) - r.calc.totalPaiements,
+      soldeFermeture: soldeApresNet(r.calc.soldePrecedent, r.calc.net + pendingTotal, r.calc.producteurPart) - r.calc.totalPaiements,
     };
     // supaEntryKey derives from period and supaRefreshKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
