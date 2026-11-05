@@ -1340,7 +1340,9 @@ function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, sol
       const first = Array.isArray(linked) ? linked[0] : null;
       const id = first?.id || first?.value?.id || first?.linkedRecordId;
       const key = id || `name:${nom.trim()}`;
-      const nonPayable = !!(ayantsNonPayableField && rec.getCellValue(ayantsNonPayableField));
+      // Checkbox, or a lookup of one (array of values, possibly wrapped in { value }).
+      const np = ayantsNonPayableField ? rec.getCellValue(ayantsNonPayableField) : null;
+      const nonPayable = Array.isArray(np) ? np.some((v) => !!(v && typeof v === "object" ? v.value : v)) : !!np;
       return { key, nom, part: Number(rec.getCellValue(ayantsPartField)) || 0, nonPayable };
     });
 
