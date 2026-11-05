@@ -1064,6 +1064,7 @@ async function fillCanalReport({
         date,
         mode_paiement: str(rec, revenusModePaiementField),
         fournisseur: str(rec, revenusFournisseurField),
+        client: str(rec, revenusFournisseurField), // templates label this column CLIENT
         poste: notes || categorie,
         artiste: str(rec, revenusArtisteField),
         categorie,
@@ -1079,24 +1080,59 @@ async function fillCanalReport({
   const net = totalRevenus - totalDepenses;
   // Only the period's net is split; the solde is global and carried until paid (52xx).
   const soldeFermeture = soldeApresNet(soldePrecedent, net, producteurPartOf(ayantsDroits)) - totalPaiements;
+  // A profit first recoups a carried deficit; only the rest is split (same as the template's
+  // TOTAL À SPLITER formula and the canal page's Ayants-droits section).
+  const aPartager = netAPartager(soldePrecedent, net);
   tags.total_revenus = totalRevenus;
   tags.total_depenses = totalDepenses;
   tags.net = net;
-  tags.total_a_spliter = net;
+  tags.total_a_spliter = aPartager;
   tags.solde_precedent = soldePrecedent;
   tags.total_paiements = totalPaiements;
   tags.solde_fermeture = soldeFermeture;
   tags.deficit_reporte = Math.min(soldeFermeture, 0);
 
   // A period at a loss is not split: the loss stays in the solde.
-  const ayant_droit = ayantsDroits.map((a) => ({ nom: a.nom, part: a.part, montant: Math.max(net, 0) * a.part }));
+  const ayant_droit = ayantsDroits.map((a) => ({
+    nom: a.nom, part: a.part, montant: aPartager * a.part, statut: a.nonPayable ? "Non payable" : "",
+  }));
+
+  // Solde reporté = what the solde carries besides this period's payable share (solde
+  // précédent − paiements, or what is left of a deficit). Only the payable ayants-droits
+  // are ever paid, so a positive one is split between them, prorated to their parts.
+  const payables = ayantsDroits.filter((a) => !a.nonPayable);
+  const payablePart = payables.reduce((s, a) => s + a.part, 0);
+  const soldeReporte = soldeFermeture - aPartager * payablePart;
+  const shareOf = (a) => (payablePart > 0 ? a.part / payablePart : 0);
+  const report_ayant = soldeReporte > 0.005
+    ? payables.map((a) => ({ nom: a.nom, montant: soldeReporte * shareOf(a) }))
+    : [];
+  // Total dû per payable ayant-droit: its share of the period + of the solde reporté
+  // (sums to the Solde fermeture).
+  const du_ayant = payables.map((a) => ({
+    nom: a.nom, montant: aPartager * a.part + Math.max(soldeReporte, 0) * shareOf(a),
+  }));
+  Object.assign(tags, {
+    "deficit.solde_precedent": soldePrecedent,
+    "report.solde_precedent": Math.max(soldePrecedent, 0),
+    "report.paiements": totalPaiements,
+    "report.montant": soldeReporte,
+    "report.vide": "",
+    "du.vide": "",
+  });
 
   // Month rows beyond the period (m2…m6 of a monthly report) are removed, not left empty.
   const dropPrefixes = Array.from({ length: Math.max(0, 6 - period.months.length) }, (_, i) => `m${period.months.length + i + 1}`);
-  fillTemplate(ws, { tags, blocks: { depense, revenu, paiement, ayant_droit }, dropPrefixes });
+  // Rows shown only when they apply: the solde précédent above the partage when it is a
+  // deficit (recouped first), the solde reporté block when there is one, the total dû when
+  // something is due.
+  if (soldePrecedent >= 0) dropPrefixes.push("deficit");
+  if (soldePrecedent <= 0 && totalPaiements === 0) dropPrefixes.push("report", "report_ayant");
+  if (soldeFermeture <= 0 || !payables.length) dropPrefixes.push("du", "du_ayant");
+  fillTemplate(ws, { tags, blocks: { depense, revenu, paiement, ayant_droit, report_ayant, du_ayant }, dropPrefixes });
 
   const parts = ayantsDroits.map((a, i) => ({ key: a.key, nom: a.nom, montant: ayant_droit[i].montant }));
-  return { wb, ws, totals: { totalRevenus, totalDepenses, net, soldePrecedent, totalPaiements, soldeFermeture }, parts };
+  return { wb, ws, totals: { totalRevenus, totalDepenses, net, aPartager, soldePrecedent, totalPaiements, soldeFermeture }, parts };
 }
 
 async function downloadWorkbook(wb, filename) {
@@ -1156,7 +1192,7 @@ async function buildArtistWorkbook({ artistName, period, items }) {
   const amountCols = [
     { header: "Revenus", width: 16, get: (r) => r.totalRevenus },
     { header: "Dépenses", width: 16, get: (r) => r.totalDepenses },
-    { header: "Net (à partager)", width: 18, get: (r) => r.net },
+    { header: "Net (à partager)", width: 18, get: (r) => r.aPartager },
     ...ayantKeys.map((key) => ({
       header: ayants.get(key), width: Math.min(Math.max(ayants.get(key).length * 0.6, 16), 24), get: (r) => (r.montants.has(key) ? r.montants.get(key) : null),
     })),
@@ -1229,6 +1265,9 @@ function soldeApresNet(soldePrecedent, net, producteurPart) {
   const recoup = Math.min(net, Math.max(-soldePrecedent, 0));
   return soldePrecedent + recoup + (net - recoup) * (1 - producteurPart);
 }
+
+// What the ayants-droits split: the period's profit left after recouping a carried deficit.
+const netAPartager = (soldePrecedent, net) => Math.max(net - Math.max(-soldePrecedent, 0), 0);
 
 const producteurPartOf = (ayantsDroits) => ayantsDroits.reduce((s, a) => s + (a.nonPayable ? a.part : 0), 0);
 
@@ -2005,7 +2044,17 @@ function SaisiesEditor({ title, rows, onChange, comptes, monthIndices }) {
 
 // --- KPI tile ---
 
-function KpiTile({ label, value, accent }) {
+const SOLDE_FERMETURE_INFO = "Solde payable, après partage : la part des ayants-droits non payables "
+  + "(ex. producteur) est exclue quand la période est profitable. Une perte n'est pas partagée : "
+  + "le déficit s'accumule d'une période à l'autre jusqu'à redevenir positif. C'est ce montant "
+  + "qui est reporté à la clôture.";
+
+const NET_A_PARTAGER_INFO = "Revenus − dépenses de la période, moins le déficit reporté s'il y en a un. "
+  + "C'est ce montant qui est partagé entre les ayants-droits. Une perte n'est pas partagée (0 $).";
+
+// `sub` = optional small pale line under the value (e.g. the period's paiements).
+// `info` = optional tooltip text, shown on hover of an ⓘ next to the label.
+function KpiTile({ label, value, accent, sub, info }) {
   const accentClasses = {
     green: "text-green-greenDark1",
     red: "text-red-redDark1",
@@ -2013,10 +2062,71 @@ function KpiTile({ label, value, accent }) {
   };
   return (
     <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4">
-      <div className="text-sm text-gray-gray500 dark:text-gray-gray300 uppercase tracking-wide">{label}</div>
+      <div className="text-sm text-gray-gray500 dark:text-gray-gray300 uppercase tracking-wide flex items-center gap-1">
+        {label}
+        {info && (
+          <span className="relative group normal-case tracking-normal">
+            <span className="cursor-help inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray500 dark:text-gray-gray200">
+              i
+            </span>
+            <span className="hidden group-hover:block absolute left-0 top-6 z-20 w-72 max-w-[calc(100vw-2rem)] p-3 rounded-lg shadow-lg bg-white dark:bg-gray-gray700 border border-gray-gray200 dark:border-gray-gray600 text-xs text-gray-gray700 dark:text-gray-gray100">
+              {info}
+            </span>
+          </span>
+        )}
+      </div>
       <div className={`text-3xl font-display font-bold mt-1 ${accentClasses[accent] || "text-gray-gray700 dark:text-gray-gray100"}`}>
         {fmtCurrency(value)}
       </div>
+      {sub && <div className="text-xs text-gray-gray400 dark:text-gray-gray400 mt-1">{sub}</div>}
+    </div>
+  );
+}
+
+// Each ayant-droit's share of `aPartager` (the period's profit after recouping a carried
+// deficit, see netAPartager). Non-payable shares (e.g. the producer) are flagged: they stay
+// out of the solde.
+function AyantsDroitsTable({ ayantsDroits, aPartager }) {
+  const rows = ayantsDroits.map((a) => ({ ...a, montant: aPartager * a.part }));
+  const totalPart = rows.reduce((s, r) => s + r.part, 0);
+  const totalMontant = rows.reduce((s, r) => s + r.montant, 0);
+  const fmtPct = (p) => `${(p * 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-gray-gray500 dark:text-gray-gray300 border-b border-gray-gray200 dark:border-gray-gray600">
+            <th className="p-2">Nom</th>
+            <th className="p-2 text-right">Part</th>
+            <th className="p-2 text-right">Montant</th>
+            <th className="p-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.key} className="border-b border-gray-gray100 dark:border-gray-gray600 text-gray-gray700 dark:text-gray-gray100">
+              <td className="p-2">{r.nom || "—"}</td>
+              <td className="p-2 text-right whitespace-nowrap">{fmtPct(r.part)}</td>
+              <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(r.montant)}</td>
+              <td className="p-2">
+                {r.nonPayable && (
+                  <span className="inline-block rounded-full px-2 py-0.5 text-xs bg-gray-gray100 text-gray-gray600 dark:bg-gray-gray600 dark:text-gray-gray200">
+                    Non payable
+                  </span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="font-semibold text-gray-gray700 dark:text-gray-gray100">
+            <td className="p-2">Total</td>
+            <td className="p-2 text-right whitespace-nowrap">{fmtPct(totalPart)}</td>
+            <td className="p-2 text-right whitespace-nowrap">{fmtCurrency(totalMontant)}</td>
+            <td className="p-2"></td>
+          </tr>
+        </tfoot>
+      </table>
     </div>
   );
 }
@@ -2506,7 +2616,10 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
   // Revenus of the period: the opening-balance entries count in Solde précédent instead.
   const totalRevenus = calc.totalRevenus + sumInputs(revenusInputs) + saisiesTotals.revenu - soldeSaisiesTotal;
   const totalPaiements = calc.totalPaiements;
-  const soldeFermeture = soldeApresNet(soldePrecedent, totalRevenus - totalDepenses, calc.producteurPart) - totalPaiements;
+  const net = totalRevenus - totalDepenses;
+  // What is due and carried (written on the État at clôture): a loss adds to the deficit in
+  // full; a profit leaves out the non-payable share (see soldeApresNet).
+  const soldeFermeture = soldeApresNet(soldePrecedent, net, calc.producteurPart) - totalPaiements;
 
   // --- Clôture ---
   // Closing a period = downloading its report, then creating an État de compte linked to the
@@ -2703,12 +2816,13 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
       )}
 
       {/* KPIs stay pinned while scrolling (sm+ only: stacked on mobile they'd eat the screen). */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${soldeFermeture > 0 ? "lg:grid-cols-6" : "lg:grid-cols-5"} gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800`}>
         <KpiTile label="Total Revenus" value={totalRevenus} accent="green" />
         <KpiTile label="Total Dépenses" value={totalDepenses} accent="red" />
-        <KpiTile label="Solde précédent" value={soldePrecedent} />
-        <KpiTile label="Paiements" value={totalPaiements} />
-        <KpiTile label="Solde fermeture" value={soldeFermeture} accent={soldeFermeture < 0 ? "red" : "blue"} />
+        <KpiTile label="Solde précédent" value={soldePrecedent} sub={`Paiements : ${fmtCurrency(totalPaiements)}`} />
+        <KpiTile label="Total à partager" value={netAPartager(soldePrecedent, net)} info={NET_A_PARTAGER_INFO} />
+        <KpiTile label="Solde fermeture" value={soldeFermeture} accent={soldeFermeture < 0 ? "red" : undefined} info={SOLDE_FERMETURE_INFO} />
+        {soldeFermeture > 0 && <KpiTile label="Total Due" value={soldeFermeture} accent="blue" />}
       </div>
 
       <div className="relative bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-4">
@@ -2813,6 +2927,26 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
           periodStart={periodStart}
         />
       </div>
+
+      {ayantsDroits.length > 0 && (
+        <>
+          <h2 className="text-2xl font-display font-bold text-gray-gray700 dark:text-gray-gray100 mt-2 mb-3">
+            Ayants-droits
+          </h2>
+          <div className="bg-white dark:bg-gray-gray700 rounded-lg shadow-sm p-4 mb-6">
+            <h3 className="text-base font-semibold text-gray-gray700 dark:text-gray-gray100 mb-1">
+              Partage du net de la période{net <= 0 ? " (perte : rien à partager)" : ""}
+            </h3>
+            {net > 0 && soldePrecedent < 0 && (
+              <p className="text-xs text-gray-gray500 dark:text-gray-gray300 mb-2">
+                Net {fmtCurrency(net)} − déficit reporté {fmtCurrency(Math.min(net, -soldePrecedent))}
+                {" "}= {fmtCurrency(netAPartager(soldePrecedent, net))} à partager.
+              </p>
+            )}
+            <AyantsDroitsTable ayantsDroits={ayantsDroits} aPartager={netAPartager(soldePrecedent, net)} />
+          </div>
+        </>
+      )}
 
       {paiementCompteIds.size > 0 && (
         <>
@@ -3083,6 +3217,7 @@ function ArtistApp({ cfg }) {
       soldePrecedent: r.calc.soldePrecedent,
       totalPaiements: r.calc.totalPaiements,
       soldeFermeture: soldeApresNet(r.calc.soldePrecedent, r.calc.net + pendingTotal, r.calc.producteurPart) - r.calc.totalPaiements,
+      aPartager: netAPartager(r.calc.soldePrecedent, r.calc.net + pendingTotal),
     };
     // supaEntryKey derives from period and supaRefreshKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3347,16 +3482,18 @@ function ArtistApp({ cfg }) {
       )}
 
       {/* Totals of the ticked canaux; pinned while scrolling like the canal page's KPIs. */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${sumOf("soldeFermeture") > 0 ? "lg:grid-cols-6" : "lg:grid-cols-5"} gap-3 mb-4 sm:sticky sm:top-0 sm:z-10 sm:py-2 bg-gray-gray50 dark:bg-gray-gray800`}>
         <KpiTile label="Total Revenus" value={sumOf("totalRevenus")} accent="green" />
         <KpiTile label="Total Dépenses" value={sumOf("totalDepenses")} accent="red" />
-        <KpiTile label="Solde précédent" value={sumOf("soldePrecedent")} />
-        <KpiTile label="Paiements" value={sumOf("totalPaiements")} />
+        <KpiTile label="Solde précédent" value={sumOf("soldePrecedent")} sub={`Paiements : ${fmtCurrency(sumOf("totalPaiements"))}`} />
+        <KpiTile label="Total à partager" value={sumOf("aPartager")} info={NET_A_PARTAGER_INFO} />
         <KpiTile
           label="Solde fermeture"
           value={sumOf("soldeFermeture")}
-          accent={sumOf("soldeFermeture") < 0 ? "red" : "blue"}
+          accent={sumOf("soldeFermeture") < 0 ? "red" : undefined}
+          info={SOLDE_FERMETURE_INFO}
         />
+        {sumOf("soldeFermeture") > 0 &&<KpiTile label="Total Due" value={sumOf("soldeFermeture")} accent="blue" />}
       </div>
       <div className="-mt-2 mb-4 text-xs text-gray-gray500">
         Totaux des {selectedRows.length} {selectedRows.length > 1 ? "canaux cochés" : "canal coché"}
