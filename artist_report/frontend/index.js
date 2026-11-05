@@ -1425,7 +1425,8 @@ function buildEtatFields({ cfg, canalId, artisteId, period, calc, soldeFermeture
     [cfg.etatsDepensesLinkField.id]: [...calc.existingDepenses, ...calc.existingPaiements].map((r) => ({ id: r.id })),
   };
   // Solde d'ouverture may be computed in Airtable (formula/rollup): only set it when writable.
-  if (!cfg.etatsOuvertureField.isComputed) fields[cfg.etatsOuvertureField.id] = round2(calc.soldeFermeturePrecedent);
+  // It is the solde précédent shown on screen: previous État + 4000 / 5000 entries.
+  if (!cfg.etatsOuvertureField.isComputed) fields[cfg.etatsOuvertureField.id] = round2(calc.soldePrecedent);
   // Solde fermeture is frozen at clôture, so later edits to linked entries don't change
   // the next period's solde précédent.
   if (cfg.etatsFermetureField && !cfg.etatsFermetureField.isComputed) {
