@@ -280,6 +280,7 @@ function getCustomProperties(base) {
     { key: "ayantsCanalLinkField", label: "Lien Canal (Ayants-droits)", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField },
     { key: "ayantsNomField", label: "Champ Nom (Ayants-droits) — ex. lien Organismes", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField },
     { key: "ayantsPartField", label: "Champ Part % (Ayants-droits)", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField },
+    { key: "ayantsNonPayableField", label: "Case Non payable — ex. producteur (Ayants-droits, optionnel)", type: "field", table: ayantsTable, shouldFieldBeAllowed: anyField },
 
     // --- États de compte ---
     { key: "etatsTable", label: "Table des États de compte", type: "table" },
@@ -1077,7 +1078,7 @@ async function fillCanalReport({
   const totalPaiements = paiement.reduce((s, p) => s + p.montant, 0);
   const net = totalRevenus - totalDepenses;
   // Only the period's net is split; the solde is global and carried until paid (52xx).
-  const soldeFermeture = soldePrecedent + net - totalPaiements;
+  const soldeFermeture = soldePrecedent + soldeVariation(net, producteurPartOf(ayantsDroits)) - totalPaiements;
   tags.total_revenus = totalRevenus;
   tags.total_depenses = totalDepenses;
   tags.net = net;
@@ -1219,13 +1220,22 @@ async function buildArtistWorkbook({ artistName, period, items }) {
 //   open     no État dated on or after the period start
 // Open period: unlinked entries of the period, plus rattrapages (older unlinked
 // entries) when the previous État closed the period right before this one.
+// Change of the solde over a period. A profit only adds the payable ayants-droits' share:
+// the non-payable ones (e.g. the producer) are never paid in 52xx, so their share would
+// pile up in the solde. A loss is carried in full.
+function soldeVariation(net, producteurPart) {
+  return net > 0 ? net * (1 - producteurPart) : net;
+}
+
+const producteurPartOf = (ayantsDroits) => ayantsDroits.reduce((s, a) => s + (a.nonPayable ? a.part : 0), 0);
+
 function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, soldeCompteId, soldeReporteCompteId, paiementCompteIds }) {
   const {
     revenusCanalLinkField, revenusDateField, revenusDateWriteField, revenusMontantField,
     revenusCategorieField, revenusEtatLinkField, revenusNotesField,
     depensesCanalLinkField, depensesDateField, depensesDateWriteField, depensesMontantField,
     depensesCategorieField, depensesEtatLinkField,
-    ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField,
+    ayantsTable, ayantsCanalLinkField, ayantsNomField, ayantsPartField, ayantsNonPayableField,
     etatsTable, etatsCanalLinkField, etatsDateField, etatsFermetureField,
   } = cfg;
 
@@ -1327,7 +1337,8 @@ function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, sol
       const first = Array.isArray(linked) ? linked[0] : null;
       const id = first?.id || first?.value?.id || first?.linkedRecordId;
       const key = id || `name:${nom.trim()}`;
-      return { key, nom, part: Number(rec.getCellValue(ayantsPartField)) || 0 };
+      const nonPayable = !!(ayantsNonPayableField && rec.getCellValue(ayantsNonPayableField));
+      return { key, nom, part: Number(rec.getCellValue(ayantsPartField)) || 0, nonPayable };
     });
 
   const sum = (recs, f) => (!f ? 0 : recs.reduce((s, r) => s + (Number(r.getCellValue(f)) || 0), 0));
@@ -1344,6 +1355,8 @@ function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, sol
   const totalRevenus = sum(existingRevenus, revenusMontantField) - soldeEntriesTotal;
   const totalDepenses = sum(existingDepenses, depensesMontantField) - soldeReporteEntriesTotal;
   const totalPaiements = sum(existingPaiements, depensesMontantField);
+  const producteurPart = producteurPartOf(ayantsDroits);
+  const net = totalRevenus - totalDepenses;
 
   return {
     status, previousEtat, currentEtat, innerEtats, orphanCount,
@@ -1352,11 +1365,11 @@ function computeCanalPeriod({ canalId, period, cfg, records, revenusChoices, sol
     reportRevenus: existingRevenus.filter((r) => !gridIds.has(r.id) && !isSoldeEntry(r)),
     reportDepenses: existingDepenses.filter((r) => !isSoldeReporteEntry(r)),
     soldeEntriesTotal, soldeReporteEntriesTotal, soldeFermeturePrecedent, soldePrecedent,
-    totalRevenus, totalDepenses, totalPaiements,
+    totalRevenus, totalDepenses, totalPaiements, producteurPart,
     // Net of the period: what the ayants-droits split. The solde is global: it carries
     // over (positive or not) until 52xx payments bring it down.
-    net: totalRevenus - totalDepenses,
-    soldeFermeture: totalRevenus - totalDepenses + soldePrecedent - totalPaiements,
+    net,
+    soldeFermeture: soldePrecedent + soldeVariation(net, producteurPart) - totalPaiements,
   };
 }
 
@@ -1396,7 +1409,8 @@ function clotureBlockerFor(cfg, calc) {
 
 // Fields of the État de compte closing `period` for a canal. Paiement = the 52xx payments
 // dated in the period (usually 0: a balance is paid after its clôture). Solde fermeture =
-// solde précédent + net − paiements, carried as the next period's solde précédent.
+// solde précédent + net (payable share when positive) − paiements, carried as the next
+// period's solde précédent.
 // `extraRevenuIds` = revenus created just before (Believe/Shopify amounts saved at clôture).
 function buildEtatFields({ cfg, canalId, artisteId, period, calc, soldeFermeture, extraRevenuIds = [] }) {
   const round2 = (v) => Math.round(v * 100) / 100;
@@ -2486,7 +2500,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
   // Revenus of the period: the opening-balance entries count in Solde précédent instead.
   const totalRevenus = calc.totalRevenus + sumInputs(revenusInputs) + saisiesTotals.revenu - soldeSaisiesTotal;
   const totalPaiements = calc.totalPaiements;
-  const soldeFermeture = totalRevenus - totalDepenses + soldePrecedent - totalPaiements;
+  const soldeFermeture = soldePrecedent + soldeVariation(totalRevenus - totalDepenses, calc.producteurPart) - totalPaiements;
 
   // --- Clôture ---
   // Closing a period = downloading its report, then creating an État de compte linked to the
@@ -3062,7 +3076,7 @@ function ArtistApp({ cfg }) {
       net: r.calc.net + pendingTotal,
       soldePrecedent: r.calc.soldePrecedent,
       totalPaiements: r.calc.totalPaiements,
-      soldeFermeture: r.calc.soldeFermeture + pendingTotal,
+      soldeFermeture: r.calc.soldePrecedent + soldeVariation(r.calc.net + pendingTotal, r.calc.producteurPart) - r.calc.totalPaiements,
     };
     // supaEntryKey derives from period and supaRefreshKey.
     // eslint-disable-next-line react-hooks/exhaustive-deps
