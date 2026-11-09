@@ -7,6 +7,7 @@ import {
 } from "@airtable/blocks/interface/ui";
 import ExcelJS from "exceljs";
 import { fillTemplate, fixOverlappingMerges, normalizeWorkbookForExcel, copyWorksheet } from "./excelTemplate";
+import { fetchSousDistributionLines, buildSousDistributionWorkbook } from "./sousDistribution";
 import "./style.css";
 
 // --- Helpers ---
@@ -1608,7 +1609,9 @@ const royaltiesSourceKey = (cfg) =>
     ? `api|${trimmed(cfg.royaltiesApiUrl)}|${trimmed(cfg.royaltiesApiToken)}`
     : `anon|${cfg.supabaseUrl}|${cfg.supabaseAnonKey}|${cfg.clientId}`;
 
-async function postRoyaltiesApi(cfg, body) {
+// The API's JSON as is: `{ rows }` for the summaries, an object of its own for the
+// sub-distribution lines (see sousDistribution.js).
+async function postRoyaltiesApiJson(cfg, body) {
   const response = await fetch(trimmed(cfg.royaltiesApiUrl), {
     method: "POST",
     headers: {
@@ -1626,7 +1629,11 @@ async function postRoyaltiesApi(cfg, body) {
   if (!response.ok) {
     throw new Error(`Erreur API royalties: ${response.status} ${response.statusText}`);
   }
-  return (await response.json()).rows;
+  return response.json();
+}
+
+async function postRoyaltiesApi(cfg, body) {
+  return (await postRoyaltiesApiJson(cfg, body)).rows;
 }
 
 // get_royalties_summary rows. Without `sources` the server returns Believe only.
@@ -3338,6 +3345,44 @@ function ArtistApp({ cfg }) {
     }
   };
 
+  // Sub-distribution report: every Believe line of the ticked canaux, one sheet per
+  // canal (see sousDistribution.js). Reads only, needs no template; token path only.
+  const sousDistBlocker = selectedRows.length === 0
+    ? "Coche au moins un canal."
+    : !usesRoyaltiesToken(cfg)
+    ? "Configure l'URL et le jeton de l'API royalties pour le rapport de sous-distribution."
+    : selectedRows.every((r) => r.isrcs.length === 0 && r.upcs.length === 0)
+    ? "Aucun ISRC ni UPC dans les Oeuvres des canaux cochés."
+    : null;
+  const handleSousDistribution = async () => {
+    if (sousDistBlocker || step) return;
+    setStep("sousdist");
+    setMsg("Lecture des lignes Believe…");
+    try {
+      const linesByCanal = await fetchSousDistributionLines({
+        post: (body) => postRoyaltiesApiJson(cfg, body),
+        canaux: selectedRows.map((r) => ({ id: r.id, isrcs: r.isrcs, upcs: r.upcs })),
+        period,
+        onProgress: setMsg,
+      });
+      setMsg("Génération du rapport de sous-distribution…");
+      const wb = buildSousDistributionWorkbook({
+        artistName: selectedArtist.name,
+        period,
+        canaux: selectedRows.map((r) => ({ name: r.name, lines: linesByCanal.get(r.id) || [] })),
+        uniqueSheetName,
+      });
+      await downloadWorkbook(wb, `SousDistribution_${safeFileName(selectedArtist.name)}_${period.fileLabel}.xlsx`);
+      const count = [...linesByCanal.values()].reduce((s, l) => s + l.length, 0);
+      setMsg(`Rapport de sous-distribution téléchargé (${count.toLocaleString("fr-FR")} lignes Believe).`);
+    } catch (err) {
+      console.error("Sous-distribution export failed:", err);
+      setMsg(`Erreur sous-distribution : ${err.message || err}`);
+    } finally {
+      setStep(null);
+    }
+  };
+
   // Report first (nothing is closed if it fails), then for each ticked canal: save its
   // Believe/Shopify amounts as Revenus, and create its État de compte linking them.
   const handleCloture = async () => {
@@ -3531,6 +3576,10 @@ function ArtistApp({ cfg }) {
               <p><strong>2. Générer le rapport</strong><br />
                 Télécharge un seul fichier Excel : un onglet Sommaire, puis l&apos;état de compte de chaque canal coché
                 (rempli avec le template du canal).</p>
+              <p><strong>Rapport de sous-distribution</strong><br />
+                Télécharge un fichier Excel avec toutes les lignes Believe (plateforme, pays, type de vente, quantité,
+                brut, net) des canaux cochés pour la période : un onglet Sommaire, puis un onglet par canal avec un
+                sous-total par mois. Ne modifie rien dans Airtable.</p>
               <p><strong>3. Fermer la période</strong><br />
                 Télécharge le rapport, puis crée un état de compte par canal coché, comme le bouton « Clôturer la
                 période » d&apos;un canal. Seules les périodes ouvertes peuvent être fermées.</p>
@@ -3675,6 +3724,18 @@ function ArtistApp({ cfg }) {
           }`}
         >
           {step === "export" ? "Génération…" : `Générer le rapport (${selectedRows.length})`}
+        </button>
+        <button
+          onClick={handleSousDistribution}
+          disabled={!!sousDistBlocker || busy}
+          title={sousDistBlocker || "Toutes les lignes Believe des canaux cochés : un onglet par canal, plus un sommaire."}
+          className={`px-4 py-2 rounded text-sm font-medium border ${
+            sousDistBlocker || busy
+              ? "bg-gray-gray200 text-gray-gray500 border-gray-gray200 cursor-not-allowed"
+              : "bg-white dark:bg-gray-gray700 text-gray-gray700 dark:text-gray-gray100 border-gray-gray200 dark:border-gray-gray600 hover:bg-gray-gray50 dark:hover:bg-gray-gray800"
+          }`}
+        >
+          {step === "sousdist" ? "Génération…" : `Rapport de sous-distribution (${selectedRows.length})`}
         </button>
         {step === "confirm" ? (
           <>
