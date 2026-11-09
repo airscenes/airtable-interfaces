@@ -1,29 +1,37 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { PRESETS } from "../utils/constants";
-import { aggregateSalesByDate } from "../utils/salesData";
+import { HOME_PRESETS as PRESETS } from "../utils/constants";
+import { aggregateSalesByDate, dailySalesSeries } from "../utils/salesData";
 import { fetchSalesReport, hasSalesSource, salesSourceKey } from "../utils/salesReport";
-import { SalesChart } from "./SalesChart";
+import { DailySalesChart } from "./DailySalesChart";
 
-// --- Home aggregate chart: total sales across every representation ---
+// --- Home overview: daily sales across every representation ---
+// Bars = tickets sold per day (DailySalesChart). The spectacle / event pages
+// keep the cumulative SalesChart. `data` (cumulative) only feeds the overall
+// KPIs when no period is selected.
 
 export function HomeSalesChart({ repIds, salesSource }) {
   const [data, setData] = useState([]);
+  const [daily, setDaily] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [dateFrom, setDateFrom] = useState("");
+  // Default range: the last 3 months (same bounds as the "3m" preset: dateFrom
+  // = 3 months ago, dateTo empty). The spectacle pages keep their own default.
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 3);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
   const [dateTo, setDateTo] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const cacheRef = useRef(new Map());
   const idsStr = useMemo(() => [...repIds].sort().join(","), [repIds]);
-
-  // Note: dateFrom/dateTo above default to empty (full range) for the global
-  // overview; the 7-day default is applied to the per-spectacle detail chart.
 
   const sourceKey = salesSourceKey(salesSource);
 
   useEffect(() => {
     if (!hasSalesSource(salesSource) || !idsStr) {
       setData([]);
+      setDaily([]);
       return;
     }
     const today = new Date().toISOString().split("T")[0];
@@ -33,7 +41,9 @@ export function HomeSalesChart({ repIds, salesSource }) {
     const run = async () => {
       if (cacheRef.current.has(cacheKey)) {
         if (!didCancel) {
-          setData(cacheRef.current.get(cacheKey));
+          const cached = cacheRef.current.get(cacheKey);
+          setData(cached.cumulative);
+          setDaily(cached.daily);
           setLoading(false);
         }
         return;
@@ -48,9 +58,11 @@ export function HomeSalesChart({ repIds, salesSource }) {
           () => didCancel,
         );
         if (rows === null || didCancel) return;
-        const formatted = aggregateSalesByDate(rows);
-        cacheRef.current.set(cacheKey, formatted);
-        setData(formatted);
+        const cumulative = aggregateSalesByDate(rows);
+        const dailyRows = dailySalesSeries(rows);
+        cacheRef.current.set(cacheKey, { cumulative, daily: dailyRows });
+        setData(cumulative);
+        setDaily(dailyRows);
         setLoading(false);
       } catch (err) {
         if (!didCancel) {
@@ -84,30 +96,24 @@ export function HomeSalesChart({ repIds, salesSource }) {
     return null;
   }, [dateFrom, dateTo]);
 
-  const filteredData = useMemo(() => {
-    if (!data.length) return data;
-    let d = data;
+  const filteredDaily = useMemo(() => {
+    let d = daily;
     if (dateFrom) d = d.filter((x) => x.date >= dateFrom);
     if (dateTo) d = d.filter((x) => x.date <= dateTo);
-    if (d.length === 1 && dateTo && d[0].date !== dateTo) {
-      d = [...d, { ...d[0], date: dateTo, dateLabel: dateTo }];
-    }
     return d;
-  }, [data, dateFrom, dateTo]);
+  }, [daily, dateFrom, dateTo]);
 
-  // Delta between the point just before the range and the last point in range.
+  // Period KPIs = sum of the bars in range, so they always match the chart.
   const periodStats = useMemo(() => {
-    if (filteredData.length < 1) return null;
-    const first = filteredData[0];
-    const last = filteredData[filteredData.length - 1];
-    const baseIndex = data.indexOf(first);
-    const baseRow =
-      baseIndex > 0 ? data[baseIndex - 1] : { ventes: 0, total_dollars: 0 };
-    return {
-      ventesInPeriod: last.ventes - baseRow.ventes,
-      revenusInPeriod: last.total_dollars - baseRow.total_dollars,
-    };
-  }, [filteredData, data]);
+    if (filteredDaily.length < 1) return null;
+    let ventesInPeriod = 0;
+    let revenusInPeriod = 0;
+    for (const d of filteredDaily) {
+      ventesInPeriod += d.ventes;
+      revenusInPeriod += d.revenus || 0;
+    }
+    return { ventesInPeriod, revenusInPeriod };
+  }, [filteredDaily]);
 
   const hasFilter = !!(dateFrom || dateTo);
   const kpis = useMemo(() => {
@@ -116,10 +122,7 @@ export function HomeSalesChart({ repIds, salesSource }) {
         { value: "—", label: "Billets vendus" },
         { value: "—", label: "Revenus" },
       ];
-    const last =
-      filteredData.length > 0
-        ? filteredData[filteredData.length - 1]
-        : data[data.length - 1];
+    const last = data[data.length - 1];
     if (hasFilter && periodStats) {
       return [
         {
@@ -141,7 +144,7 @@ export function HomeSalesChart({ repIds, salesSource }) {
         label: "Revenus",
       },
     ];
-  }, [data, filteredData, hasFilter, periodStats]);
+  }, [data, hasFilter, periodStats]);
 
   const setPreset = (key) => {
     const now = new Date();
@@ -236,7 +239,7 @@ export function HomeSalesChart({ repIds, salesSource }) {
           {error}
         </div>
       ) : (
-        <SalesChart data={filteredData} zoom={hasFilter} height={280} />
+        <DailySalesChart data={filteredDaily} height={280} />
       )}
     </div>
   );

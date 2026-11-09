@@ -432,6 +432,8 @@ function SalesChartLoaded({ base, cp }) {
         allReps={allRepresentationsSorted}
         repRecords={repRecords}
         repColumns={repColumns}
+        salesSource={salesSource}
+        salesWindow={cp.salesWindow || "7d"}
         onBack={() => setView("gallery")}
       />
     );

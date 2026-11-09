@@ -145,6 +145,73 @@ export function computeWeekDeltas(rows, startISO, endISO) {
   return out;
 }
 
+// Daily (non-cumulative) sales across every representation, one point per
+// calendar day: [{ date, dateLabel, ventes, revenus }]. rows: [{ record_id,
+// date, sold, total }].
+// - ventes = sum over reps of the day's increase of the cumulative `sold`
+//   (running max, so transient dips never count as negative sales).
+// - revenus = each rep's increase × its net unit price, avg(total/sold), the
+//   same pricing as computeWeekDeltas (`total` lags `sold`, so its own delta
+//   is unreliable on recent days). null when no rep sold with a known price.
+// - The first day of the data set is dropped: it holds everything sold before
+//   tracking began, not one day of sales. A rep appearing later counts from 0.
+// - Days without any report get 0, so the axis stays continuous.
+export function dailySalesSeries(rows) {
+  const byRec = {};
+  const days = new Set();
+  for (const r of rows) {
+    const day = r.date ? r.date.split("T")[0] : r.date;
+    if (!day) continue;
+    days.add(day);
+    const rec = (byRec[r.record_id] = byRec[r.record_id] || { soldByDay: {}, ratioSum: 0, ratioCount: 0 });
+    const sold = Number(r.sold) || 0;
+    const total = parseFloat(r.total) || 0;
+    if (sold > (rec.soldByDay[day] || 0)) rec.soldByDay[day] = sold;
+    else if (!(day in rec.soldByDay)) rec.soldByDay[day] = sold;
+    if (total > 0 && sold > 0) {
+      rec.ratioSum += total / sold;
+      rec.ratioCount += 1;
+    }
+  }
+  const sorted = [...days].sort();
+  if (sorted.length < 2) return [];
+  const recs = Object.values(byRec).map((rec) => ({
+    soldByDay: rec.soldByDay,
+    prixNet: rec.ratioCount > 0 ? rec.ratioSum / rec.ratioCount : null,
+    last: null, // running max of cumulative sold so far
+  }));
+  const nextDay = (iso) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    const dt = new Date(y, m - 1, d + 1);
+    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  };
+  const out = [];
+  const firstDay = sorted[0];
+  const lastDay = sorted[sorted.length - 1];
+  for (let day = firstDay; day <= lastDay; day = nextDay(day)) {
+    let ventes = 0;
+    let revenus = 0;
+    let hasRevenue = false;
+    for (const rec of recs) {
+      if (!(day in rec.soldByDay)) continue;
+      const prev = rec.last;
+      const cur = Math.max(prev ?? 0, rec.soldByDay[day]);
+      rec.last = cur;
+      if (day === firstDay) continue;
+      const delta = cur - (prev ?? 0);
+      if (delta <= 0) continue;
+      ventes += delta;
+      if (rec.prixNet != null) {
+        revenus += delta * rec.prixNet;
+        hasRevenue = true;
+      }
+    }
+    if (day === firstDay) continue;
+    out.push({ date: day, dateLabel: formatDate(day), ventes, revenus: hasRevenue ? revenus : null });
+  }
+  return out;
+}
+
 // The last `n` weeks as Monday boundaries, oldest→newest, ending with the
 // current week's Monday (most recent Monday on/before `ref`). Each entry:
 // { mondayIso, endIso } where endIso = mondayIso + 6 days (the Sunday).

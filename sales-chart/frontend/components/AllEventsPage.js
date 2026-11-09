@@ -1,9 +1,11 @@
+import { useMemo } from "react";
 import { useRepFilters } from "../hooks/useRepFilters";
+import { useWeekDeltas } from "../hooks/useWeekDeltas";
 import { RepresentationsTable } from "./RepresentationsTable";
 
 // --- All-events page: every event across all shows, mixed ---
 
-export function AllEventsPage({ allReps, repRecords, repColumns, onBack }) {
+export function AllEventsPage({ allReps, repRecords, repColumns, salesSource, salesWindow = "7d", onBack }) {
   const {
     showAll, setShowAll,
     filterSpectacle, setFilterSpectacle,
@@ -14,6 +16,14 @@ export function AllEventsPage({ allReps, repRecords, repColumns, onBack }) {
     uniqueSpectacles, uniqueVilles, uniqueSalles,
     filteredReps,
   } = useRepFilters(allReps);
+
+  // Sales are fetched for the filtered events only (sorted so the dependency
+  // string doesn't change when only the display order does).
+  const repIdsStr = useMemo(
+    () => filteredReps.map((r) => r.id).sort().join(","),
+    [filteredReps],
+  );
+  const weekDeltas = useWeekDeltas(salesSource, repIdsStr, salesWindow);
 
   return (
     <div className="p-4 sm:p-6 min-h-screen bg-gray-gray50 dark:bg-gray-gray800 overflow-auto">
@@ -53,6 +63,7 @@ export function AllEventsPage({ allReps, repRecords, repColumns, onBack }) {
         setShowAll={setShowAll}
         repRecords={repRecords}
         columns={repColumns}
+        weekDeltas={weekDeltas}
         showSpectacleCol
       />
     </div>
