@@ -229,18 +229,56 @@ function fillCanalSheet(ws, { canalName, artistName, period, lines }) {
   return totals;
 }
 
-// The workbook: Sommaire (one row per canal: lines, quantity, net per month of the
-// period, gross, net; then a total), then one sheet per canal, in the given order.
-// `canaux` = [{ name, lines }]. `uniqueSheetName(raw, used)` comes from index.js.
+const NO_ARTIST = "(sans artiste)";
+const NO_RELEASE = "(sans release)";
+
+const emptyTotals = () => ({ lignes: 0, quantite: 0, brut: 0, net: 0, netByMonth: {} });
+
+function addLine(t, l) {
+  const m = String(l.reporting_month || "").slice(0, 7);
+  const net = num(l.net_revenue);
+  t.lignes += 1;
+  t.quantite += num(l.quantity);
+  t.brut += num(l.gross_revenue);
+  t.net += net;
+  t.netByMonth[m] = (t.netByMonth[m] || 0) + net;
+}
+
+// Lines summed per Believe artist (artist_name), then per release title within each
+// artist, both sorted by name like a pivot table.
+function totalsByArtistRelease(lines) {
+  const artists = new Map();
+  for (const l of lines) {
+    const artist = String(l.artist_name || "").trim() || NO_ARTIST;
+    const release = String(l.release_title || "").trim() || NO_RELEASE;
+    if (!artists.has(artist)) artists.set(artist, { name: artist, ...emptyTotals(), releases: new Map() });
+    const a = artists.get(artist);
+    if (!a.releases.has(release)) a.releases.set(release, { name: release, ...emptyTotals() });
+    addLine(a, l);
+    addLine(a.releases.get(release), l);
+  }
+  return [...artists.values()]
+    .sort((a, b) => compareText(a.name, b.name))
+    .map((a) => ({ ...a, releases: [...a.releases.values()].sort((x, y) => compareText(x.name, y.name)) }));
+}
+
+// The workbook: Sommaire, then one sheet per canal, in the given order. The Sommaire
+// reads like a pivot table over every canal's lines: one bold row per Believe artist
+// (its subtotal), its releases indented below (lines, quantity, net per month of the
+// period, gross, net), then a grand total. Artist rows and the total use
+// SUBTOTAL(9, …), so the total, over the whole range, does not count them twice.
+// A line held by several canaux (shared UPC) counts once per canal, like the canal
+// sheets. `canaux` = [{ name, lines }]. `uniqueSheetName(raw, used)` comes from index.js.
 export function buildSousDistributionWorkbook({ artistName, period, canaux, uniqueSheetName }) {
   const wb = new ExcelJS.Workbook();
   const sommaire = wb.addWorksheet("Sommaire");
   const used = new Set(["sommaire"]);
 
-  const rows = canaux.map((c) => {
+  for (const c of canaux) {
     const ws = wb.addWorksheet(uniqueSheetName(c.name, used));
-    return { canal: c.name, ...fillCanalSheet(ws, { canalName: c.name, artistName, period, lines: c.lines }) };
-  });
+    fillCanalSheet(ws, { canalName: c.name, artistName, period, lines: c.lines });
+  }
+  const rows = totalsByArtistRelease(canaux.flatMap((c) => c.lines));
 
   const months = period.months.map((m) => `${period.year}-${pad2(m)}`);
   const cols = [
@@ -258,23 +296,42 @@ export function buildSousDistributionWorkbook({ artistName, period, canaux, uniq
   sommaire.getCell("A1").font = { bold: true, size: 14 };
   sommaire.getCell("A2").value = `Période : ${period.label} — Source : Believe`;
   const HEADER_ROW = 4;
-  sommaire.getRow(HEADER_ROW).values = ["Canal", ...cols.map((c) => c.header)];
+  sommaire.getRow(HEADER_ROW).values = ["Artiste / Release", ...cols.map((c) => c.header)];
   styleHeader(sommaire.getRow(HEADER_ROW), cols.length + 1, 2);
-  rows.forEach((r, k) => {
-    const row = sommaire.getRow(HEADER_ROW + 1 + k);
-    row.getCell(1).value = r.canal;
+  sommaire.views = [{ state: "frozen", ySplit: HEADER_ROW }];
+  const letter = (i) => sommaire.getColumn(2 + i).letter;
+
+  let r = HEADER_ROW + 1;
+  for (const artist of rows) {
+    const artistRow = sommaire.getRow(r);
+    const from = r + 1;
+    const to = r + artist.releases.length;
+    artistRow.getCell(1).value = artist.name;
     cols.forEach((c, i) => {
-      row.getCell(2 + i).value = c.get(r);
-      row.getCell(2 + i).numFmt = c.fmt;
+      const cell = artistRow.getCell(2 + i);
+      cell.value = { formula: `SUBTOTAL(9,${letter(i)}${from}:${letter(i)}${to})`, result: c.get(artist) };
+      cell.numFmt = c.fmt;
     });
-  });
-  const totalRow = sommaire.getRow(HEADER_ROW + 1 + rows.length);
+    artistRow.font = { bold: true };
+    for (let i = 1; i <= cols.length + 1; i++) artistRow.getCell(i).fill = SUBTOTAL_FILL;
+    r += 1;
+    for (const rel of artist.releases) {
+      const row = sommaire.getRow(r);
+      row.getCell(1).value = rel.name;
+      row.getCell(1).alignment = { indent: 1 };
+      cols.forEach((c, i) => {
+        row.getCell(2 + i).value = c.get(rel);
+        row.getCell(2 + i).numFmt = c.fmt;
+      });
+      r += 1;
+    }
+  }
+  const totalRow = sommaire.getRow(r);
   totalRow.getCell(1).value = "Total";
   cols.forEach((c, i) => {
-    const col = sommaire.getColumn(2 + i).letter;
     const cell = totalRow.getCell(2 + i);
-    cell.value = rows.length
-      ? { formula: `SUM(${col}${HEADER_ROW + 1}:${col}${HEADER_ROW + rows.length})`, result: rows.reduce((s, r) => s + (c.get(r) || 0), 0) }
+    cell.value = r > HEADER_ROW + 1
+      ? { formula: `SUBTOTAL(9,${letter(i)}${HEADER_ROW + 1}:${letter(i)}${r - 1})`, result: rows.reduce((s, row) => s + (c.get(row) || 0), 0) }
       : 0;
     cell.numFmt = c.fmt;
   });
