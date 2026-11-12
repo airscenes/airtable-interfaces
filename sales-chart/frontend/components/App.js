@@ -24,6 +24,20 @@ import { DetailPage } from "./DetailPage";
 import { AllEventsPage } from "./AllEventsPage";
 import { ArtistsPage } from "./ArtistsPage";
 
+// Gallery order: spectacles with upcoming events first (soonest next event
+// first), then spectacles whose events are all past (most recent first), then
+// spectacles without any dated event. Ties: most tickets sold, then name.
+function compareSpectaclesChronologically(a, b) {
+  const rank = (s) => (s.nextDate ? 0 : s.lastDate ? 1 : 2);
+  const ra = rank(a);
+  const rb = rank(b);
+  if (ra !== rb) return ra - rb;
+  if (ra === 0 && a.nextDate - b.nextDate) return a.nextDate - b.nextDate;
+  if (ra === 1 && b.lastDate - a.lastDate) return b.lastDate - a.lastDate;
+  if (b.totalSold !== a.totalSold) return b.totalSold - a.totalSold;
+  return a.name.localeCompare(b.name, "fr");
+}
+
 // Reads a checkbox-like field as a plain boolean. An unchecked checkbox cell
 // reads back as null and a lookup/rollup wraps its value in an array, so only
 // an explicit true — bare or wrapped — counts as checked.
@@ -194,6 +208,28 @@ function SalesChartLoaded({ base, cp }) {
       });
     }
 
+    // Next upcoming event date and last past event date per spectacle, used to
+    // sort the gallery chronologically
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const nextBySpectacle = {};
+    const lastBySpectacle = {};
+    if (repRecords && spectacleLinkField && colDateRep) {
+      repRecords.forEach((rep) => {
+        const date = parseIsoDate(getCellDateIso(rep, colDateRep));
+        if (!date) return;
+        extractLinkedRecords(safeCellValue(rep, spectacleLinkField)).forEach((link) => {
+          if (date >= today) {
+            const cur = nextBySpectacle[link.id];
+            if (!cur || date < cur) nextBySpectacle[link.id] = date;
+          } else {
+            const cur = lastBySpectacle[link.id];
+            if (!cur || date > cur) lastBySpectacle[link.id] = date;
+          }
+        });
+      });
+    }
+
     // Aggregate total sold per spectacle from rep records
     const soldBySpectacle = {};
     if (repRecords && spectacleLinkField && colTotalBilletsVendus) {
@@ -237,11 +273,13 @@ function SalesChartLoaded({ base, cp }) {
           subtitle,
           placeholderColor: airtableColor ? airtableColor.bg : null,
           totalSold: soldBySpectacle[record.id] || 0,
+          nextDate: nextBySpectacle[record.id] || null,
+          lastDate: lastBySpectacle[record.id] || null,
         };
       })
       .filter((s) => s.name && spectaclesWithReps.has(s.id))
-      .sort((a, b) => b.totalSold - a.totalSold);
-  }, [spectacleRecords, imageField, cardSubtitleField, cardColorField, base, repRecords, spectacleLinkField, colTotalBilletsVendus]);
+      .sort(compareSpectaclesChronologically);
+  }, [spectacleRecords, imageField, cardSubtitleField, cardColorField, base, repRecords, spectacleLinkField, colTotalBilletsVendus, colDateRep]);
 
   // Filter spectacles by search
   const filteredSpectacles = useMemo(() => {

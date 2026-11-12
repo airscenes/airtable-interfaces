@@ -37,7 +37,7 @@ export function DetailPage({
 
   // City/venue/status filtering (shared with the all-events page)
   const {
-    showAll, setShowAll,
+    timeFilter, setTimeFilter, timeCounts,
     filterVille, setFilterVille,
     filterSalle, setFilterSalle,
     uniqueVilles, uniqueSalles,
@@ -526,6 +526,46 @@ export function DetailPage({
         </div>
       </div>
 
+      {/* Upcoming / past toggle: drives both the table and the chart total */}
+      <div className="flex justify-center mb-5">
+        <div className="inline-flex rounded-lg border border-gray-gray200 dark:border-gray-gray600 bg-white dark:bg-gray-gray700 p-1 shadow-sm">
+          {[
+            { key: "upcoming", label: "À venir" },
+            { key: "past", label: "Passées" },
+            { key: "all", label: "Toutes" },
+          ].map((opt) => {
+            const active = timeFilter === opt.key;
+            return (
+              <button
+                key={opt.key}
+                onClick={() => {
+                  if (active) return;
+                  setTimeFilter(opt.key);
+                  // Selected events may leave the list: back to the total
+                  setSelectedRepIds(new Set());
+                }}
+                className={`flex items-center gap-2 px-5 py-2 rounded-md text-sm font-semibold transition-colors ${
+                  active
+                    ? "bg-blue-blue text-white shadow-sm"
+                    : "text-gray-gray600 dark:text-gray-gray300 hover:bg-gray-gray100 dark:hover:bg-gray-gray600"
+                }`}
+              >
+                {opt.label}
+                <span
+                  className={`min-w-[1.75rem] px-2 py-0.5 rounded-full text-xs font-bold ${
+                    active
+                      ? "bg-white text-blue-blue"
+                      : "bg-gray-gray100 dark:bg-gray-gray600 text-gray-gray700 dark:text-gray-gray200"
+                  }`}
+                >
+                  {timeCounts[opt.key]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Representations table */}
       <RepresentationsTable
         title="Representations"
@@ -537,8 +577,6 @@ export function DetailPage({
         setFilterVille={setFilterVille}
         filterSalle={filterSalle}
         setFilterSalle={setFilterSalle}
-        showAll={showAll}
-        setShowAll={setShowAll}
         selectedRepIds={selectedRepIds}
         setSelectedRepIds={setSelectedRepIds}
         repRecords={repRecords}

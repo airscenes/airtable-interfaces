@@ -3,7 +3,10 @@ import { useState, useMemo, useEffect } from "react";
 // --- Shared date/show/city/venue filtering for the events table ---
 // Used by both the per-spectacle detail page and the global all-events page.
 export function useRepFilters(representations) {
-  const [showAll, setShowAll] = useState(false);
+  // "upcoming" (default) | "past" | "all". Undated events count as upcoming.
+  const [timeFilter, setTimeFilter] = useState("upcoming");
+  const showAll = timeFilter === "all";
+  const setShowAll = (on) => setTimeFilter(on ? "all" : "upcoming");
   const [filterSpectacle, setFilterSpectacle] = useState(""); // spectacle record id
   const [filterVille, setFilterVille] = useState("");
   const [filterSalle, setFilterSalle] = useState("");
@@ -28,11 +31,20 @@ export function useRepFilters(representations) {
           (!dateTo || rep.dateRepIso <= dateTo),
       );
     }
-    if (showAll) return representations;
+    if (timeFilter === "all") return representations;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    return representations.filter((rep) => !(rep.rawDate && rep.rawDate < today));
-  }, [representations, showAll, hasDateRange, dateFrom, dateTo]);
+    const isPast = (rep) => !!(rep.rawDate && rep.rawDate < today);
+    return representations.filter((rep) => (timeFilter === "past" ? isPast(rep) : !isPast(rep)));
+  }, [representations, timeFilter, hasDateRange, dateFrom, dateTo]);
+
+  // Upcoming / past counts over every event, for the toggle labels
+  const timeCounts = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const past = representations.filter((rep) => rep.rawDate && rep.rawDate < today).length;
+    return { upcoming: representations.length - past, past, all: representations.length };
+  }, [representations]);
 
   const uniqueVilles = useMemo(() => {
     const set = new Set(filteredByDate.map((r) => r.colVille).filter(Boolean));
@@ -73,6 +85,7 @@ export function useRepFilters(representations) {
 
   return {
     showAll, setShowAll,
+    timeFilter, setTimeFilter, timeCounts,
     filterSpectacle, setFilterSpectacle,
     filterVille, setFilterVille,
     filterSalle, setFilterSalle,

@@ -158,7 +158,9 @@ export function RepresentationsTable({
             </svg>
             Exporter CSV
           </button>
-          {/* An explicit date range replaces the upcoming/past toggle. */}
+          {/* An explicit date range replaces the upcoming/past toggle. Hidden
+              when the page renders its own toggle (no setShowAll passed). */}
+          {setShowAll && (
           <label
             className={`flex items-center gap-2 text-xs text-gray-gray500 dark:text-gray-gray400 select-none ${
               hasDateRange ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
@@ -174,6 +176,7 @@ export function RepresentationsTable({
             />
             Afficher les événements passés
           </label>
+          )}
         </div>
       </div>
       {/* Date range, Show, City and Venue filters */}

@@ -15,15 +15,15 @@ const MONTHS_SHORT = [
   "dec",
 ];
 
-// Default visible window: last 7 days (matches the "7j" preset). Used as the
-// initial date filter so charts open zoomed on recent weekly variation.
+// Default visible window of the detail chart: last 3 months (matches the "3m"
+// preset). Used as the initial date filter.
 export function defaultDateRange() {
   const iso = (d) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const now = new Date();
-  const from = new Date(now);
-  from.setDate(from.getDate() - 7);
-  return { from: iso(from), to: iso(now) };
+  // Matches the "3m" preset (from 3 months ago, open end) so its button shows active
+  const from = new Date();
+  from.setMonth(from.getMonth() - 3);
+  return { from: iso(from), to: "" };
 }
 
 // Parses YYYY-MM-DD into a local-midnight Date. `new Date(iso)` would parse it
