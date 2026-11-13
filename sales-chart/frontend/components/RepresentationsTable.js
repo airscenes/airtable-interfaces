@@ -1,3 +1,4 @@
+import { useState, useMemo, useRef } from "react";
 import { expandRecord } from "@airtable/blocks/interface/ui";
 import { fmtNumber, fmtCurrency } from "../utils/format";
 import { downloadRepsCsv } from "../utils/csv";
@@ -90,6 +91,61 @@ function renderCell(c, rep, weekDeltas) {
   }
 }
 
+// Raw value a column sorts on (null = empty, always sorted last). Dates sort on
+// the ISO date rather than the displayed string; text that is a plain number
+// (e.g. "J. restants" formula) sorts numerically.
+function sortValue(c, rep, weekDeltas) {
+  switch (c.type) {
+    case "spectacle":
+      return rep.spectacleName || null;
+    case "select":
+      return rep[c.key]?.text || null;
+    case "weekSold":
+      return weekDeltas[rep.id]?.sold ?? null;
+    case "weekRevenue":
+      return weekDeltas[rep.id]?.revenue ?? null;
+    case "num":
+    case "currency":
+    case "pct":
+      return typeof rep[c.key] === "number" ? rep[c.key] : null;
+    default: {
+      if (c.key === "colDateRep") return rep.dateRepIso || rep.colDateRep || null;
+      const s = rep[c.key];
+      if (s === null || s === undefined || s === "") return null;
+      const n = Number(String(s).replace(/\s/g, "").replace(",", "."));
+      return Number.isFinite(n) ? n : String(s);
+    }
+  }
+}
+
+function compareValues(a, b) {
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  return String(a).localeCompare(String(b), "fr", { numeric: true, sensitivity: "base" });
+}
+
+// Header click cycles ascending → descending → original order.
+function useSort(rows, cols, weekDeltas) {
+  const [sort, setSort] = useState(null); // { key, dir: 1 | -1 } | null
+  const col = sort && cols.find((c) => c.key === sort.key);
+  const sorted = useMemo(() => {
+    if (!col) return rows;
+    return rows
+      .map((rep, i) => ({ rep, i, v: sortValue(col, rep, weekDeltas) }))
+      .sort((a, b) => {
+        if (a.v === null && b.v === null) return a.i - b.i;
+        if (a.v === null) return 1;
+        if (b.v === null) return -1;
+        return compareValues(a.v, b.v) * sort.dir || a.i - b.i;
+      })
+      .map((x) => x.rep);
+  }, [rows, col, sort, weekDeltas]);
+  const toggle = (key) =>
+    setSort((prev) =>
+      !prev || prev.key !== key ? { key, dir: 1 } : prev.dir === 1 ? { key, dir: -1 } : null,
+    );
+  return { sorted, sort: col ? sort : null, toggle };
+}
+
 // --- Shared events table (header + filters + table card) ---
 // Selection (checkbox column + row click) is enabled only when setSelectedRepIds
 // is provided. showSpectacleCol adds a "Spectacle" column for the mixed all-events
@@ -127,6 +183,8 @@ export function RepresentationsTable({
   const { widths, startResize, resetWidth } = useColumnWidths();
   const cols = showSpectacleCol ? [SPECTACLE_COL, ...columns] : columns;
   const widthOf = (c) => widths[c.key] || colDefaultWidth(c);
+  const { sorted: sortedReps, sort, toggle: toggleSort } = useSort(filteredReps, cols, weekDeltas);
+  const downXRef = useRef(0);
   // Fixed layout: the table is exactly as wide as its columns, so a resize
   // moves only the dragged column's edge (hidden columns take no space).
   const tableWidth =
@@ -148,7 +206,7 @@ export function RepresentationsTable({
         </h3>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => downloadRepsCsv(filteredReps, columns, weekDeltas, showSpectacleCol, title)}
+            onClick={() => downloadRepsCsv(sortedReps, columns, weekDeltas, showSpectacleCol, title)}
             className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded border border-gray-gray200 dark:border-gray-gray500
                        text-gray-gray600 dark:text-gray-gray300 hover:bg-gray-gray100 dark:hover:bg-gray-gray600 transition-colors"
             title="Exporter le tableau en CSV"
@@ -303,10 +361,24 @@ export function RepresentationsTable({
                 {cols.map((c) => (
                   <th
                     key={c.key}
-                    className={`${TH} font-semibold truncate${isRight(c) ? " text-right" : ""}`}
-                    title={c.title || c.label}
+                    // A resize drag released over the header still fires a click
+                    // on it: only a click that barely moved sorts.
+                    onPointerDownCapture={(e) => (downXRef.current = e.clientX)}
+                    onClick={(e) => {
+                      if (Math.abs(e.clientX - downXRef.current) > 4) return;
+                      toggleSort(c.key);
+                    }}
+                    className={`${TH} font-semibold truncate cursor-pointer select-none hover:text-gray-gray800 dark:hover:text-gray-gray100${
+                      isRight(c) ? " text-right" : ""
+                    }`}
+                    title={`${c.title || c.label} — cliquer pour trier`}
                   >
                     {c.label}
+                    {sort?.key === c.key && (
+                      <span className="ml-1 text-blue-blue dark:text-blue-blueLight1">
+                        {sort.dir === 1 ? "▲" : "▼"}
+                      </span>
+                    )}
                     <ResizeHandle
                       onPointerDown={(e) => startResize(c.key, widthOf(c), e)}
                       onReset={() => resetWidth(c.key)}
@@ -316,7 +388,7 @@ export function RepresentationsTable({
               </tr>
             </thead>
             <tbody>
-              {filteredReps.map((rep) => (
+              {sortedReps.map((rep) => (
                 <tr
                   key={rep.id}
                   onClick={() => openRecord(rep.id)}
