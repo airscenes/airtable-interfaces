@@ -97,7 +97,9 @@ export function lastCompleteDayBounds(ref = new Date()) {
 
 // Per-representation weekly deltas. rows: [{ record_id, date, sold, total }].
 // - sold delta = cumulative `sold` at endISO minus at startISO (running max; sold
-//   is maintained live).
+//   is maintained live). A rep with no report on/before startISO takes its
+//   first report in the window as the baseline instead of 0 — otherwise its
+//   whole cumulative (sold before tracking began) lands in this window.
 // - revenue = sold delta × net unit price, where net price = avg(total/sold) over
 //   rows that have both filled. We DON'T use the `total` delta: `total` is filled
 //   by a manual batch script (calculate-totals.mjs) so recent rows are 0/NULL and
@@ -126,7 +128,8 @@ export function computeWeekDeltas(rows, startISO, endISO) {
       }
       return sold;
     };
-    const soldDelta = soldAt(endISO) - soldAt(startISO);
+    const baseline = list[0].day <= startISO ? soldAt(startISO) : list[0].sold;
+    const soldDelta = Math.max(0, soldAt(endISO) - baseline);
     // Net unit price = avg(total/sold) over rows where both are positive.
     let ratioSum = 0;
     let ratioCount = 0;
@@ -153,8 +156,17 @@ export function computeWeekDeltas(rows, startISO, endISO) {
 // - revenus = each rep's increase × its net unit price, avg(total/sold), the
 //   same pricing as computeWeekDeltas (`total` lags `sold`, so its own delta
 //   is unreliable on recent days). null when no rep sold with a known price.
-// - The first day of the data set is dropped: it holds everything sold before
-//   tracking began, not one day of sales. A rep appearing later counts from 0.
+// - A rep's first report is its baseline, not a day of sales: it holds
+//   everything sold before tracking began (on-sale date, or the day the
+//   Airtable record was created — e.g. a season imported in bulk shows up
+//   with months of cumulative sales). Only increases after it count. The
+//   price: a rep whose very first report is its on-sale day loses that day.
+// - An increase is spread evenly over the days since the rep's previous
+//   report: weekly reports (Monday only) otherwise stack 7 days of sales on
+//   Monday. The split is an estimate — the real per-day sales of those reps
+//   are unknown — but each day's total and the period's total stay exact.
+//   Integer split, remainder on the most recent days.
+// - The first day of the data set is dropped (every rep is at its baseline).
 // - Days without any report get 0, so the axis stays continuous.
 export function dailySalesSeries(rows) {
   const byRec = {};
@@ -179,37 +191,51 @@ export function dailySalesSeries(rows) {
     soldByDay: rec.soldByDay,
     prixNet: rec.ratioCount > 0 ? rec.ratioSum / rec.ratioCount : null,
     last: null, // running max of cumulative sold so far
+    lastIdx: null, // index (in `allDays`) of the previous report
   }));
   const nextDay = (iso) => {
     const [y, m, d] = iso.split("-").map(Number);
     const dt = new Date(y, m - 1, d + 1);
     return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
   };
-  const out = [];
-  const firstDay = sorted[0];
-  const lastDay = sorted[sorted.length - 1];
-  for (let day = firstDay; day <= lastDay; day = nextDay(day)) {
-    let ventes = 0;
-    let revenus = 0;
-    let hasRevenue = false;
+  const allDays = [];
+  for (let day = sorted[0]; day <= sorted[sorted.length - 1]; day = nextDay(day)) allDays.push(day);
+  const ventes = allDays.map(() => 0);
+  const revenus = allDays.map(() => 0);
+  const hasRevenue = allDays.map(() => false);
+  allDays.forEach((day, idx) => {
     for (const rec of recs) {
       if (!(day in rec.soldByDay)) continue;
       const prev = rec.last;
+      const prevIdx = rec.lastIdx;
       const cur = Math.max(prev ?? 0, rec.soldByDay[day]);
       rec.last = cur;
-      if (day === firstDay) continue;
-      const delta = cur - (prev ?? 0);
+      rec.lastIdx = idx;
+      if (prev === null) continue; // baseline (see note above)
+      const delta = cur - prev;
       if (delta <= 0) continue;
-      ventes += delta;
-      if (rec.prixNet != null) {
-        revenus += delta * rec.prixNet;
-        hasRevenue = true;
+      // Spread over (prevIdx, idx]: span days, remainder on the latest ones.
+      const span = idx - prevIdx;
+      const base = Math.floor(delta / span);
+      const extra = delta - base * span;
+      for (let k = 1; k <= span; k++) {
+        const share = base + (k > span - extra ? 1 : 0);
+        const i = prevIdx + k;
+        ventes[i] += share;
+        if (rec.prixNet != null) {
+          revenus[i] += share * rec.prixNet;
+          hasRevenue[i] = true;
+        }
       }
     }
-    if (day === firstDay) continue;
-    out.push({ date: day, dateLabel: formatDate(day), ventes, revenus: hasRevenue ? revenus : null });
-  }
-  return out;
+  });
+  // Day 0 is dropped: every rep is at its baseline there.
+  return allDays.slice(1).map((day, j) => ({
+    date: day,
+    dateLabel: formatDate(day),
+    ventes: ventes[j + 1],
+    revenus: hasRevenue[j + 1] ? revenus[j + 1] : null,
+  }));
 }
 
 // The last `n` weeks as Monday boundaries, oldest→newest, ending with the
