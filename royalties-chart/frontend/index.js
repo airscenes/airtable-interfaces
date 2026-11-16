@@ -119,28 +119,39 @@ async function fetchRoyaltiesSummary(cfg, { isrcs, upcs, catalogs, from, to }) {
     return (await response.json()).rows;
   }
 
-  const response = await fetch(`${cfg.supabaseUrl}/rest/v1/rpc/get_royalties_summary`, {
-    method: "POST",
-    headers: {
-      apikey: cfg.supabaseAnonKey,
-      Authorization: `Bearer ${cfg.supabaseAnonKey}`,
-      "Content-Type": "application/json",
-      "x-client-id": cfg.clientId,
-    },
-    body: JSON.stringify({
-      p_client_id: cfg.clientId,
-      p_isrcs: isrcs,
-      p_from: from,
-      p_to: to,
-      p_catalogs: catalogs,
-      p_sources: SOURCES,
-      ...(upcArg ? { p_upcs: upcArg } : {}),
-    }),
-  });
-  if (!response.ok) {
-    throw new Error(`Erreur Supabase: ${response.status} ${response.statusText}`);
+  // PostgREST hands back at most 1000 rows per call and silently drops the rest:
+  // read in pages (limit / offset; the function sorts its rows) until one comes back short.
+  const PAGE_SIZE = 1000;
+  const rows = [];
+  for (;;) {
+    const response = await fetch(
+      `${cfg.supabaseUrl}/rest/v1/rpc/get_royalties_summary?limit=${PAGE_SIZE}&offset=${rows.length}`,
+      {
+        method: "POST",
+        headers: {
+          apikey: cfg.supabaseAnonKey,
+          Authorization: `Bearer ${cfg.supabaseAnonKey}`,
+          "Content-Type": "application/json",
+          "x-client-id": cfg.clientId,
+        },
+        body: JSON.stringify({
+          p_client_id: cfg.clientId,
+          p_isrcs: isrcs,
+          p_from: from,
+          p_to: to,
+          p_catalogs: catalogs,
+          p_sources: SOURCES,
+          ...(upcArg ? { p_upcs: upcArg } : {}),
+        }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Erreur Supabase: ${response.status} ${response.statusText}`);
+    }
+    const page = await response.json();
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
   }
-  return response.json();
 }
 
 // Chart color palette for tracks

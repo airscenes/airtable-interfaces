@@ -6,7 +6,7 @@ import {
   expandRecord,
 } from "@airtable/blocks/interface/ui";
 import ExcelJS from "exceljs";
-import { fillTemplate, fixOverlappingMerges, normalizeWorkbookForExcel, copyWorksheet } from "./excelTemplate";
+import { fillTemplate, hasTagPrefix, fixOverlappingMerges, normalizeWorkbookForExcel, copyWorksheet } from "./excelTemplate";
 import { fetchSousDistributionLines, buildSousDistributionWorkbook } from "./sousDistribution";
 import "./style.css";
 
@@ -184,6 +184,8 @@ function getCustomProperties(base) {
     tables.find((t) =>
       keywords.some((k) => t.name.toLowerCase().includes(k.toLowerCase())),
     );
+  // Exact "Comptes" first: a partial match picks "categorie_compte" or "États de compte".
+  const comptesTableGuess = tables.find((t) => t.name.toLowerCase() === "comptes") || findTable("compte") || tables[0];
 
   const canauxTable =
     findTable("canal", "canaux", "projet", "album", "spectacle") || tables[0];
@@ -270,8 +272,8 @@ function getCustomProperties(base) {
 
     // --- Comptes (pour les lignes ad-hoc) ---
     { key: "comptesTable", label: "Table des Comptes", type: "table" },
-    // Exact "Comptes" first: a partial match picks "categorie_compte" or "États de compte".
-    { key: "comptesNumeroField", label: "Champ numero_compte (Comptes) — < 5000 = Revenu, ≥ 5000 = Dépense", type: "field", table: tables.find((t) => t.name.toLowerCase() === "comptes") || findTable("compte") || tables[0], shouldFieldBeAllowed: anyField },
+    { key: "comptesNumeroField", label: "Champ numero_compte (Comptes) — < 5000 = Revenu, ≥ 5000 = Dépense", type: "field", table: comptesTableGuess, shouldFieldBeAllowed: anyField },
+    { key: "comptesIdentifiantField", label: "Champ Identifiant du compte (Comptes) — colonne POSTE BUDGÉTAIRE du rapport", type: "field", table: comptesTableGuess, shouldFieldBeAllowed: anyField, defaultValue: comptesTableGuess.fields.find((f) => f.name.toLowerCase() === "identifiant du compte") },
 
     // --- Template Excel ---
     { key: "templateAttachmentField", label: "Champ attachement Template Excel", type: "field", table: canauxTable, shouldFieldBeAllowed: anyField },
@@ -947,7 +949,9 @@ function ExistingEntriesList({ title, table, entries, dateField, montantField, c
 //            ${depense.no_facture|date|mode_paiement|fournisseur|poste|artiste|montant|description}
 //            ${revenu.no_facture|date|mode_paiement|fournisseur|poste|artiste|montant|description}
 //            ${paiement.no_facture|date|mode_paiement|fournisseur|poste|artiste|montant|description}
-//            ${revenu.libelle|categorie}  saved revenus not in the grid (poste = notes, else categorie)
+//            ${revenu.libelle|categorie}  saved revenus not in the grid
+//            poste = "Identifiant du compte" of the linked compte (comptesIdentifiantField),
+//            else notes (else categorie for revenus)
 //            ${ayant_droit.nom|part|montant}  part = fraction (format the cell as %),
 //                                             montant = max(net, 0) × part
 
@@ -981,12 +985,13 @@ async function fillCanalReport({
   templateUrl, canalName, period, cfg,
   revenusChoices, revenusByCell, revenusInputs = {},
   revenus: existingRevenus, depenses: existingDepenses, paiements: existingPaiements = [],
-  ayantsDroits, soldePrecedent,
+  ayantsDroits, soldePrecedent, comptes = [],
 }) {
   const {
     depensesDateField, depensesDateWriteField,
     depensesMontantField, depensesNotesField, depensesFournisseurField, depensesDescriptionField,
     depensesNoFactureField, depensesModePaiementField, depensesArtisteField,
+    depensesCategorieField,
     revenusDateField, revenusDateWriteField,
     revenusMontantField, revenusCategorieField, revenusNotesField, revenusDescriptionField,
     revenusNoFactureField, revenusModePaiementField, revenusFournisseurField, revenusArtisteField,
@@ -1038,13 +1043,19 @@ async function fillCanalReport({
     return typeof d === "string" ? d.slice(0, 10) : "";
   };
   const byDate = (a, b) => a.date.localeCompare(b.date);
+  // POSTE BUDGÉTAIRE = "Identifiant du compte" of the entry's linked compte(s), when
+  // comptesIdentifiantField is set; "" lets the caller fall back to its old value.
+  const identifiantById = new Map(comptes.filter((c) => c.identifiant).map((c) => [c.id, c.identifiant]));
+  const posteOf = (rec, categorieField) => (categorieField
+    ? linkedIds(rec, categorieField).map((id) => identifiantById.get(id)).filter(Boolean).join(", ")
+    : "");
 
   const depenseRow = (rec) => ({
     no_facture: str(rec, depensesNoFactureField),
     date: isoDate(rec, depensesDateField, depensesDateWriteField),
     mode_paiement: str(rec, depensesModePaiementField),
     fournisseur: str(rec, depensesFournisseurField),
-    poste: str(rec, depensesNotesField),
+    poste: posteOf(rec, depensesCategorieField) || str(rec, depensesNotesField),
     artiste: str(rec, depensesArtisteField),
     montant: Number(rec.getCellValue(depensesMontantField)) || 0,
     description: str(rec, depensesDescriptionField),
@@ -1066,7 +1077,7 @@ async function fillCanalReport({
         mode_paiement: str(rec, revenusModePaiementField),
         fournisseur: str(rec, revenusFournisseurField),
         client: str(rec, revenusFournisseurField), // templates label this column CLIENT
-        poste: notes || categorie,
+        poste: posteOf(rec, revenusCategorieField) || notes || categorie,
         artiste: str(rec, revenusArtisteField),
         categorie,
         description,
@@ -1119,6 +1130,7 @@ async function fillCanalReport({
     "report.paiements": totalPaiements,
     "report.montant": soldeReporte,
     "report.vide": "",
+    "repartition.vide": "",
     "du.vide": "",
   });
 
@@ -1126,9 +1138,13 @@ async function fillCanalReport({
   const dropPrefixes = Array.from({ length: Math.max(0, 6 - period.months.length) }, (_, i) => `m${period.months.length + i + 1}`);
   // Rows shown only when they apply: the solde précédent above the partage when it is a
   // deficit (recouped first), the solde reporté block when there is one, the total dû when
-  // something is due.
+  // something is due. The répartition of the solde reporté (rows tagged `repartition`, plus
+  // the `report_ayant` block) goes when there is nothing payable to carry. Only on templates
+  // that tag those rows `repartition`: elsewhere the block row stays, emptied, or the
+  // TOTAL REPORTÉ formula below it would turn into #REF!.
   if (soldePrecedent >= 0) dropPrefixes.push("deficit");
-  if (soldePrecedent <= 0 && totalPaiements === 0) dropPrefixes.push("report", "report_ayant");
+  if (soldePrecedent <= 0 && totalPaiements === 0) dropPrefixes.push("report", "repartition", "report_ayant");
+  else if (soldeReporte <= 0.005 && hasTagPrefix(ws, "repartition")) dropPrefixes.push("repartition", "report_ayant");
   if (soldeFermeture <= 0 || !payables.length) dropPrefixes.push("du", "du_ayant");
   fillTemplate(ws, { tags, blocks: { depense, revenu, paiement, ayant_droit, report_ayant, du_ayant }, dropPrefixes });
 
@@ -1480,11 +1496,11 @@ function buildEtatFields({ cfg, canalId, artisteId, period, calc, soldeFermeture
   return fields;
 }
 
-// Comptes [{ id, name, code }] of the Comptes table. The interface page's search bar
+// Comptes [{ id, name, code, identifiant }] of the Comptes table. The interface page's search bar
 // also filters useRecords, so typing e.g. a canal name there empties the Comptes list:
 // every compte seen so far is kept, so a search can only hide comptes from useRecords,
 // never from the dropdowns.
-function useComptes(comptesTable, comptesNumeroField) {
+function useComptes(comptesTable, comptesNumeroField, comptesIdentifiantField) {
   const comptesRecords = useRecords(comptesTable);
   const seenRef = useRef(new Map());
   return useMemo(() => {
@@ -1493,10 +1509,11 @@ function useComptes(comptesTable, comptesNumeroField) {
       const code = getCompteCode(rec, comptesNumeroField);
       // Skip records whose cell values aren't loaded yet rather than caching a null code.
       if (code == null) continue;
-      seen.set(rec.id, { id: rec.id, name: rec.name, code });
+      const identifiant = comptesIdentifiantField ? rec.getCellValueAsString(comptesIdentifiantField) : "";
+      seen.set(rec.id, { id: rec.id, name: rec.name, code, identifiant });
     }
     return Array.from(seen.values());
-  }, [comptesRecords, comptesNumeroField]);
+  }, [comptesRecords, comptesNumeroField, comptesIdentifiantField]);
 }
 
 function compteIdByCode(comptes, raw) {
@@ -1569,22 +1586,33 @@ function cachedFetch(cache, key, fetcher) {
   return cache.get(key);
 }
 
+// Every row of a set-returning RPC. PostgREST hands back at most 1000 rows per call
+// and silently drops the rest, so the rows are read in pages (limit / offset; the
+// summary functions sort their rows) until a page comes back short.
+const RPC_PAGE_SIZE = 1000;
+
 async function postSupabaseRpc(supabaseUrl, anonKey, clientId, fn, body) {
-  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${fn}`, {
-    method: "POST",
-    headers: {
-      apikey: anonKey,
-      Authorization: `Bearer ${anonKey}`,
-      "Content-Type": "application/json",
-      "x-client-id": clientId,
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(`Supabase ${response.status} ${response.statusText}${detail ? " — " + detail.slice(0, 200) : ""}`);
+  const rows = [];
+  for (;;) {
+    const response = await fetch(`${supabaseUrl}/rest/v1/rpc/${fn}?limit=${RPC_PAGE_SIZE}&offset=${rows.length}`, {
+      method: "POST",
+      headers: {
+        apikey: anonKey,
+        Authorization: `Bearer ${anonKey}`,
+        "Content-Type": "application/json",
+        "x-client-id": clientId,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Supabase ${response.status} ${response.statusText}${detail ? " — " + detail.slice(0, 200) : ""}`);
+    }
+    const page = await response.json();
+    if (!Array.isArray(page)) return page;
+    rows.push(...page);
+    if (page.length < RPC_PAGE_SIZE) return rows;
   }
-  return response.json();
 }
 
 // --- Reading royalties / Shopify sales: the base's token, or the legacy anon key ---
@@ -2194,7 +2222,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
     depensesCategorieField, depensesFournisseurField, depensesNotesField, depensesDescriptionField,
     depensesNoFactureField,
     revenusColumnsJson, depensesColumnsJson,
-    comptesTable, comptesNumeroField,
+    comptesTable, comptesNumeroField, comptesIdentifiantField,
     templateAttachmentField,
     oeuvresTable,
     ayantsTable, etatsTable, soldeOuvertureCompte, soldeReporteCompte, paiementsComptes,
@@ -2207,7 +2235,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
   const canauxRecords = useRecords(canauxTable);
   const revenusRecords = useRecords(revenusTable);
   const depensesRecords = useRecords(depensesTable);
-  const comptes = useComptes(comptesTable, comptesNumeroField);
+  const comptes = useComptes(comptesTable, comptesNumeroField, comptesIdentifiantField);
   // useRecords crashes on null; fall back to a known table when not yet configured.
   const oeuvresRecords = useRecords(oeuvresTable || canauxTable);
   const ayantsRecords = useRecords(ayantsTable || canauxTable);
@@ -2593,6 +2621,7 @@ function ReportInner({ cfg, fixedCanalId = null, onBack = null, artisteId = null
         paiements: calc.existingPaiements,
         ayantsDroits,
         soldePrecedent,
+        comptes,
       });
       await downloadWorkbook(wb, `Rapport_${safeFileName(selectedCanal.name)}_${period.fileLabel}.xlsx`);
       setSavedMsg("Rapport téléchargé.");
@@ -3050,7 +3079,7 @@ function StatusBadge({ calc }) {
 function ArtistApp({ cfg }) {
   const {
     artistesTable, artistesImageField, artistesProjetsLinkField, projetsTable, projetsCanauxLinkField,
-    canauxTable, revenusTable, depensesTable, ayantsTable, etatsTable, comptesTable, comptesNumeroField,
+    canauxTable, revenusTable, depensesTable, ayantsTable, etatsTable, comptesTable, comptesNumeroField, comptesIdentifiantField,
     templateAttachmentField, revenusColumnsJson, depensesColumnsJson, soldeOuvertureCompte, soldeReporteCompte,
     paiementsComptes, canauxFilterField, canauxFilterDefault,
     oeuvresTable,
@@ -3065,7 +3094,7 @@ function ArtistApp({ cfg }) {
   const ayantsRecords = useRecords(ayantsTable || canauxTable);
   const etatsRecords = useRecords(etatsTable || canauxTable);
   const oeuvresRecords = useRecords(oeuvresTable || canauxTable);
-  const comptes = useComptes(comptesTable, comptesNumeroField);
+  const comptes = useComptes(comptesTable, comptesNumeroField, comptesIdentifiantField);
 
   const [selectedArtistId, setSelectedArtistId] = useState(null);
   const [openCanalId, setOpenCanalId] = useState(null);
@@ -3322,6 +3351,7 @@ function ArtistApp({ cfg }) {
             paiements: r.calc.existingPaiements,
             ayantsDroits: r.calc.ayantsDroits,
             soldePrecedent: r.calc.soldePrecedent,
+            comptes,
           },
         })),
       });
@@ -3369,7 +3399,7 @@ function ArtistApp({ cfg }) {
       const wb = buildSousDistributionWorkbook({
         artistName: selectedArtist.name,
         period,
-        canaux: selectedRows.map((r) => ({ name: r.name, lines: linesByCanal.get(r.id) || [] })),
+        canaux: selectedRows.map((r) => ({ name: r.name, lines: linesByCanal.get(r.id) || [], ayantsDroits: r.calc.ayantsDroits })),
         uniqueSheetName,
       });
       await downloadWorkbook(wb, `SousDistribution_${safeFileName(selectedArtist.name)}_${period.fileLabel}.xlsx`);
