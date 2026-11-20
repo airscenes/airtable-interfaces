@@ -22,6 +22,12 @@ interface MapViewState {
 
 const DEFAULT_PIN_COLOR = '#ef4444';
 
+// The three discussion statuses relevant for prioritizing follow-ups (Représentations.Statut)
+const DISCUSSION_STATUSES = ['En cours / Intérêt', 'Intérêt long terme', 'Hold'];
+
+// Records predating the "Type de lieu" field have no value set; treat them as this default
+const DEFAULT_VENUE_TYPE_NAME = 'Salle';
+
 function MapExtensionApp() {
     const base = useBase();
     const table = base.tables[0];
@@ -30,7 +36,12 @@ function MapExtensionApp() {
     // A list of properties that can be configured for this extension
     const getCustomProperties = useCallback((base: Base) => {
         const table = base.tables[0];
-        const textFieldTypes = [FieldType.SINGLE_LINE_TEXT, FieldType.MULTILINE_TEXT, FieldType.FORMULA];
+        const textFieldTypes = [
+            FieldType.SINGLE_LINE_TEXT,
+            FieldType.MULTILINE_TEXT,
+            FieldType.FORMULA,
+            FieldType.ROLLUP,
+        ];
         const textFields = table.fields.filter(
             (field: Field) =>
                 // Text fields
@@ -72,6 +83,21 @@ function MapExtensionApp() {
                     field.config.type === FieldType.SINGLE_SELECT,
             },
             {
+                key: 'venueTypeField',
+                type: 'field' as const,
+                label: 'Venue type field (filter)',
+                table: table,
+                shouldFieldBeAllowed: (field: {id: string; config: {type: string}}) =>
+                    field.config.type === FieldType.SINGLE_SELECT,
+            },
+            {
+                key: 'discussionStatusField',
+                type: 'field' as const,
+                label: 'Discussion status field (filter)',
+                table: table,
+                possibleValues: textFields,
+            },
+            {
                 key: 'autoCenterOnLoad',
                 type: 'boolean' as const,
                 label: 'Automatically center map',
@@ -109,17 +135,134 @@ function MapExtensionApp() {
     const labelField = customPropertyValueByKey.labelField as Field | undefined;
     const addressField = customPropertyValueByKey.addressField as Field | undefined;
     const statusField = customPropertyValueByKey.statusField as Field | undefined;
+    const venueTypeField = customPropertyValueByKey.venueTypeField as Field | undefined;
+    const discussionStatusField = customPropertyValueByKey.discussionStatusField as Field | undefined;
     const zoomToPinOnClick = (customPropertyValueByKey.zoomToPinOnClick as boolean) ?? true;
     const autoCenterOnLoad = (customPropertyValueByKey.autoCenterOnLoad as boolean) ?? true;
 
     // Check if required custom properties are configured
     const isConfigured = Boolean(mapboxApiKey && labelField && addressField);
 
+    const venueTypeChoices = useMemo(() => {
+        if (!venueTypeField) return [];
+        const options = venueTypeField.config.options as {
+            choices?: Array<{id: string; name: string; color?: string}>;
+        };
+        return options?.choices ?? [];
+    }, [venueTypeField]);
+
+    // Filter state: null means "no filter applied yet" (every checkbox shows as checked).
+    // Toggling a checkbox while null materializes a concrete set (the full list minus the
+    // one just unchecked), so unchecking always narrows and re-checking always widens.
+    const filterStorageKey = useMemo(() => `mapFilters:${base.id}:${table.id}`, [base.id, table.id]);
+    const filtersLoadedRef = useRef(false);
+
+    const [venueTypeFilter, setVenueTypeFilter] = useState<Set<string> | null>(null);
+    const [discussionStatusFilter, setDiscussionStatusFilter] = useState<Set<string> | null>(null);
+
+    // Load any saved filter selection once, on first mount for this base/table
+    useEffect(() => {
+        if (filtersLoadedRef.current) return;
+        filtersLoadedRef.current = true;
+        try {
+            const raw = localStorage.getItem(filterStorageKey);
+            if (!raw) return;
+            const parsed = JSON.parse(raw) as {
+                venueType: string[] | null;
+                discussionStatus: string[] | null;
+            };
+            if (Array.isArray(parsed.venueType)) setVenueTypeFilter(new Set(parsed.venueType));
+            if (Array.isArray(parsed.discussionStatus)) {
+                setDiscussionStatusFilter(new Set(parsed.discussionStatus));
+            }
+        } catch {
+            // ignore
+        }
+    }, [filterStorageKey]);
+
+    // Persist the filter selection whenever it changes
+    useEffect(() => {
+        try {
+            localStorage.setItem(
+                filterStorageKey,
+                JSON.stringify({
+                    venueType: venueTypeFilter ? Array.from(venueTypeFilter) : null,
+                    discussionStatus: discussionStatusFilter ? Array.from(discussionStatusFilter) : null,
+                }),
+            );
+        } catch {
+            // ignore
+        }
+    }, [filterStorageKey, venueTypeFilter, discussionStatusFilter]);
+
+    const toggleVenueType = useCallback(
+        (name: string) => {
+            setVenueTypeFilter((prev) => {
+                const base = prev ?? new Set(venueTypeChoices.map((c) => c.name));
+                const next = new Set(base);
+                if (next.has(name)) next.delete(name);
+                else next.add(name);
+                return next;
+            });
+        },
+        [venueTypeChoices],
+    );
+
+    const toggleDiscussionStatus = useCallback((name: string) => {
+        setDiscussionStatusFilter((prev) => {
+            const base = prev ?? new Set(DISCUSSION_STATUSES);
+            const next = new Set(base);
+            if (next.has(name)) next.delete(name);
+            else next.add(name);
+            return next;
+        });
+    }, []);
+
+    const selectAllVenueTypes = useCallback(() => {
+        setVenueTypeFilter(new Set(venueTypeChoices.map((c) => c.name)));
+    }, [venueTypeChoices]);
+
+    const clearAllVenueTypes = useCallback(() => {
+        setVenueTypeFilter(new Set());
+    }, []);
+
+    const selectAllDiscussionStatuses = useCallback(() => {
+        setDiscussionStatusFilter(new Set(DISCUSSION_STATUSES));
+    }, []);
+
+    const clearAllDiscussionStatuses = useCallback(() => {
+        setDiscussionStatusFilter(new Set());
+    }, []);
+
+    const filteredRecords = useMemo(() => {
+        if (venueTypeFilter === null && discussionStatusFilter === null) return records;
+
+        return records.filter((record) => {
+            if (venueTypeField && venueTypeFilter !== null) {
+                const cellValue = record.getCellValue(venueTypeField) as {name: string} | null;
+                // A record with no explicit type is treated as the default venue type
+                // (most records predate this field and were never tagged).
+                const typeName = cellValue?.name ?? DEFAULT_VENUE_TYPE_NAME;
+                if (!venueTypeFilter.has(typeName)) return false;
+            }
+
+            if (discussionStatusField && discussionStatusFilter !== null) {
+                const text = record.getCellValueAsString(discussionStatusField);
+                const matchesStatus = Array.from(discussionStatusFilter).some((status) =>
+                    text.includes(status),
+                );
+                if (!matchesStatus) return false;
+            }
+
+            return true;
+        });
+    }, [records, venueTypeField, venueTypeFilter, discussionStatusField, discussionStatusFilter]);
+
     // Create a stable hash of record data to detect actual changes
     const recordsHash = useMemo(() => {
         if (!isConfigured) return '';
 
-        const relevantData = records.map((record) =>
+        const relevantData = filteredRecords.map((record) =>
             [
                 record.id,
                 record.getCellValueAsString(labelField!),
@@ -129,7 +272,7 @@ function MapExtensionApp() {
         );
 
         return relevantData.join('||');
-    }, [records, labelField, addressField, statusField, isConfigured]);
+    }, [filteredRecords, labelField, addressField, statusField, isConfigured]);
 
     // Use a ref to store previous hash and stable data
     const previousHashRef = useRef<string>('');
@@ -139,20 +282,35 @@ function MapExtensionApp() {
     if (recordsHash !== previousHashRef.current) {
         previousHashRef.current = recordsHash;
 
-        if (records && isConfigured) {
-            stableDataRef.current = records.map((record) => {
+        if (filteredRecords && isConfigured) {
+            stableDataRef.current = filteredRecords.map((record) => {
                 let pinColor = DEFAULT_PIN_COLOR;
                 let statusName: string | null = null;
                 if (statusField) {
                     const cellValue = record.getCellValue(statusField) as
                         | {id: string; name: string; color?: string}
                         | null;
-                    if (cellValue) {
-                        statusName = cellValue.name;
-                        if (cellValue.color) {
-                            const hex = colorUtils.getHexForColor(cellValue.color);
-                            if (hex) pinColor = hex;
+                    // A record with no value in the status field (e.g. an untagged venue)
+                    // falls back to the default venue type's own configured choice color,
+                    // instead of a hardcoded color, when the field has choices to look up.
+                    let resolvedName = cellValue?.name ?? null;
+                    let resolvedColor = cellValue?.color ?? null;
+                    if (!cellValue) {
+                        const options = statusField.config.options as {
+                            choices?: Array<{name: string; color?: string}>;
+                        };
+                        const defaultChoice = options?.choices?.find(
+                            (c) => c.name === DEFAULT_VENUE_TYPE_NAME,
+                        );
+                        if (defaultChoice) {
+                            resolvedName = defaultChoice.name;
+                            resolvedColor = defaultChoice.color ?? null;
                         }
+                    }
+                    if (resolvedName) statusName = resolvedName;
+                    if (resolvedColor) {
+                        const hex = colorUtils.getHexForColor(resolvedColor);
+                        if (hex) pinColor = hex;
                     }
                 }
                 return {
@@ -382,6 +540,8 @@ function MapExtensionApp() {
 
     // Render the map
     const hideMapUntilCameraReady = !initialCameraAppliedRef.current || shouldWaitForGeocoding;
+    const hasFilters = Boolean(venueTypeField) || Boolean(discussionStatusField);
+
     return (
         <div className="w-full h-screen relative">
             {hideMapUntilCameraReady && (
@@ -392,6 +552,106 @@ function MapExtensionApp() {
                     </div>
                 </div>
             )}
+
+            {hasFilters && (
+                <div className="absolute top-3 left-3 z-20 flex flex-col gap-3 bg-white/95 dark:bg-gray-900/95 rounded-lg shadow-lg p-3 text-sm max-w-xs">
+                    <div className="text-xs text-gray-500 dark:text-gray-400 font-medium tabular-nums">
+                        {filteredRecords.length} / {records.length} lieux affichés
+                    </div>
+
+                    {venueTypeField && venueTypeChoices.length > 0 && (
+                        <div>
+                            <div className="flex items-center justify-between mb-1">
+                                <div className="font-semibold text-gray-700 dark:text-gray-200">
+                                    Type de lieu
+                                </div>
+                                <div className="flex gap-2 text-xs">
+                                    <button
+                                        type="button"
+                                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                                        onClick={selectAllVenueTypes}
+                                    >
+                                        Tout
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                                        onClick={clearAllVenueTypes}
+                                    >
+                                        Aucun
+                                    </button>
+                                </div>
+                            </div>
+                            {venueTypeChoices.map((choice) => (
+                                <label
+                                    key={choice.id}
+                                    className="flex items-center gap-2 py-0.5 text-gray-700 dark:text-gray-200 cursor-pointer"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={
+                                            venueTypeFilter === null || venueTypeFilter.has(choice.name)
+                                        }
+                                        onChange={() => toggleVenueType(choice.name)}
+                                    />
+                                    <span
+                                        className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                                        style={{
+                                            backgroundColor:
+                                                (choice.color && colorUtils.getHexForColor(choice.color)) ||
+                                                DEFAULT_PIN_COLOR,
+                                        }}
+                                    />
+                                    {choice.name}
+                                </label>
+                            ))}
+                        </div>
+                    )}
+
+                    {discussionStatusField && (
+                        <div>
+                            <div className="flex items-center justify-between mb-1">
+                                <div className="font-semibold text-gray-700 dark:text-gray-200">
+                                    Statut des discussions
+                                </div>
+                                <div className="flex gap-2 text-xs">
+                                    <button
+                                        type="button"
+                                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                                        onClick={selectAllDiscussionStatuses}
+                                    >
+                                        Tout
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="text-blue-600 dark:text-blue-400 hover:underline"
+                                        onClick={clearAllDiscussionStatuses}
+                                    >
+                                        Aucun
+                                    </button>
+                                </div>
+                            </div>
+                            {DISCUSSION_STATUSES.map((status) => (
+                                <label
+                                    key={status}
+                                    className="flex items-center gap-2 py-0.5 text-gray-700 dark:text-gray-200 cursor-pointer"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={
+                                            discussionStatusFilter === null ||
+                                            discussionStatusFilter.has(status)
+                                        }
+                                        onChange={() => toggleDiscussionStatus(status)}
+                                    />
+                                    {status}
+                                </label>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
             <MapBoxMap
                 mapLib={mapboxgl}
                 {...viewState}
