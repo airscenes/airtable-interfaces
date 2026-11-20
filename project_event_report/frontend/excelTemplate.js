@@ -50,6 +50,18 @@ const isFormula = (value) => value && typeof value === "object" && typeof value.
 // master is overwritten or rows move around it, ExcelJS throws "Shared Formula
 // master must exist above and or left of clone" on write. Must run before any
 // cell is touched: `cell.formula` on a clone is translated from its master.
+// Whether any cell of the sheet carries a `${prefix.…}` tag: lets a caller drop
+// optional rows only on templates that tag them.
+export function hasTagPrefix(ws, prefix) {
+  let found = false;
+  ws.eachRow((row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      if (cellText(cell.value).includes(`\${${prefix}.`)) found = true;
+    });
+  });
+  return found;
+}
+
 export function unshareFormulas(ws) {
   const cells = [];
   ws.eachRow({ includeEmpty: false }, (row) => {

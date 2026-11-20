@@ -232,9 +232,10 @@ function fillCanalSheet(ws, { canalName, artistName, period, lines }) {
 const NO_ARTIST = "(sans artiste)";
 const NO_RELEASE = "(sans release)";
 
-const emptyTotals = () => ({ lignes: 0, quantite: 0, brut: 0, net: 0, netByMonth: {} });
+const emptyTotals = () => ({ lignes: 0, quantite: 0, brut: 0, net: 0, netByMonth: {}, ayants: {} });
 
-function addLine(t, l) {
+// `ayants` = the payable ayants-droits of the line's canal: each gets net × part.
+function addLine(t, l, ayants) {
   const m = String(l.reporting_month || "").slice(0, 7);
   const net = num(l.net_revenue);
   t.lignes += 1;
@@ -242,20 +243,23 @@ function addLine(t, l) {
   t.brut += num(l.gross_revenue);
   t.net += net;
   t.netByMonth[m] = (t.netByMonth[m] || 0) + net;
+  for (const a of ayants) t.ayants[a.key] = (t.ayants[a.key] || 0) + net * a.part;
 }
 
 // Lines summed per Believe artist (artist_name), then per release title within each
-// artist, both sorted by name like a pivot table.
-function totalsByArtistRelease(lines) {
+// artist, both sorted by name like a pivot table. `canaux` = [{ lines, ayants }].
+function totalsByArtistRelease(canaux) {
   const artists = new Map();
-  for (const l of lines) {
-    const artist = String(l.artist_name || "").trim() || NO_ARTIST;
-    const release = String(l.release_title || "").trim() || NO_RELEASE;
-    if (!artists.has(artist)) artists.set(artist, { name: artist, ...emptyTotals(), releases: new Map() });
-    const a = artists.get(artist);
-    if (!a.releases.has(release)) a.releases.set(release, { name: release, ...emptyTotals() });
-    addLine(a, l);
-    addLine(a.releases.get(release), l);
+  for (const { lines, ayants } of canaux) {
+    for (const l of lines) {
+      const artist = String(l.artist_name || "").trim() || NO_ARTIST;
+      const release = String(l.release_title || "").trim() || NO_RELEASE;
+      if (!artists.has(artist)) artists.set(artist, { name: artist, ...emptyTotals(), releases: new Map() });
+      const a = artists.get(artist);
+      if (!a.releases.has(release)) a.releases.set(release, { name: release, ...emptyTotals() });
+      addLine(a, l, ayants);
+      addLine(a.releases.get(release), l, ayants);
+    }
   }
   return [...artists.values()]
     .sort((a, b) => compareText(a.name, b.name))
@@ -268,7 +272,13 @@ function totalsByArtistRelease(lines) {
 // period, gross, net), then a grand total. Artist rows and the total use
 // SUBTOTAL(9, …), so the total, over the whole range, does not count them twice.
 // A line held by several canaux (shared UPC) counts once per canal, like the canal
-// sheets. `canaux` = [{ name, lines }]. `uniqueSheetName(raw, used)` comes from index.js.
+// sheets. After Net, one column per payable ayant-droit of the ticked canaux (keyed
+// like the artist report's Sommaire, in order of first appearance): net × its part in
+// the line's canal. Non-payable ones (the producer) get no column, and their part is
+// not handed to the others, like the report's PARTAGE. These are shares of the Believe
+// net only, before dépenses and deficit recoupment, so not the report's amounts.
+// `canaux` = [{ name, lines, ayantsDroits? }] (ayantsDroits = { key, nom, part,
+// nonPayable }, as in index.js). `uniqueSheetName(raw, used)` comes from index.js.
 export function buildSousDistributionWorkbook({ artistName, period, canaux, uniqueSheetName }) {
   const wb = new ExcelJS.Workbook();
   const sommaire = wb.addWorksheet("Sommaire");
@@ -278,7 +288,15 @@ export function buildSousDistributionWorkbook({ artistName, period, canaux, uniq
     const ws = wb.addWorksheet(uniqueSheetName(c.name, used));
     fillCanalSheet(ws, { canalName: c.name, artistName, period, lines: c.lines });
   }
-  const rows = totalsByArtistRelease(canaux.flatMap((c) => c.lines));
+  const withAyants = canaux.map((c) => ({
+    lines: c.lines,
+    ayants: (c.ayantsDroits || []).filter((a) => !a.nonPayable && a.part),
+  }));
+  const rows = totalsByArtistRelease(withAyants);
+  const ayantColumns = new Map();
+  for (const { ayants } of withAyants) {
+    for (const a of ayants) if (!ayantColumns.has(a.key)) ayantColumns.set(a.key, a.nom);
+  }
 
   const months = period.months.map((m) => `${period.year}-${pad2(m)}`);
   const cols = [
@@ -289,6 +307,7 @@ export function buildSousDistributionWorkbook({ artistName, period, canaux, uniq
       : []),
     { header: "Brut", width: 14, fmt: AMOUNT_FMT, get: (r) => r.brut },
     { header: "Net", width: 14, fmt: AMOUNT_FMT, get: (r) => r.net },
+    ...[...ayantColumns].map(([key, nom]) => ({ header: nom, width: 16, fmt: AMOUNT_FMT, get: (r) => r.ayants[key] || 0 })),
   ];
 
   sommaire.columns = [{ width: 42 }, ...cols.map((c) => ({ width: c.width }))];
